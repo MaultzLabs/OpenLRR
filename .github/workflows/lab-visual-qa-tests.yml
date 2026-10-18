@@ -1,0 +1,70 @@
+name: OpenLRR Visual QA (offline synthetic proof)
+
+on:
+  push:
+    branches: [lab-visual-qa-v1]
+    paths:
+      - 'scripts/visual_qa/**'
+      - 'scripts/agent/visual_feedback.py'
+      - 'scripts/agent/experiment_controller.py'
+      - '.github/workflows/lab-visual-qa-tests.yml'
+  pull_request:
+    paths:
+      - 'scripts/visual_qa/**'
+      - 'scripts/agent/visual_feedback.py'
+      - 'scripts/agent/experiment_controller.py'
+      - '.github/workflows/lab-visual-qa-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout (no writable repository token)
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated image dependencies
+        run: |
+          python -m pip install --disable-pip-version-check --no-input 'numpy==2.2.6' 'Pillow==11.3.0'
+          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq ffmpeg
+          fi
+          command -v ffmpeg
+          command -v ffprobe
+      - name: 'Unit tests: screenshots, video, scoring, controller'
+        run: |
+          python -m unittest discover -s scripts/visual_qa/tests -p 'test_*.py' -v
+          python -m unittest discover -s scripts/agent/tests -p 'test_experiment_controller.py' -v
+          python -m unittest discover -s scripts/agent/tests -p 'test_lab_policy.py' -v
+      - name: Generate synthetic visual regression report and heatmap
+        run: python scripts/visual_qa/demo.py
+      - name: Enforce proof isolation
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r = json.loads(Path('visual-qa-synthetic-proof/diagnostics/report.json').read_text())
+          assert r['tool'] == 'openlrr-visual-qa'
+          assert r['score'] < 100
+          assert r['may_touch_working_game'] is False
+          assert r['may_install_or_run_candidate'] is False
+          assert r['may_deploy_automatically'] is False
+          assert any(Path('visual-qa-synthetic-proof/diagnostics').glob('diff-*.png'))
+          print('PASS: synthetic visual evidence created; no game or binaries touched')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: OpenLRR-Visual-QA-Synthetic-Only-NO-GAME
+          path: visual-qa-synthetic-proof/
+          retention-days: 7
+          if-no-files-found: ignore

@@ -22,6 +22,7 @@ import sys
 
 import evidence_gate
 import lab_policy
+from visual_feedback import validate_visual_report, adapt_policy
 
 LEDGER_SCHEMA = 1
 MAX_LEDGER_ROWS = 1000
@@ -109,7 +110,8 @@ def read_ledger(path: Path) -> dict:
     return raw
 
 
-def decision_for(report: dict, ledger: dict, *, feedback=None, now: datetime | None = None):
+def decision_for(report: dict, ledger: dict, *, feedback=None,
+                 visual_report: dict | None = None, now: datetime | None = None):
     if type(report) is not dict or report.get("schema_version") != 1:
         raise ValueError("Requires verified evidence-gate report")
     exp = report.get("experiment_id")
@@ -122,11 +124,13 @@ def decision_for(report: dict, ledger: dict, *, feedback=None, now: datetime | N
     if report.get("status") != "candidate_for_review" and report.get("notify_human") is not False:
         raise ValueError("Unexpected human notification")
     cleaned = validated_feedback(feedback, exp)
-    step = lab_policy.decide(report, cleaned)
+    visual = validate_visual_report(visual_report, exp)
+    step = adapt_policy(lab_policy.decide(report, cleaned), visual, report.get("status"))
     action = step["next_step"]
     if action not in SUPPORTED_ACTIONS:
         raise ValueError("Unknown policy action")
-    decision_input = {"report": report, "feedback": cleaned}
+    decision_input = {"report": report, "feedback": cleaned,
+                      "visual_fingerprint": visual["fingerprint"] if visual else None}
     fingerprint = hashlib.sha256(canonical(decision_input).encode("ascii")).hexdigest()
     day = (now or datetime.now(timezone.utc)).astimezone(timezone.utc).date().isoformat()
     past = ledger["events"]
@@ -159,6 +163,9 @@ def decision_for(report: dict, ledger: dict, *, feedback=None, now: datetime | N
         "may_deploy_automatically": False,
         "model_invoked": False,
         "candidate_compiled": False,
+        "visual_quality_status": visual["status"] if visual else "not_supplied",
+        "visual_quality_score": visual["score"] if visual else None,
+        "visual_quality_fingerprint": visual["fingerprint"] if visual else None,
     }
 
 
@@ -209,7 +216,8 @@ def append_ledger(path: Path, ledger: dict, decision: dict):
 
 
 def coordinate(manifest: Path, runs_dir: Path, ledger_file: Path, *,
-               feedback: dict | None = None, commit: bool = False,
+               feedback: dict | None = None, visual_report: dict | None = None,
+               commit: bool = False,
                switches_dir: Path = STOP_DIR, now: datetime | None = None) -> dict:
     if (switches_dir / "STOP").exists() or (switches_dir / "PAUSE").exists():
         raise RuntimeError("Lab STOP or PAUSE is active")
@@ -218,7 +226,8 @@ def coordinate(manifest: Path, runs_dir: Path, ledger_file: Path, *,
     # summaries, and the declared A/B pair manifest; never trust input status.
     report = evidence_gate.decision(manifest_data, runs_dir)
     ledger = read_ledger(ledger_file)
-    result = decision_for(report, ledger, feedback=feedback, now=now)
+    result = decision_for(report, ledger, feedback=feedback,
+                          visual_report=visual_report, now=now)
     result["manifest_verified"] = True
     result["ledger_committed"] = False
     if commit and result["disposition"] not in (
@@ -239,6 +248,8 @@ def main(argv=None):
                               help="Local feedback file for offline tests only (not authenticated)")
     review_input.add_argument("--review-issue", type=int,
                               help="Fetch private GitHub feedback and verify experiment identity")
+    parser.add_argument("--visual-report", type=Path,
+                        help="Offline screenshot/video QA report (advisory, never execution authority)")
     parser.add_argument("--commit", action="store_true",
                         help="Write one safe decision to the ledger (still no execution)")
     parser.add_argument("--output", type=Path)
@@ -247,8 +258,10 @@ def main(argv=None):
     if args.review_issue is not None:
         from review_queue import fetch_feedback
         feedback = fetch_feedback(args.review_issue)
+    visual_report = bounded_json(args.visual_report, limit=250_000) if args.visual_report else None
     answer = coordinate(args.manifest, args.runs_dir, args.ledger,
-                        feedback=feedback, commit=args.commit)
+                        feedback=feedback, visual_report=visual_report,
+                        commit=args.commit)
     result = json.dumps(answer, indent=2, sort_keys=True) + "\n"
     if args.output:
         args.output.write_text(result, encoding="utf-8")
