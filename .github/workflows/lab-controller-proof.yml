@@ -1,0 +1,104 @@
+name: OpenLRR Verified Lab Controller Proof
+
+on:
+  push:
+    branches: [lab-controller-v1]
+    paths:
+      - '.github/workflows/lab-controller-proof.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Produce synthetic A/B test receipts (offline only)
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          root = Path('controller-proof')
+          runs = root / 'synthetic-runs'
+          runs.mkdir(parents=True)
+          pairs = []
+          for i in range(5):
+              arm = {}
+              for candidate in (False, True):
+                  number = 2 * i + 1 + int(candidate)
+                  name = f'autobenchmark-2026-10-18_17-00-{number:02d}'
+                  folder = runs / name
+                  folder.mkdir()
+                  (folder / 'lifecycle.verified').write_text(
+                      'wrapper_wait_exited=yes\ntest_game_handles=none\n')
+                  result = {
+                      'schema_version': 1, 'run': name,
+                      'dll_sha256': ('b' if candidate else 'a') * 64,
+                      'close_requested': True,
+                      'metrics': {
+                          'mode': {'optimization': 0, 'nowait': 0, 'gdi': 0},
+                          'present_avg_ms': 160.0 if candidate else 200.0,
+                          'frame_flips_per_s': 4.0,
+                          'logged_duration_s': 63.0,
+                          'present_calls': 250,
+                          'present_accepted_percent': 100.0,
+                          'present_error_calls': 0,
+                          'present_busy_calls': 0,
+                          'present_intervals_over_1000ms': 5
+                      }
+                  }
+                  (folder / 'summary.json').write_text(json.dumps(result))
+                  arm['candidate' if candidate else 'baseline'] = name
+              pairs.append(arm)
+          manifest = {
+              'schema_version': 1,
+              'experiment_id': 'synthetic_proof_20261018',
+              'hypothesis': 'Synthetic known difference validates controller routing.',
+              'controlled_scene': 'menu_boot_autotest_v1',
+              'pairs': pairs
+          }
+          (root / 'manifest.json').write_text(json.dumps(manifest))
+          PY
+      - name: Run real controller CLI and demonstrate dedup
+        run: |
+          python scripts/agent/experiment_controller.py \
+            --manifest controller-proof/manifest.json \
+            --runs-dir controller-proof/synthetic-runs \
+            --ledger controller-proof/ledger.json --commit \
+            --output controller-proof/first.json
+          python scripts/agent/experiment_controller.py \
+            --manifest controller-proof/manifest.json \
+            --runs-dir controller-proof/synthetic-runs \
+            --ledger controller-proof/ledger.json --commit \
+            --output controller-proof/repeated.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          a = json.loads(Path('controller-proof/first.json').read_text())
+          b = json.loads(Path('controller-proof/repeated.json').read_text())
+          assert a['disposition'] == 'ready_to_notify_privately'
+          assert a['next_step'] == 'hold_for_review'
+          assert a['ledger_committed'] is True
+          assert b['disposition'] == 'already_processed'
+          assert b['ledger_committed'] is False
+          assert not a['may_install_or_run_candidate']
+          assert not a['may_deploy_automatically']
+          print('SUCCESS: verified synthetic evidence held for review; repeat refused')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OpenLRR-Controller-Synthetic-Proof-NO-GAME-RUN
+          path: |
+            controller-proof/first.json
+            controller-proof/repeated.json
+            controller-proof/ledger.json
+          retention-days: 10
+          if-no-files-found: error
