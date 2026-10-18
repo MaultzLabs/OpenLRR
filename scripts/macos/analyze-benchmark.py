@@ -68,6 +68,12 @@ def analyze_csv(source):
         raise ValueError("CSV contains inconsistent graphics-mode flags")
     fps = frames["calls"] / frames["logged_seconds"] if frames["logged_seconds"] else 0
     mode = next(iter(modes))
+    accepted = totals.get("window_present_accepted", {}).get("calls", 0)
+    busy = totals.get("window_present_busy", {}).get("calls", 0)
+    errors = totals.get("window_present_error", {}).get("calls", 0)
+    outcome_samples = accepted + busy + errors
+    if outcome_samples and outcome_samples != present["calls"]:
+        raise ValueError("Presentation outcome counters disagree with Blt call count")
     return {
         "rows": row_count,
         "mode": {"optimization": mode[0], "nowait": mode[1], "gdi": mode[2]},
@@ -81,6 +87,10 @@ def analyze_csv(source):
         "present_intervals": present["intervals"],
         "present_intervals_over_100ms": present["slow_100ms"],
         "present_intervals_over_1000ms": present["slow_1000ms"],
+        "present_accepted_calls": accepted if outcome_samples else None,
+        "present_busy_calls": busy if outcome_samples else None,
+        "present_error_calls": errors if outcome_samples else None,
+        "present_accepted_percent": round(100.0 * accepted / outcome_samples, 2) if outcome_samples else None,
     }
 
 
@@ -143,6 +153,13 @@ def main():
         "Sampling intervals with >100ms presentation: {}".format(current["present_intervals_over_100ms"]),
         "Sampling intervals with >1000ms presentation: {}".format(current["present_intervals_over_1000ms"]),
     ]
+    if current["present_accepted_calls"] is not None:
+        report.extend([
+            "Accepted DirectDraw presentations: {}".format(current["present_accepted_calls"]),
+            "Busy/rejected DirectDraw presentations: {}".format(current["present_busy_calls"]),
+            "Other DirectDraw presentation failures: {}".format(current["present_error_calls"]),
+            "Accepted presentation calls (%): {:.2f}".format(current["present_accepted_percent"]),
+        ])
     if "dll_sha256" in summary:
         report.append("Reviewed test DLL SHA256: " + summary["dll_sha256"])
     if "comparison" in summary:
