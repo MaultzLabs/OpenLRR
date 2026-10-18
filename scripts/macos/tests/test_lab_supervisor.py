@@ -99,6 +99,86 @@ class SupervisorSafetyTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "graphics mode"):
                     lab.verify_result(name, "gdi", sha)
 
+    def test_verified_pair_is_handed_to_controller_without_new_game(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            script = home / "OpenLRR-Agent/scripts/agent/experiment_controller.py"
+            script.parent.mkdir(parents=True)
+            script.write_text("# trusted local controller")
+            python = home / ".local/share/openlrr-agent/venv/bin/python"
+            python.parent.mkdir(parents=True)
+            python.write_text("# python")
+            results = home / "results"
+            results.mkdir()
+            state = home / "agent-state"
+            runs = ["autobenchmark-2026-10-18_16-10-47",
+                    "autobenchmark-2026-10-18_16-12-12"]
+            observed = {}
+
+            def simulate_controller(command, **kwargs):
+                self.assertNotIn("OPENAI_API_KEY", kwargs["env"])
+                self.assertNotIn("GH_TOKEN", kwargs["env"])
+                self.assertNotIn("GITHUB_TOKEN", kwargs["env"])
+                manifest_path = Path(command[command.index("--manifest") + 1])
+                manifest = json.loads(manifest_path.read_text())
+                observed["manifest"] = manifest
+                output = Path(command[command.index("--output") + 1])
+                output.write_text(json.dumps({
+                    "experiment_id": manifest["experiment_id"],
+                    "manifest_verified": True,
+                    "may_install_or_run_candidate": False,
+                    "next_step": "complete_paired_measurement",
+                }))
+                return mock.Mock(returncode=0)
+
+            with mock.patch.object(lab, "HOME", home), \
+                 mock.patch.object(lab, "STATE", state), \
+                 mock.patch.object(lab, "RESULTS", results), \
+                 mock.patch.object(lab, "switches", return_value="ready"), \
+                 mock.patch.object(lab, "verify_result", return_value=results / "a.csv") as verified, \
+                 mock.patch.object(lab, "audit") as audit, \
+                 mock.patch.object(lab.subprocess, "run", side_effect=simulate_controller), \
+                 mock.patch.object(lab.subprocess, "Popen",
+                                   side_effect=AssertionError("Unexpected Mac game launch")), \
+                 mock.patch.dict(lab.os.environ, {
+                     "OPENAI_API_KEY": "secret",
+                     "GH_TOKEN": "github secret",
+                     "GITHUB_TOKEN": "secret"
+                 }):
+                output = lab.handoff_verified_pair(
+                    runs, ["baseline", "nowait"], "a" * 64)
+            self.assertTrue(output.is_file())
+            self.assertEqual(verified.call_count, 2)
+            self.assertEqual(observed["manifest"]["pairs"][0]["baseline"], runs[0])
+            self.assertEqual(observed["manifest"]["pairs"][0]["candidate"], runs[1])
+            self.assertEqual(observed["manifest"]["controlled_scene"],
+                             "menu_boot_autotest_v1")
+            self.assertEqual(audit.call_args.args[0], "policy_handoff_completed")
+
+    def test_policy_handoff_rejects_unpaired_or_unverified_runs(self):
+        with mock.patch.object(lab, "verify_result",
+                               side_effect=AssertionError("Should refuse early")), \
+             mock.patch.object(lab.subprocess, "run",
+                               side_effect=AssertionError("No policy execution")):
+            with self.assertRaisesRegex(ValueError, "exactly"):
+                lab.handoff_verified_pair(
+                    ["autobenchmark-2026-10-18_16-10-47"],
+                    ["baseline"], "a" * 64)
+            with self.assertRaisesRegex(ValueError, "exactly"):
+                lab.handoff_verified_pair(
+                    ["autobenchmark-2026-10-18_16-10-47",
+                     "autobenchmark-2026-10-18_16-12-12"],
+                    ["baseline", "baseline"], "a" * 64)
+
+    def test_coordinate_requires_explicit_run_and_true_ab_modes(self):
+        for args in (
+            ["--approved-sha", "a" * 64, "--coordinate"],
+            ["--approved-sha", "a" * 64, "--run",
+             "--plan", "baseline,baseline", "--coordinate"],
+        ):
+            with self.subTest(args=args), self.assertRaises(SystemExit):
+                lab.main(args)
+
     def test_pause_never_initiates_runner(self):
         with mock.patch.object(lab, "switches", side_effect=["pause", "stop"]), \
              mock.patch.object(lab.subprocess, "Popen",
