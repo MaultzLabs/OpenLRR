@@ -60,3 +60,5 @@ jobs:
           python-version: '3.11'
       - name: Validate benchmark analyzer with synthetic CSVs
         run: python -m unittest discover -s scripts/macos/tests -p 'test_*.py' -v
+      - name: Check Mac shell script syntax
+        run: bash -n scripts/macos/run-autobenchmark.sh scripts/macos/publish-benchmark.sh
