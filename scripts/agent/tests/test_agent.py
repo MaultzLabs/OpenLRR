@@ -73,6 +73,28 @@ class ObserverTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Incomplete detailed diagnostics"):
             agent.validate_summary(data, data["run"])
 
+    def test_cpu_probe_counters_are_sanitized_and_inconsistent_data_rejected(self):
+        data = fixture()
+        data["metrics"].update({
+            "blit_cpu_probe_available": True,
+            "blit_thread_cpu_samples": 463,
+            "blit_thread_cpu_unavailable": 0,
+            "blit_thread_cpu_avg_ms": 22.0,
+            "blit_slow_cpu_samples": 31,
+            "blit_slow_thread_cpu_avg_ms": 5.1,
+            "blit_slow_low_cpu_calls": 29,
+        })
+        clean = agent.validate_summary(data, data["run"])
+        self.assertTrue(clean["blit_cpu_probe_available"])
+        self.assertEqual(clean["metrics"]["blit_slow_low_cpu_calls"], 29)
+        data["metrics"]["blit_thread_cpu_unavailable"] = 1
+        with self.assertRaisesRegex(ValueError, "CPU sample counts"):
+            agent.validate_summary(data, data["run"])
+        data["metrics"]["blit_thread_cpu_unavailable"] = 0
+        data["metrics"]["blit_slow_low_cpu_calls"] = 32
+        with self.assertRaisesRegex(ValueError, "Impossible low-CPU"):
+            agent.validate_summary(data, data["run"])
+
     def test_gdi_candidate_selects_matching_default_mode_baseline(self):
         first_name = "autobenchmark-2026-10-18_13-35-03"
         second_name = "autobenchmark-2026-10-18_13-39-20"
