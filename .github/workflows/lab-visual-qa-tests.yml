@@ -36,7 +36,7 @@ jobs:
           python -m pip install --disable-pip-version-check --no-input 'numpy==2.2.6' 'Pillow==11.3.0'
           command -v ffmpeg
           command -v ffprobe
-      - name: Unit tests: screenshots, video, scoring, controller
+      - name: 'Unit tests: screenshots, video, scoring, controller'
         run: |
           python -m unittest discover -s scripts/visual_qa/tests -p 'test_*.py' -v
           python -m unittest discover -s scripts/agent/tests -p 'test_experiment_controller.py' -v
