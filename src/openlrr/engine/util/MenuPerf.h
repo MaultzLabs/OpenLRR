@@ -11,7 +11,9 @@ namespace MenuPerf {
 
 enum class Metric : unsigned { FlicLock, FlicDecode, FlicUnlock, FlicBlt, ImageBlt, Flip, MovieUpdate, WindowCoordinate, WindowBlt, FullscreenFlip, GdiAcquire, GdiStretch, GdiRelease, WindowPresentAccepted, WindowPresentBusy, WindowPresentError, GdiWindowAttempt, GdiPresentAccepted, GdiPresentFallback,
     FrameStartGap, FrameOutsideFlip, WindowBltSlow100ms, WindowBltSlow1000ms,
-    OutsideFlipSlow100ms, OutsideFlipSlow1000ms, Count };
+    OutsideFlipSlow100ms, OutsideFlipSlow1000ms,
+    WindowBltThreadCpu, WindowBltSlowThreadCpu, WindowBltCpuUnavailable,
+    WindowBltSlowLowCpu, Count };
 struct Stat { std::uint64_t calls = 0; std::uint64_t ticks = 0; std::uint64_t maxTicks = 0; };
 
 inline bool HasMarker(const char* name) {
@@ -121,6 +123,60 @@ struct FrameBoundary {
     }
 };
 
+// Correlate API-call wall duration with calling-thread CPU consumption.
+// A low CPU fraction during a long call suggests a wait/deschedule, but
+// does not identify the Wine, driver or compositor layer responsible.
+inline bool ReadThreadCpu100ns(std::uint64_t& total) {
+    FILETIME created = {}, exited = {}, kernel = {}, user = {};
+    if (!::GetThreadTimes(::GetCurrentThread(), &created, &exited, &kernel, &user))
+        return false;
+    const std::uint64_t kernelTime =
+        (static_cast<std::uint64_t>(kernel.dwHighDateTime) << 32) | kernel.dwLowDateTime;
+    const std::uint64_t userTime =
+        (static_cast<std::uint64_t>(user.dwHighDateTime) << 32) | user.dwLowDateTime;
+    total = kernelTime + userTime;
+    return true;
+}
+
+struct WindowBltCpuScope {
+    bool active = Get().enabled;
+    bool sampled = false;
+    std::uint64_t firstCpu100ns = 0;
+    LARGE_INTEGER begin = {};
+    WindowBltCpuScope() {
+        if (!active) return;
+        sampled = ::QueryPerformanceCounter(&begin) != 0 &&
+                  ReadThreadCpu100ns(firstCpu100ns);
+    }
+    ~WindowBltCpuScope() {
+        if (!active) return;
+        LARGE_INTEGER end = {};
+        std::uint64_t lastCpu100ns = 0;
+        if (!sampled || !::QueryPerformanceCounter(&end) ||
+            !ReadThreadCpu100ns(lastCpu100ns) ||
+            lastCpu100ns < firstCpu100ns || end.QuadPart < begin.QuadPart) {
+            RecordTickSample(Metric::WindowBltCpuUnavailable, 0);
+            return;
+        }
+        State& s = Get();
+        const double wallMs = static_cast<double>(end.QuadPart - begin.QuadPart) *
+                              1000.0 / s.frequency.QuadPart;
+        const double cpuMs = static_cast<double>(lastCpu100ns - firstCpu100ns) / 10000.0;
+        if (cpuMs > wallMs * 1.5 + 5.0) {
+            RecordTickSample(Metric::WindowBltCpuUnavailable, 0);
+            return;
+        }
+        const std::uint64_t cpuTicks = static_cast<std::uint64_t>(
+            cpuMs * s.frequency.QuadPart / 1000.0);
+        RecordTickSample(Metric::WindowBltThreadCpu, cpuTicks);
+        if (wallMs > 1000.0) {
+            RecordTickSample(Metric::WindowBltSlowThreadCpu, cpuTicks);
+            if (cpuMs <= wallMs * 0.20)
+                RecordTickSample(Metric::WindowBltSlowLowCpu, 0);
+        }
+    }
+};
+
 struct Scope {
     Metric metric;
     bool active;
@@ -173,7 +229,9 @@ inline void FlushIfDue() {
         "window_present_accepted", "window_present_busy", "window_present_error",
         "gdi_window_attempt", "gdi_present_accepted", "gdi_present_fallback",
         "frame_start_gap", "frame_outside_flip", "window_blt_over_100ms",
-        "window_blt_over_1000ms", "frame_outside_over_100ms", "frame_outside_over_1000ms"
+        "window_blt_over_1000ms", "frame_outside_over_100ms", "frame_outside_over_1000ms",
+        "window_blt_thread_cpu", "window_blt_slow_thread_cpu",
+        "window_blt_cpu_unavailable", "window_blt_slow_low_cpu"
     };
     const double seconds = static_cast<double>(elapsed) / s.frequency.QuadPart;
     const double factor = 1000.0 / s.frequency.QuadPart;

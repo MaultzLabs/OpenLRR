@@ -38,6 +38,21 @@ def make_csv(directory, *, mode=(0, 0, 0), malformed=False, outcomes=False):
     return path
 
 
+def add_frame_boundary_fixture(run):
+    # The newer CPU probe is an extension of the complete frame-timing suite.
+    with (run / "menuperf.csv").open("a", newline="") as handle:
+        writer = csv.writer(handle)
+        for name, calls in (
+            ("frame_start_gap", 2),
+            ("frame_outside_flip", 2),
+            ("window_blt_over_100ms", 2),
+            ("window_blt_over_1000ms", 1),
+            ("frame_outside_over_100ms", 0),
+            ("frame_outside_over_1000ms", 0),
+        ):
+            writer.writerow([1.1, 0, 0, 0, name, calls, 0, 0])
+
+
 class AnalyzerTests(unittest.TestCase):
     def test_correct_totals_and_safe_report(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -191,6 +206,70 @@ class AnalyzerTests(unittest.TestCase):
             completed = subprocess.run([sys.executable, str(SCRIPT), str(run)],
                                        capture_output=True, text=True)
             self.assertNotEqual(completed.returncode, 0)
+            self.assertFalse((run / "summary.json").exists())
+
+    def test_cpu_probe_classifies_long_blt_without_claiming_wine_root_cause(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp) / "autobenchmark-cpu-probe"
+            make_csv(run)
+            add_frame_boundary_fixture(run)
+            with (run / "menuperf.csv").open("a", newline="") as handle:
+                writer = csv.writer(handle)
+                for name, calls, total_ms in (
+                    ("window_blt_thread_cpu", 2, 18),
+                    ("window_blt_slow_thread_cpu", 1, 7),
+                    ("window_blt_cpu_unavailable", 0, 0),
+                    ("window_blt_slow_low_cpu", 1, 0),
+                ):
+                    writer.writerow([1.1, 0, 0, 0, name, calls, total_ms, total_ms])
+            done = subprocess.run([sys.executable, str(SCRIPT), str(run)],
+                                  capture_output=True, text=True)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            summary = json.loads((run / "summary.json").read_text())["metrics"]
+            self.assertTrue(summary["blit_cpu_probe_available"])
+            self.assertEqual(summary["blit_thread_cpu_avg_ms"], 9)
+            self.assertEqual(summary["blit_slow_cpu_samples"], 1)
+            self.assertEqual(summary["blit_slow_low_cpu_calls"], 1)
+
+    def test_cpu_probe_unavailable_is_not_reported_as_zero_cpu(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp) / "autobenchmark-cpu-unavailable"
+            make_csv(run)
+            add_frame_boundary_fixture(run)
+            with (run / "menuperf.csv").open("a", newline="") as handle:
+                writer = csv.writer(handle)
+                for name, calls in (
+                    ("window_blt_thread_cpu", 0),
+                    ("window_blt_slow_thread_cpu", 0),
+                    ("window_blt_cpu_unavailable", 2),
+                    ("window_blt_slow_low_cpu", 0),
+                ):
+                    writer.writerow([1.1, 0, 0, 0, name, calls, 0, 0])
+            done = subprocess.run([sys.executable, str(SCRIPT), str(run)],
+                                  capture_output=True, text=True)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            summary = json.loads((run / "summary.json").read_text())["metrics"]
+            self.assertTrue(summary["blit_cpu_probe_available"])
+            self.assertIsNone(summary["blit_thread_cpu_avg_ms"])
+            self.assertEqual(summary["blit_thread_cpu_unavailable"], 2)
+
+    def test_cpu_probe_rejects_inconsistent_call_count(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp) / "autobenchmark-cpu-incomplete"
+            make_csv(run)
+            add_frame_boundary_fixture(run)
+            with (run / "menuperf.csv").open("a", newline="") as handle:
+                writer = csv.writer(handle)
+                for name, calls in (
+                    ("window_blt_thread_cpu", 1),
+                    ("window_blt_slow_thread_cpu", 1),
+                    ("window_blt_cpu_unavailable", 0),
+                    ("window_blt_slow_low_cpu", 1),
+                ):
+                    writer.writerow([1.1, 0, 0, 0, name, calls, 0, 0])
+            done = subprocess.run([sys.executable, str(SCRIPT), str(run)],
+                                  capture_output=True, text=True)
+            self.assertNotEqual(done.returncode, 0)
             self.assertFalse((run / "summary.json").exists())
 
     def test_malformed_header_refused(self):

@@ -137,6 +137,33 @@ def analyze_csv(source):
                 or totals["frame_outside_over_1000ms"]["calls"] > totals["frame_outside_over_100ms"]["calls"]):
             raise ValueError("Long stall counts exceed short stall counts")
 
+    # A new diagnostic DLL records CPU consumed by the thread while inside
+    # each Blt. Time with little CPU suggests waiting, but never identifies
+    # a specific Wine, driver, or display-compositor subsystem.
+    cpu_names = (
+        "window_blt_thread_cpu", "window_blt_slow_thread_cpu",
+        "window_blt_cpu_unavailable", "window_blt_slow_low_cpu",
+    )
+    cpu_found = {name for name in cpu_names if name in totals}
+    if cpu_found and cpu_found != set(cpu_names):
+        raise ValueError("Incomplete DirectDraw CPU diagnostic fields")
+    cpu_probe_present = bool(cpu_found)
+    cpu_samples = totals.get("window_blt_thread_cpu", {}).get("calls", 0)
+    cpu_missing = totals.get("window_blt_cpu_unavailable", {}).get("calls", 0)
+    slow_cpu_samples = totals.get("window_blt_slow_thread_cpu", {}).get("calls", 0)
+    slow_low_cpu = totals.get("window_blt_slow_low_cpu", {}).get("calls", 0)
+    if cpu_probe_present:
+        if not diagnostic:
+            raise ValueError("CPU probe requires full frame-timing diagnostics")
+        if cpu_samples + cpu_missing != dd_calls:
+            raise ValueError("CPU sampling outcomes disagree with DirectDraw Blt count")
+        if slow_cpu_samples > totals.get("window_blt_over_1000ms", {}).get("calls", 0):
+            raise ValueError("CPU slow-call samples exceed long Blt events")
+        if slow_low_cpu > slow_cpu_samples:
+            raise ValueError("Low-CPU calls exceed sampled slow Blts")
+    cpu_all = totals.get("window_blt_thread_cpu", {})
+    cpu_slow = totals.get("window_blt_slow_thread_cpu", {})
+
     fps = frames["calls"] / frames["logged_seconds"] if frames["logged_seconds"] else 0
     accepted = dd_accepted + gdi_accepted
     busy = dd_busy
@@ -174,6 +201,15 @@ def analyze_csv(source):
         "window_blt_calls_over_1000ms": totals["window_blt_over_1000ms"]["calls"] if diagnostic else None,
         "outside_flip_calls_over_100ms": totals["frame_outside_over_100ms"]["calls"] if diagnostic else None,
         "outside_flip_calls_over_1000ms": totals["frame_outside_over_1000ms"]["calls"] if diagnostic else None,
+        "blit_cpu_probe_available": cpu_probe_present,
+        "blit_thread_cpu_samples": cpu_samples if cpu_probe_present else None,
+        "blit_thread_cpu_unavailable": cpu_missing if cpu_probe_present else None,
+        "blit_thread_cpu_avg_ms": round(cpu_all["total_ms"] / cpu_samples, 4)
+        if cpu_samples else None,
+        "blit_slow_cpu_samples": slow_cpu_samples if cpu_probe_present else None,
+        "blit_slow_thread_cpu_avg_ms": round(cpu_slow["total_ms"] / slow_cpu_samples, 4)
+        if slow_cpu_samples else None,
+        "blit_slow_low_cpu_calls": slow_low_cpu if cpu_probe_present else None,
     }
 
 
@@ -262,6 +298,16 @@ def main():
             "Outside-Flip periods >100ms / >1000ms: {} / {}".format(
                 current["outside_flip_calls_over_100ms"], current["outside_flip_calls_over_1000ms"]),
             "Caution: CPU-side phase timers are not proof of displayed FPS or the cause of Wine stalls.",
+        ])
+    if current["blit_cpu_probe_available"]:
+        report.extend([
+            "DirectDraw thread CPU sample successes / failures: {} / {}".format(
+                current["blit_thread_cpu_samples"], current["blit_thread_cpu_unavailable"]),
+            "Average DirectDraw calling-thread CPU time (ms): {}".format(
+                current["blit_thread_cpu_avg_ms"] if current["blit_thread_cpu_avg_ms"] is not None else "unavailable"),
+            "Long Blt events with valid CPU samples: {}".format(current["blit_slow_cpu_samples"]),
+            "Long Blt events using at most 20% CPU time: {}".format(current["blit_slow_low_cpu_calls"]),
+            "Do not attribute low-CPU stalls to any specific Wine/driver layer without tracing.",
         ])
     if "dll_sha256" in summary:
         report.append("Reviewed test DLL SHA256: " + summary["dll_sha256"])

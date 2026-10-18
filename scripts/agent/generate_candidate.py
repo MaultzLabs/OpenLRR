@@ -111,6 +111,7 @@ def validate_replacement(source: str, replacement: str) -> str:
         raise ValueError("Replacement must preserve the original block boundary")
     required = (
         "MenuPerf::NonblockingWindowBlt()", "MenuPerf::Scope",
+        "MenuPerf::WindowBltCpuScope",
         "MenuPerf::Metric::WindowBlt",
         "DirectDraw_fSurf()->Blt(&dest, DirectDraw_bSurf(), &src,",
         "MenuPerf::RecordWindowPresentOutcome(",

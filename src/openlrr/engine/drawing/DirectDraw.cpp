@@ -518,6 +518,8 @@ void __cdecl Gods98::DirectDraw_BlitBuffers(void)
 	// DDERR_WASSTILLDRAWING is permitted in that experiment: a frame may be skipped.
 	const DWORD flags = MenuPerf::NonblockingWindowBlt() ? 0 : DDBLT_WAIT;
 	{
+		// Diagnostic-only CPU-versus-wall probe; leaves Blt flags and rendering untouched.
+		MenuPerf::WindowBltCpuScope cpuProbe;
 		MenuPerf::Scope presentation(MenuPerf::Metric::WindowBlt);
 		HRESULT r = DirectDraw_fSurf()->Blt(&dest, DirectDraw_bSurf(), &src, flags, nullptr);
 		MenuPerf::RecordWindowPresentOutcome(r == DD_OK, r == DDERR_WASSTILLDRAWING);
