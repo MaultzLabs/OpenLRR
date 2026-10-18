@@ -2,7 +2,7 @@ name: OpenLRR Agent Observer Safety Tests
 
 on:
   push:
-    branches: [agent-loop-v1, lab-render-diagnostics-v1]
+    branches: [agent-loop-v1, lab-feedback-integration-v1]
     paths:
       - 'scripts/agent/**'
       - '.github/workflows/agent-observer-tests.yml'
