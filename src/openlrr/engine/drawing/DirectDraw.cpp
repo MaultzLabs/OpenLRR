@@ -475,6 +475,7 @@ void __cdecl Gods98::DirectDraw_BlitBuffers(void)
 	// GDI presents the existing back buffer; the Direct3D renderer stays unchanged.
 	// Enabled only by menuperf.gdi and falls back to original DirectDraw Blt on failure.
 	if (MenuPerf::GdiWindowPresent()) {
+		MenuPerf::Scope gdiPresentation(MenuPerf::Metric::GdiWindowAttempt);
 		HDC srcDC = nullptr;
 		HRESULT getDCResult = DDERR_GENERIC;
 		{
@@ -501,8 +502,12 @@ void __cdecl Gods98::DirectDraw_BlitBuffers(void)
 				MenuPerf::Scope release(MenuPerf::Metric::GdiRelease);
 				DirectDraw_bSurf()->ReleaseDC(srcDC);
 			}
-			if (success) return;
+			if (success) {
+				MenuPerf::RecordGdiWindowOutcome(true);
+				return;
+			}
 		}
+		MenuPerf::RecordGdiWindowOutcome(false);
 	}
 
 	// In diagnostic mode keep the original blocking blit unchanged.
