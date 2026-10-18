@@ -58,7 +58,9 @@ For captured videos, supply `.mp4` (or `.mov`, `.mkv`, `.webm`, `.avi`)
 instead of images and optionally add `--fps 2`. Supply `--mask file.png`
 for exclusion areas. The output directory must be new or empty, **not** the
 same directory holding input captures. Preexisting output files are refused
-instead of overwritten. Video decodes into disposable temporary storage.
+instead of overwritten. The tool rejects output paths using symlinks and
+output paths inside a folder containing the original `LegoRR.exe` game.
+Video decodes into disposable temporary storage.
 
 Exit codes: 0 = successful analysis (when `--fail-on-regression` is absent,
 regressions are reported in JSON but do not fail the command), 3 = non-pass
