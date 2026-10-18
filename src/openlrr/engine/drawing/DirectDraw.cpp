@@ -469,6 +469,41 @@ void __cdecl Gods98::DirectDraw_BlitBuffers(void)
 	};
 
 	Draw_AssertUnlocked("DirectDraw_BlitBuffers");
+
+	// Experimental alternative to the slow windowed DirectDraw front-surface blit.
+	// GDI presents the existing back buffer; the Direct3D renderer stays unchanged.
+	// Enabled only by menuperf.gdi and falls back to original DirectDraw Blt on failure.
+	if (MenuPerf::GdiWindowPresent()) {
+		HDC srcDC = nullptr;
+		HRESULT getDCResult = DDERR_GENERIC;
+		{
+			MenuPerf::Scope acquire(MenuPerf::Metric::GdiAcquire);
+			getDCResult = DirectDraw_bSurf()->GetDC(&srcDC);
+		}
+		if (getDCResult == DD_OK && srcDC != nullptr) {
+			HDC dstDC = ::GetDC(directDrawGlobs.hWnd);
+			BOOL success = FALSE;
+			if (dstDC != nullptr) {
+				// Target client coordinates, unlike DirectDraw primary-surface screen coordinates.
+				{
+					MenuPerf::Scope blit(MenuPerf::Metric::GdiStretch);
+					success = ::StretchBlt(dstDC, 0, 0,
+						static_cast<int>(directDrawGlobs.width * Main_Scale()),
+						static_cast<int>(directDrawGlobs.height * Main_Scale()),
+						srcDC, 0, 0,
+						static_cast<int>(directDrawGlobs.width * Main_RenderScale()),
+						static_cast<int>(directDrawGlobs.height * Main_RenderScale()), SRCCOPY);
+				}
+				::ReleaseDC(directDrawGlobs.hWnd, dstDC);
+			}
+			{
+				MenuPerf::Scope release(MenuPerf::Metric::GdiRelease);
+				DirectDraw_bSurf()->ReleaseDC(srcDC);
+			}
+			if (success) return;
+		}
+	}
+
 	// In diagnostic mode keep the original blocking blit unchanged.
 	// Opt in to non-blocking with a menuperf.nowait marker in the game's working directory.
 	// DDERR_WASSTILLDRAWING is permitted in that experiment: a frame may be skipped.
