@@ -6,6 +6,15 @@ GAME="$APP/Contents/SharedSupport/prefix/drive_c/Program Files/Rock Raiders Open
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ZIP="${OPENLRR_BENCH_ZIP:-$HOME/Downloads/OpenLRR-autobenchmark-x86.zip}"
 SECONDS_TO_RUN="${OPENLRR_BENCH_SECONDS:-210}"
+BENCH_MODE="${OPENLRR_BENCH_MODE:-baseline}"
+# Only one graphics variable may change in a run. Keep all variants opt-in.
+# The nonblocking DirectDraw flag can skip presentation; frame counts alone
+# cannot prove that every frame reached the display.
+case "$BENCH_MODE" in
+  baseline) MODE_MARKER="" ;;
+  nowait) MODE_MARKER="menuperf.nowait" ;;
+  *) echo "ERROR: Unsupported benchmark mode: $BENCH_MODE (use baseline or nowait)." >&2; exit 2 ;;
+esac
 RESULTS="$HOME/Downloads/OpenLRR Benchmark Runs"
 # Read only a repository name, never execute arbitrary commands from a config file.
 UPLOAD_CONFIG="$HOME/.config/openlrr-benchmark/private-results-repo"
@@ -60,6 +69,7 @@ if [[ -e "$GAME/menuperf.enable" ]]; then had_enable=1; fi
 cleanup() {
   set +e
   rm -f "$GAME/menuperf.autotest" "$GAME/menuperf.finished" "$GAME/menuperf.enable"
+  if [[ -n "$MODE_MARKER" ]]; then rm -f "$GAME/$MODE_MARKER"; fi
   if (( had_enable )); then touch "$GAME/menuperf.enable"; fi
   if [[ -f "$RUN/previous-openlrr.dll" ]]; then
     cp -p "$RUN/previous-openlrr.dll" "$GAME/openlrr.dll"
@@ -71,8 +81,10 @@ rm -f "$GAME/menuperf.csv" "$GAME/menuperf.finished"
 cp "$RUN/benchmark-openlrr.dll" "$GAME/openlrr.dll"
 printf '%s\n' "$SECONDS_TO_RUN" > "$GAME/menuperf.autotest"
 touch "$GAME/menuperf.enable"
+if [[ -n "$MODE_MARKER" ]]; then touch "$GAME/$MODE_MARKER"; fi
 
 echo "Running OpenLRR Menu Test.app with automatic mode selection and shutdown."
+echo "Graphics experiment: $BENCH_MODE"
 echo "Benchmark duration: $SECONDS_TO_RUN seconds after first rendered frame."
 echo "Logs: $RUN"
 open "$APP"
