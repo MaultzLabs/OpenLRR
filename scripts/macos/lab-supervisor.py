@@ -131,6 +131,7 @@ def verify_result(run_name: str, mode: str, expected_sha: str) -> Path:
         raise RuntimeError("Incomplete benchmark metrics")
     verify_upload(run_name, "menuperf.csv")
     verify_upload(run_name, "summary.json")
+    verify_upload(run_name, "lifecycle.verified")
     return run / "menuperf.csv"
 
 

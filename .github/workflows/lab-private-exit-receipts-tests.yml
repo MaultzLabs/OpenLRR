@@ -1,0 +1,32 @@
+name: OpenLRR Private Lifecycle Receipt Safety Tests
+
+on:
+  push:
+    branches: [lab-private-exit-receipts-v1]
+    paths:
+      - 'scripts/macos/publish-benchmark.sh'
+      - 'scripts/macos/lab-supervisor.py'
+      - 'scripts/macos/tests/test_lab_supervisor.py'
+      - 'scripts/macos/tests/test_private_exit_receipt.py'
+      - '.github/workflows/lab-private-exit-receipts-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  receipt-integrity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check bash and all Mac safety tests
+        run: |
+          bash -n scripts/macos/publish-benchmark.sh
+          python -m unittest discover -s scripts/macos/tests -p 'test_*.py' -v
+          python -m unittest discover -s scripts/agent/tests -p 'test_*.py' -q
