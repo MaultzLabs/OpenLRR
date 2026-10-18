@@ -33,6 +33,7 @@ jobs:
           Copy-Item $dll dist/openlrr.dll
           Copy-Item BUILD-AND-TEST.md dist/
           Copy-Item scripts/macos/run-autobenchmark.sh dist/
+          Copy-Item scripts/macos/publish-benchmark.sh dist/
           Copy-Item docs/autobenchmark.md dist/
           (Get-FileHash $dll -Algorithm SHA256).Hash | Set-Content dist/SHA256.txt
       - name: Upload DLL
