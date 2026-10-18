@@ -50,6 +50,28 @@ class ObserverTests(unittest.TestCase):
         self.assertTrue(agent.preview([one, two])["matched_dll"])
         self.assertTrue(agent.preview([one, two])["mode_changed"])
 
+    def test_gdi_candidate_selects_matching_default_mode_baseline(self):
+        first_name = "autobenchmark-2026-10-18_13-35-03"
+        second_name = "autobenchmark-2026-10-18_13-39-20"
+        third_name = "autobenchmark-2026-10-18_14-18-18"
+        base = fixture(first_name, 0)
+        nowait = fixture(second_name, 1)
+        gdi = fixture(third_name, 0)
+        gdi["metrics"]["mode"]["gdi"] = 1
+        gdi["metrics"]["gdi_accepted_calls"] = 450
+        gdi["metrics"]["gdi_fallback_calls"] = 12
+        samples = {
+            first_name: agent.validate_summary(base, first_name),
+            second_name: agent.validate_summary(nowait, second_name),
+            third_name: agent.validate_summary(gdi, third_name),
+        }
+        with mock.patch.object(agent, "latest_names", return_value=list(samples)), \
+             mock.patch.object(agent, "fetch_summary", side_effect=lambda name: samples[name]):
+            baseline, candidate = agent.read_pair()
+        self.assertEqual(baseline["run"], first_name)
+        self.assertEqual(candidate["run"], third_name)
+        self.assertEqual(candidate["metrics"]["gdi_fallback_calls"], 12)
+
     def test_rejects_traversal_bad_numbers_and_invalid_shas(self):
         bad = fixture()
         bad["metrics"]["present_avg_ms"] = float("nan")
