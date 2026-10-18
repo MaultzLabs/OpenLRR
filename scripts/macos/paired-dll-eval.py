@@ -33,6 +33,7 @@ INBOX = STATE / "candidate-inbox"
 LOCK = STATE / "paired-eval.lock"
 SUPERVISOR = HOME / "OpenLRR-Agent/scripts/macos/lab-supervisor.py"
 CONTROLLER = HOME / "OpenLRR-Agent/scripts/agent/experiment_controller.py"
+PUBLISHER = HOME / "OpenLRR-Agent/scripts/agent/publish_experiment.py"
 PYTHON = STATE / "venv/bin/python"
 HELPERS = ("run-autobenchmark.sh", "publish-benchmark.sh", "analyze-benchmark.py")
 SCRIPT_DIR = SUPERVISOR.parent
@@ -207,8 +208,11 @@ def invoke_supervisor(sha: str, seconds: int, *, run=subprocess.run) -> str:
 
 
 def execute(base_sha: str, cand_sha: str, run_id: str,
-            pairs: int, seconds: int, *, run=subprocess.run) -> dict:
+            pairs: int, seconds: int, *, run=subprocess.run,
+            publish_evidence: bool = False) -> dict:
     preflight(base_sha, cand_sha, run_id, pairs, seconds)
+    if publish_evidence and not PUBLISHER.is_file():
+        raise RuntimeError("Reviewed private evidence publisher missing")
     STATE.mkdir(parents=True, exist_ok=True, mode=0o700)
     LOCK.mkdir(mode=0o700)
     originally_present = DOWNLOAD_DLL.exists()
@@ -266,9 +270,22 @@ def execute(base_sha: str, cand_sha: str, run_id: str,
         if classification.get("manifest_verified") is not True or (
                 classification.get("may_install_or_run_candidate") is not False):
             raise RuntimeError("Policy output failed closed")
+        # A private publishing outage is NOT a game-process failure.
+        # The local validated trial remains complete and recoverable.
         completed_safely = True
+        uploaded = False
+        if publish_evidence:
+            command = [str(PYTHON), str(PUBLISHER), "--manifest",
+                       str(manifest), "--runs-dir", str(RESULTS), "--publish"]
+            result = run(command, env=environment, timeout=240, check=False)
+            if result.returncode != 0:
+                raise RuntimeError(
+                    "Private manifest publication failed; safely completed local results "
+                    "remain available for an idempotent retry")
+            uploaded = True
         return {
             "experiment_id": experiment_id, "manifest": str(manifest),
+            "private_experiment_published": uploaded,
             "classification": classification.get("disposition"),
             "next_step": classification.get("next_step"),
             "pairs": len(recorded), "game_changes_promoted": False,
@@ -301,7 +318,11 @@ def main(argv=None):
     parser.add_argument("--seconds", type=int, default=60)
     parser.add_argument("--run", action="store_true",
                         help="Explicitly execute the two reviewed DLLs in TEST app")
+    parser.add_argument("--publish-evidence", action="store_true",
+                        help="After success, upload ONLY verified A/B manifest to private GitHub")
     args = parser.parse_args(argv)
+    if args.publish_evidence and not args.run:
+        parser.error("--publish-evidence requires explicit --run")
     if not args.run:
         info = preflight(args.baseline_sha, args.candidate_sha,
                          args.candidate_run_id, args.pairs, args.seconds)
@@ -309,7 +330,8 @@ def main(argv=None):
         print("DRY RUN ONLY. No game executed.")
         return 0
     print(json.dumps(execute(args.baseline_sha, args.candidate_sha,
-                             args.candidate_run_id, args.pairs, args.seconds),
+                             args.candidate_run_id, args.pairs, args.seconds,
+                             publish_evidence=args.publish_evidence),
                      indent=2, sort_keys=True))
     return 0
 
