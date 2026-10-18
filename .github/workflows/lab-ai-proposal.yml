@@ -27,13 +27,13 @@ jobs:
         run: python -m pip install 'openai-agents==0.24.0'
       - name: Validate coding scope and API key
         env:
-          OPENAI_API_KEY: \${{ secrets.OPENLRR_AI_LAB_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENLRR_AI_LAB_KEY }}
         run: |
           python scripts/agent/generate_candidate.py --preflight
           test -n "$OPENAI_API_KEY" || { echo 'OPENLRR_AI_LAB_KEY secret not configured'; exit 2; }
       - name: Propose one narrowly scoped experiment
         env:
-          OPENAI_API_KEY: \${{ secrets.OPENLRR_AI_LAB_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENLRR_AI_LAB_KEY }}
         run: |
           python scripts/agent/generate_candidate.py --model gpt-6-luna --out candidate-output
       - uses: actions/upload-artifact@v4
