@@ -1,0 +1,30 @@
+name: OpenLRR Paired Trial Helper Staging Safety
+
+on:
+  push:
+    branches: [lab-paired-helper-staging-v1]
+    paths:
+      - 'scripts/macos/paired-dll-eval.py'
+      - 'scripts/macos/tests/test_paired_dll_eval.py'
+      - '.github/workflows/lab-paired-helper-staging-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run complete synthetic Mac suite and controller regression tests
+        run: |
+          python -m py_compile scripts/macos/paired-dll-eval.py
+          python -m unittest discover -s scripts/macos/tests -p 'test_*.py' -v
+          python -m unittest discover -s scripts/agent/tests -p 'test_*.py' -q
