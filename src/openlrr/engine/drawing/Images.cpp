@@ -9,6 +9,7 @@
 #include "../core/Memory.h"
 #include "../util/Dxbug.h"
 #include "../Main.h"
+#include "../util/MenuPerf.h"
 #include "Bmp.h"
 #include "DirectDraw.h"
 #include "Draw.h"
@@ -459,6 +460,7 @@ void Gods98::Image_DisplayScaled2(Image* image, OPTIONAL const Area2F* src, OPTI
 	if (Image_IsRenderEnabled() || forceRender) {
 		uint32 flags = DDBLT_WAIT;
 		if (image->flags & ImageFlags::IMAGE_FLAG_TRANS) flags |= DDBLT_KEYSRC;
+		MenuPerf::Scope timer(MenuPerf::Metric::ImageBlt);
 		DirectDraw_bSurf()->Blt((destPos) ? &r_dst : nullptr, image->surface, (src) ? &r_src : nullptr, flags, nullptr);
 	}
 }
