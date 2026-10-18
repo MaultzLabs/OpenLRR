@@ -71,6 +71,8 @@ class PairedDllTests(unittest.TestCase):
         for p in (self.supervisor, self.controller, self.python):
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text("fixture")
+        for name in lab.HELPERS:
+            (self.supervisor.parent / name).write_text("trusted helper: " + name)
         for key, value in {
             "STATE": self.state, "CONFIG": self.config, "RESULTS": self.results,
             "DOWNLOAD_DLL": self.download,
@@ -80,6 +82,7 @@ class PairedDllTests(unittest.TestCase):
             "INBOX": self.root / "quarantine",
             "LOCK": self.state / "paired-eval.lock",
             "SUPERVISOR": self.supervisor,
+            "SCRIPT_DIR": self.supervisor.parent,
             "CONTROLLER": self.controller,
             "PYTHON": self.python,
         }.items():
@@ -162,6 +165,11 @@ class PairedDllTests(unittest.TestCase):
     def test_two_approved_binaries_restore_original_downloads_and_hold_for_review(self):
         original = b"MY EXISTING DOWNLOADS DLL"
         self.download.write_bytes(original)
+        helper_originals = {}
+        for name in lab.HELPERS:
+            old = ("user's previous " + name).encode()
+            (self.download.parent / name).write_bytes(old)
+            helper_originals[name] = old
         order = []
         def fake_supervisor(sha, seconds, *, run):
             self.assertEqual(lab.digest(self.download), sha)
@@ -193,12 +201,18 @@ class PairedDllTests(unittest.TestCase):
         self.assertEqual(order, [self.base_sha, self.cand_sha])
         self.assertEqual(info["pairs"], 1)
         self.assertEqual(self.download.read_bytes(), original)
+        for name in lab.HELPERS:
+            self.assertEqual((self.download.parent / name).read_bytes(),
+                             helper_originals[name])
+            self.assertFalse((self.download.parent / (".openlrr-paired-previous-" + name)).exists())
         self.assertFalse(lab.BACKUP.exists())
         self.assertFalse(lab.LOCK.exists())
 
     def test_failed_supervisor_holds_lock_but_restores_downloads(self):
         original = b"ORIGINAL FILE"
         self.download.write_bytes(original)
+        helper = self.download.parent / lab.HELPERS[0]
+        helper.write_bytes(b"ORIGINAL SCRIPT")
         with mock.patch.object(lab, "candidate_source", return_value=self.candidate), \
              mock.patch.object(lab, "invoke_supervisor",
                                side_effect=RuntimeError("wine failed")):
@@ -207,7 +221,23 @@ class PairedDllTests(unittest.TestCase):
                             1, 60)
         self.assertTrue(lab.LOCK.exists())
         self.assertEqual(self.download.read_bytes(), original)
+        self.assertEqual(helper.read_bytes(), b"ORIGINAL SCRIPT")
         self.assertFalse(lab.BACKUP.exists())
+
+    def test_unrecovered_helper_backup_blocks_all_game_launches(self):
+        backup = self.download.parent / (".openlrr-paired-previous-" + lab.HELPERS[0])
+        backup.write_bytes(b"ORIGINAL")
+        with mock.patch.object(lab, "invoke_supervisor",
+                               side_effect=AssertionError("Should never launch")):
+            with self.assertRaisesRegex(RuntimeError, "Unrecovered benchmark helper backup"):
+                lab.execute(self.base_sha, self.cand_sha, "39169390987", 1, 60)
+
+    def test_missing_trusted_helper_refused_before_launch(self):
+        (lab.SCRIPT_DIR / lab.HELPERS[1]).unlink()
+        with mock.patch.object(lab, "invoke_supervisor",
+                               side_effect=AssertionError("Should never launch")):
+            with self.assertRaisesRegex(ValueError, "Trusted benchmark helper"):
+                lab.execute(self.base_sha, self.cand_sha, "39169390987", 1, 60)
 
 
 if __name__ == "__main__":
