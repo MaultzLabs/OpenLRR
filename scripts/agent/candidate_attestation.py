@@ -42,6 +42,13 @@ def build(proposal: Path, patch: Path, dll: Path, source: Path,
         raise ValueError("Patch escaped approved graphics source")
     if patch_bytes.count("\n--- ") or patch_bytes.count("\n+++ ") != 1:
         raise ValueError("Patch modifies multiple files")
+    header = dll.read_bytes()[:4096]
+    if len(header) < 256 or header[:2] != b"MZ":
+        raise ValueError("Compiled candidate has no Windows PE header")
+    pe = int.from_bytes(header[0x3c:0x40], "little")
+    if (pe + 6 > len(header) or header[pe:pe + 4] != b"PE\0\0" or
+        int.from_bytes(header[pe + 4:pe + 6], "little") != 0x14c):
+        raise ValueError("Compiled candidate is not x86 Windows DLL")
     return {
         "schema_version": 1,
         "workflow": "OpenLRR AI Graphics Proposal (review only)",
