@@ -29,7 +29,5 @@ jobs:
       - name: Compile Python and run end-to-end synthetic safety tests
         run: |
           python -m py_compile scripts/macos/paired-dll-eval.py scripts/macos/prepare-approved-baseline.py
-          python -m unittest discover -s scripts/macos/tests -p 'test_paired_dll_eval.py' -v
-          python -m unittest discover -s scripts/macos/tests -p 'test_prepare_approved_baseline.py' -v
-          python -m unittest discover -s scripts/macos/tests -p 'test_candidate_inbox.py' -v
+          python -m unittest discover -s scripts/macos/tests -p 'test_*.py' -v
           python -m unittest discover -s scripts/agent/tests -p 'test_*.py' -q
