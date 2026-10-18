@@ -8,6 +8,7 @@
 #include "../core/Files.h"
 #include "../core/Memory.h"
 #include "../Main.h"
+#include "../util/MenuPerf.h"
 #include "DirectDraw.h"
 #include "Draw.h"
 #include "Images.h"
@@ -311,6 +312,14 @@ bool Gods98::Flic_Animate2(Flic* fsp, OPTIONAL const Area2F* destArea, uint32 ad
 
 	FlicError flicRetVal = FlicError::FLICNOERROR;
 
+	// Skip redundant DirectDraw locks when a menu animation has not changed.
+	// Preserve first-frame decoding and wrapped frame-advance semantics.
+	if (fsp->currentframe == 0 && advanceCount == 0)
+		advanceCount = 1;
+	advanceCount %= Flic_GetFrameCount(fsp);
+	const bool needsDecodeSurface = (!MenuPerf::OptimizeStaticFlic() || advanceCount != 0);
+	if (needsDecodeSurface) {
+
 	/// NOTE: Don't try to get around rendering to the flic surface.
 	///       There's some delta filtering based on previous frames, so we can't just skip around. :(
 
@@ -318,7 +327,9 @@ bool Gods98::Flic_Animate2(Flic* fsp, OPTIONAL const Area2F* destArea, uint32 ad
 	//::ZeroMemory(&dds, sizeof(dds));
 	std::memset(&dds, 0, sizeof(dds));
    	dds.dwSize = sizeof(dds);
-   	hr = fsp->fsSurface->Lock(nullptr, &dds, DDLOCK_WAIT, nullptr);
+   	{ MenuPerf::Scope timer(MenuPerf::Metric::FlicLock);
+		hr = fsp->fsSurface->Lock(nullptr, &dds, DDLOCK_WAIT, nullptr);
+	}
    	fsp->fsSPtr = dds.lpSurface;
 	fsp->fsPitch = dds.lPitch;
 	fsp->is15bit = (dds.ddpfPixelFormat.dwGBitMask == 0x3E0);
@@ -336,17 +347,8 @@ bool Gods98::Flic_Animate2(Flic* fsp, OPTIONAL const Area2F* destArea, uint32 ad
 
 	fsp->aValue = DirectDraw_ShiftChannelByte(0xff, fsp->aBits, fsp->aShift);
 
-	// We need to advance one more frame to our 'first' frame.
-	//if (fsp->currentframe == 0) advance = true;
-	if (fsp->currentframe == 0 && advanceCount == 0)
-		advanceCount = 1;
-	//if (fsp->currentframe == 0)
-	//	advanceCount++;
-
-	// Don't waste time looping over and over again.
-	advanceCount %= Flic_GetFrameCount(fsp);
-
 	//if (advance) {
+	{ MenuPerf::Scope timer(MenuPerf::Metric::FlicDecode);
 	for (uint32 i = 0; i < advanceCount && flicRetVal != FlicError::FLICFINISHED; i++) {
 
 		if ((fsp->userflags & FlicUserFlags::FLICRESIDE) == FlicUserFlags::FLICMEMORY)
@@ -358,7 +360,11 @@ bool Gods98::Flic_Animate2(Flic* fsp, OPTIONAL const Area2F* destArea, uint32 ad
 		//	advanceCount++; // Rendering the first frame is special(?)
 	}
 		
-	hr = fsp->fsSurface->Unlock(nullptr);
+	} // end decode timer
+	{ MenuPerf::Scope timer(MenuPerf::Metric::FlicUnlock);
+		hr = fsp->fsSurface->Unlock(nullptr);
+	}
+	} // end needsDecodeSurface
 
 	if (render) {
 		/// FIXME FUTURE: This will be partly responsible for clipping an
@@ -383,7 +389,9 @@ bool Gods98::Flic_Animate2(Flic* fsp, OPTIONAL const Area2F* destArea, uint32 ad
 
 		Draw_AssertUnlocked("Flic_Animate2");
 		//hr = (*lpBB)->Blt(dest, fsp->fsSurface, nullptr, /*DDBLT_COLORFILL |*/ DDBLT_WAIT|(trans?DDBLT_KEYSRC:0), &ddBltFx);
-		hr = DirectDraw_bSurf()->Blt(dest, fsp->fsSurface, nullptr, /*DDBLT_COLORFILL |*/ DDBLT_WAIT|(trans?DDBLT_KEYSRC:0), &ddBltFx);
+		{ MenuPerf::Scope timer(MenuPerf::Metric::FlicBlt);
+			hr = DirectDraw_bSurf()->Blt(dest, fsp->fsSurface, nullptr, /*DDBLT_COLORFILL |*/ DDBLT_WAIT|(trans?DDBLT_KEYSRC:0), &ddBltFx);
+		}
 	}
 
 	return (flicRetVal == FlicError::FLICNOERROR);// ? true : false;
