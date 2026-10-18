@@ -28,7 +28,7 @@ METRICS = (
     "present_worst_ms", "present_intervals_over_100ms",
     "present_intervals_over_1000ms", "present_accepted_calls",
     "present_busy_calls", "present_error_calls", "present_accepted_percent",
-    "present_intervals",
+    "present_intervals", "gdi_accepted_calls", "gdi_fallback_calls",
 )
 CONFIG = Path.home() / ".config" / "openlrr-benchmark"
 STATE_DIR = Path.home() / ".local" / "share" / "openlrr-agent"
@@ -122,6 +122,16 @@ def read_pair():
             continue
     if len(valid) < 2:
         raise ValueError("Need at least two complete benchmark summaries")
+    candidate = valid[-1]
+    # Prefer the most recent DEFAULT-MODE baseline using precisely the same
+    # build. Do not compare a GDI candidate with a prior nowait candidate just
+    # because their upload timestamps are consecutive.
+    if any(candidate["mode"].values()) and candidate.get("dll_sha256"):
+        default_mode = {"optimization": 0, "nowait": 0, "gdi": 0}
+        for baseline in reversed(valid[:-1]):
+            if (baseline["mode"] == default_mode and
+                    baseline.get("dll_sha256") == candidate["dll_sha256"]):
+                return [baseline, candidate]
     return valid[-2:]
 
 
