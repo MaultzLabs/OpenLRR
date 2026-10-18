@@ -20,7 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 6386c843059e4c77f8b3794fd55d3df54e6d9443
+          ref: 0f61f1e105329489d9f0a9edb677acce306e780d
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -39,7 +39,7 @@ jobs:
           python scripts/agent/generate_candidate.py --model gpt-6-luna --out candidate-output
       - uses: actions/upload-artifact@v4
         with:
-          name: OpenLRR-AI-Proposed-Patch
+          name: OpenLRR-AI-Research-Result
           path: candidate-output/
           if-no-files-found: error
           retention-days: 14
@@ -53,12 +53,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 6386c843059e4c77f8b3794fd55d3df54e6d9443
+          ref: 0f61f1e105329489d9f0a9edb677acce306e780d
       - uses: actions/download-artifact@v4
         with:
-          name: OpenLRR-AI-Proposed-Patch
+          name: OpenLRR-AI-Research-Result
           path: candidate-output
+      - name: Classify AI research result
+        id: candidate
+        shell: pwsh
+        run: |
+          $report = Get-Content candidate-output/proposal.json -Raw | ConvertFrom-Json
+          $patchExists = Test-Path candidate-output/proposal.patch
+          if ($report.status -eq 'needs_better_evidence' -and -not $patchExists) {
+            Write-Host 'AI abstained; saved a request for better diagnostic evidence. No DLL will be built.'
+            'compile=false' >> $env:GITHUB_OUTPUT
+          } elseif ($report.status -eq 'patch_ready' -and $patchExists) {
+            if ((Get-Item candidate-output/proposal.patch).Length -lt 100) {
+              throw 'Unexpectedly empty patch'
+            }
+            'compile=true' >> $env:GITHUB_OUTPUT
+          } else {
+            throw 'Inconsistent AI proposal status and patch contents; fail closed.'
+          }
       - name: Apply proposed patch only after source scope check
+        if: steps.candidate.outputs.compile == 'true'
         shell: pwsh
         run: |
           $paths = @(git apply --numstat -- candidate-output/proposal.patch)
@@ -94,6 +112,7 @@ jobs:
           "NOT APPROVED FOR EXECUTION ON A PERSONAL MAC. Source and binary require review." |
             Set-Content dist/REVIEW-REQUIRED.txt
       - uses: actions/upload-artifact@v4
+        if: steps.candidate.outputs.compile == 'true'
         with:
           name: OpenLRR-AI-Compiled-Draft-REVIEW-REQUIRED
           path: dist/
