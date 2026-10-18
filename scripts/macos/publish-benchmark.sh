@@ -131,33 +131,18 @@ upload() {
   echo "Uploaded new file: $name"
 }
 
-# Supervised runs have a fixed, locally verified process-exit receipt.
-# Publish it only after confirming its EXACT expected two-line content.
-# Unsupervised/legacy runs do not assert process exit this way.
+# For supervised tests, publish only the exact receipt that the trusted
+# Mac runner created after wrapper exit and absence of open game handles.
+# A missing or altered receipt fails closed, before reporting any success.
 if [[ "${OPENLRR_SUPERVISED:-0}" == "1" ]]; then
   receipt="$RUN_DIR/lifecycle.verified"
-  if [[ ! -f "$receipt" ]] ||
-     [[ "$(cat "$receipt")" != 
-if [[ -f "$RUN_DIR/report.txt" && $(wc -c < "$RUN_DIR/report.txt") -le 65536 ]]; then
-  if ! grep -Eiq '/Users/|/home/|Token|Authorization|password|gho_|ghp_|github_pat_' "$RUN_DIR/report.txt"; then
-    upload "report.txt" "$RUN_DIR/report.txt"
-  fi
-fi
-if [[ -f "$RUN_DIR/summary.json" && $(wc -c < "$RUN_DIR/summary.json") -le 65536 ]]; then
-  if grep -Fq '"schema_version": 1' "$RUN_DIR/summary.json" &&
-     ! grep -Eiq '/Users/|/home/|Token|Authorization|password|gho_|ghp_|github_pat_' "$RUN_DIR/summary.json"; then
-    upload "summary.json" "$RUN_DIR/summary.json"
-  fi
-fi
-
-echo "Uploaded this benchmark to the PRIVATE repository: https://github.com/$REPORT_REPO/tree/main/runs/$run_name"
-wrapper_wait_exited=yes\ntest_game_handles=none' ]]; then
+  if [[ ! -f "$receipt" ]] || ! cmp -s "$receipt" <(printf 'wrapper_wait_exited=yes\ntest_game_handles=none\n'); then
     echo "Missing or invalid verified lifecycle receipt; refusing supervised upload." >&2
     exit 2
   fi
 fi
 
-# Store only counter samples, a minimal supervisor receipt, and validated reports.
+# Only benchmark metrics, bounded reports, and a fixed supervisor receipt.
 upload "menuperf.csv" "$RUN_DIR/menuperf.csv"
 if [[ "${OPENLRR_SUPERVISED:-0}" == "1" ]]; then
   upload "lifecycle.verified" "$receipt"
