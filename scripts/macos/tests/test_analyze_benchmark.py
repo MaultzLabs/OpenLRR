@@ -16,15 +16,19 @@ module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
 
-def make_csv(directory, *, mode=(0, 0, 0), malformed=False):
+def make_csv(directory, *, mode=(0, 0, 0), malformed=False, outcomes=False):
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / "menuperf.csv"
     with path.open("w", newline="") as handle:
         writer = csv.writer(handle)
         writer.writerow(module.HEADER if not malformed else ["unknown", "header"])
-        for seconds, present_ms in [(1.1, 1200), (1.3, 200)]:
+        for index, (seconds, present_ms) in enumerate([(1.1, 1200), (1.3, 200)]):
             writer.writerow([seconds, *mode, "frame_flip", 1, present_ms, present_ms])
             writer.writerow([seconds, *mode, "window_present_blt", 1, present_ms, present_ms])
+            if outcomes:
+                writer.writerow([seconds, *mode, "window_present_accepted", int(index == 0), 0, 0])
+                writer.writerow([seconds, *mode, "window_present_busy", int(index == 1), 0, 0])
+                writer.writerow([seconds, *mode, "window_present_error", 0, 0, 0])
     return path
 
 
@@ -63,6 +67,19 @@ class AnalyzerTests(unittest.TestCase):
             summary = json.loads((candidate / "summary.json").read_text())
             self.assertFalse(summary["comparison"]["graphics_modes_match"])
             self.assertEqual(summary["comparison"]["percentage_change"]["present_avg_ms"], 0)
+
+    def test_present_results_distinguish_busy_from_accepted_frames(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            candidate = Path(tmp) / "autobenchmark-nowait"
+            make_csv(candidate, mode=(0, 1, 0), outcomes=True)
+            completed = subprocess.run([sys.executable, str(SCRIPT), str(candidate)],
+                                       capture_output=True, text=True)
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            metrics = json.loads((candidate / "summary.json").read_text())["metrics"]
+            self.assertEqual(metrics["present_accepted_calls"], 1)
+            self.assertEqual(metrics["present_busy_calls"], 1)
+            self.assertEqual(metrics["present_error_calls"], 0)
+            self.assertEqual(metrics["present_accepted_percent"], 50.0)
 
     def test_malformed_header_refused(self):
         with tempfile.TemporaryDirectory() as tmp:
