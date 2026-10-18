@@ -234,12 +234,19 @@ def main(argv=None):
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--runs-dir", type=Path, required=True)
     parser.add_argument("--ledger", type=Path, default=DEFAULT_LEDGER)
-    parser.add_argument("--feedback", type=Path)
+    review_input = parser.add_mutually_exclusive_group()
+    review_input.add_argument("--feedback", type=Path,
+                              help="Local feedback file for offline tests only (not authenticated)")
+    review_input.add_argument("--review-issue", type=int,
+                              help="Fetch private GitHub feedback and verify experiment identity")
     parser.add_argument("--commit", action="store_true",
                         help="Write one safe decision to the ledger (still no execution)")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args(argv)
     feedback = bounded_json(args.feedback) if args.feedback else None
+    if args.review_issue is not None:
+        from review_queue import fetch_feedback
+        feedback = fetch_feedback(args.review_issue)
     answer = coordinate(args.manifest, args.runs_dir, args.ledger,
                         feedback=feedback, commit=args.commit)
     result = json.dumps(answer, indent=2, sort_keys=True) + "\n"
