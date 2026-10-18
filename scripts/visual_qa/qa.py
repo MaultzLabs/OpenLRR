@@ -270,11 +270,20 @@ def report_for(reference: Path, candidate: Path, out: Path, experiment_id: str,
            "video" if reference.suffix.lower() in VIDEO_EXTS else None)
     if typ is None or candidate.suffix.lower() not in (IMAGE_EXTS if typ == "image" else VIDEO_EXTS):
         raise ValueError("Both inputs must be recognized images or videos of the same kind")
-    out = out.resolve()
+    # Never follow a user-controlled output symlink, including parent links.
+    raw_out = out.absolute()
+    if any(part.is_symlink() for part in (raw_out, *raw_out.parents)):
+        raise ValueError("Output path must not use symlinks")
+    out = raw_out.resolve()
     if out == reference.parent or out == candidate.parent:
         raise ValueError("Output must be a separate dedicated directory")
-    if out.exists() and (out.is_symlink() or any(out.iterdir())):
-        raise ValueError("Output directory must be empty and not a symlink")
+    # Fail closed if someone points QA into an installed original game tree.
+    if any((parent / name).exists()
+           for parent in (out, *out.parents)
+           for name in ("LegoRR.exe", "LEGOrr.exe", "legorr.exe")):
+        raise ValueError("Refusing to write inside a game installation")
+    if out.exists() and (not out.is_dir() or any(out.iterdir())):
+        raise ValueError("Output directory must be an empty directory")
     out.mkdir(parents=True, exist_ok=True)
     durations = None
     if typ == "image":
