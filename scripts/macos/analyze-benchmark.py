@@ -107,6 +107,36 @@ def analyze_csv(source):
         slow_1000ms = dd["slow_1000ms"]
         path = "directdraw"
 
+    # Older baseline DLLs lack these metrics; never mistake absence for zero.
+    # Refuse partially logged new diagnostics rather than hallucinate a location.
+    diagnostic_names = (
+        "frame_start_gap", "frame_outside_flip", "window_blt_over_100ms",
+        "window_blt_over_1000ms", "frame_outside_over_100ms",
+        "frame_outside_over_1000ms",
+    )
+    found = {name for name in diagnostic_names if name in totals}
+    if found and found != set(diagnostic_names):
+        raise ValueError("Incomplete frame timing diagnostics")
+    diagnostic = bool(found)
+    cadence = totals.get("frame_start_gap", {})
+    outside = totals.get("frame_outside_flip", {})
+    if diagnostic:
+        if not cadence.get("calls") or not outside.get("calls"):
+            raise ValueError("No complete frame-boundary measurements")
+        if cadence["calls"] > frames["calls"] or outside["calls"] > frames["calls"]:
+            raise ValueError("More boundary measurements than frame flips")
+        for name, limit in (
+            ("window_blt_over_100ms", dd_calls),
+            ("window_blt_over_1000ms", dd_calls),
+            ("frame_outside_over_100ms", outside["calls"]),
+            ("frame_outside_over_1000ms", outside["calls"]),
+        ):
+            if totals[name]["calls"] > limit:
+                raise ValueError("Invalid per-call stall count " + name)
+        if (totals["window_blt_over_1000ms"]["calls"] > totals["window_blt_over_100ms"]["calls"]
+                or totals["frame_outside_over_1000ms"]["calls"] > totals["frame_outside_over_100ms"]["calls"]):
+            raise ValueError("Long stall counts exceed short stall counts")
+
     fps = frames["calls"] / frames["logged_seconds"] if frames["logged_seconds"] else 0
     accepted = dd_accepted + gdi_accepted
     busy = dd_busy
@@ -133,6 +163,17 @@ def analyze_csv(source):
         "present_accepted_percent": round(100.0 * accepted / present_calls, 2) if outcome_samples else None,
         "gdi_accepted_calls": gdi_accepted if mode[2] else None,
         "gdi_fallback_calls": gdi_fallback if mode[2] else None,
+        "frame_timing_diagnostics_available": diagnostic,
+        "frame_start_gap_calls": cadence["calls"] if diagnostic else None,
+        "frame_start_gap_avg_ms": round(cadence["total_ms"] / cadence["calls"], 4) if diagnostic else None,
+        "frame_start_gap_worst_ms": round(cadence["max_ms"], 4) if diagnostic else None,
+        "frame_outside_flip_calls": outside["calls"] if diagnostic else None,
+        "frame_outside_flip_avg_ms": round(outside["total_ms"] / outside["calls"], 4) if diagnostic else None,
+        "frame_outside_flip_worst_ms": round(outside["max_ms"], 4) if diagnostic else None,
+        "window_blt_calls_over_100ms": totals["window_blt_over_100ms"]["calls"] if diagnostic else None,
+        "window_blt_calls_over_1000ms": totals["window_blt_over_1000ms"]["calls"] if diagnostic else None,
+        "outside_flip_calls_over_100ms": totals["frame_outside_over_100ms"]["calls"] if diagnostic else None,
+        "outside_flip_calls_over_1000ms": totals["frame_outside_over_1000ms"]["calls"] if diagnostic else None,
     }
 
 
@@ -210,6 +251,18 @@ def main():
         ])
         if not current["present_worst_is_exact"]:
             report.append("Warning: worst GDI presentation timing is approximate when fallback occurs")
+    if current["frame_timing_diagnostics_available"]:
+        report.extend([
+            "Flip-entry cadence (ms, average/worst): {:.3f} / {:.3f}".format(
+                current["frame_start_gap_avg_ms"], current["frame_start_gap_worst_ms"]),
+            "Time outside Flip (ms, average/worst): {:.3f} / {:.3f}".format(
+                current["frame_outside_flip_avg_ms"], current["frame_outside_flip_worst_ms"]),
+            "DirectDraw blit calls >100ms / >1000ms: {} / {}".format(
+                current["window_blt_calls_over_100ms"], current["window_blt_calls_over_1000ms"]),
+            "Outside-Flip periods >100ms / >1000ms: {} / {}".format(
+                current["outside_flip_calls_over_100ms"], current["outside_flip_calls_over_1000ms"]),
+            "Caution: CPU-side phase timers are not proof of displayed FPS or the cause of Wine stalls.",
+        ])
     if "dll_sha256" in summary:
         report.append("Reviewed test DLL SHA256: " + summary["dll_sha256"])
     if "comparison" in summary:

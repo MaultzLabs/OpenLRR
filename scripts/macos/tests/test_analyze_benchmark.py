@@ -144,6 +144,55 @@ class AnalyzerTests(unittest.TestCase):
             self.assertEqual(metrics["gdi_fallback_calls"], 1)
             self.assertFalse(metrics["present_worst_is_exact"])
 
+    def test_new_timers_split_outside_work_from_present_calls(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp) / "autobenchmark-profiling"
+            make_csv(run)
+            with (run / "menuperf.csv").open("a", newline="") as handle:
+                writer = csv.writer(handle)
+                # 2 flip entries, with one long gap outside the flip function.
+                for name, calls, total, maximum in (
+                        ("frame_start_gap", 2, 1800, 1500),
+                        ("frame_outside_flip", 2, 1200, 1120),
+                        ("window_blt_over_100ms", 2, 0, 0),
+                        ("window_blt_over_1000ms", 1, 0, 0),
+                        ("frame_outside_over_100ms", 1, 0, 0),
+                        ("frame_outside_over_1000ms", 1, 0, 0)):
+                    writer.writerow([1.1, 0, 0, 0, name, calls, total, maximum])
+            completed = subprocess.run([sys.executable, str(SCRIPT), str(run)],
+                                       capture_output=True, text=True)
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            metrics = json.loads((run / "summary.json").read_text())["metrics"]
+            self.assertTrue(metrics["frame_timing_diagnostics_available"])
+            self.assertEqual(metrics["frame_outside_flip_avg_ms"], 600)
+            self.assertEqual(metrics["frame_start_gap_worst_ms"], 1500)
+            self.assertEqual(metrics["window_blt_calls_over_1000ms"], 1)
+            self.assertEqual(metrics["outside_flip_calls_over_1000ms"], 1)
+            self.assertIn("Time outside Flip", (run / "report.txt").read_text())
+
+    def test_old_benchmarks_report_missing_not_zero(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp) / "autobenchmark-older"
+            make_csv(run)
+            completed = subprocess.run([sys.executable, str(SCRIPT), str(run)],
+                                       capture_output=True, text=True)
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            metrics = json.loads((run / "summary.json").read_text())["metrics"]
+            self.assertFalse(metrics["frame_timing_diagnostics_available"])
+            self.assertIsNone(metrics["outside_flip_calls_over_1000ms"])
+
+    def test_incomplete_diagnostics_fail_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp) / "autobenchmark-broken-profiling"
+            make_csv(run)
+            with (run / "menuperf.csv").open("a", newline="") as handle:
+                csv.writer(handle).writerow(
+                    [1.1, 0, 0, 0, "frame_outside_flip", 1, 100, 100])
+            completed = subprocess.run([sys.executable, str(SCRIPT), str(run)],
+                                       capture_output=True, text=True)
+            self.assertNotEqual(completed.returncode, 0)
+            self.assertFalse((run / "summary.json").exists())
+
     def test_malformed_header_refused(self):
         with tempfile.TemporaryDirectory() as tmp:
             run = Path(tmp) / "autobenchmark-malformed"

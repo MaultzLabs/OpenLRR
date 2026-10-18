@@ -371,6 +371,9 @@ void __cdecl Gods98::DirectDraw_Flip(void)
 	log_firstcall();
 
 	Draw_AssertUnlocked("DirectDraw_Flip");
+	// Diagnostic only: measure elapsed time outside this function separately
+	// from the synchronous presentation call. No drawing behavior changes.
+	MenuPerf::FrameBoundary frameBoundary;
 	MenuPerf::Scope timer(MenuPerf::Metric::Flip);
 	if (directDrawGlobs.fullScreen) {
 		MenuPerf::Scope presentation(MenuPerf::Metric::FullscreenFlip);

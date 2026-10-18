@@ -50,6 +50,29 @@ class ObserverTests(unittest.TestCase):
         self.assertTrue(agent.preview([one, two])["matched_dll"])
         self.assertTrue(agent.preview([one, two])["mode_changed"])
 
+    def test_full_cadence_diagnostics_reach_analyst_without_private_extras(self):
+        data = fixture()
+        data["metrics"].update({
+            "frame_timing_diagnostics_available": True,
+            "frame_start_gap_calls": 462,
+            "frame_start_gap_avg_ms": 120.0,
+            "frame_start_gap_worst_ms": 1200.0,
+            "frame_outside_flip_calls": 462,
+            "frame_outside_flip_avg_ms": 13.5,
+            "frame_outside_flip_worst_ms": 180.0,
+            "window_blt_calls_over_100ms": 150,
+            "window_blt_calls_over_1000ms": 20,
+            "outside_flip_calls_over_100ms": 3,
+            "outside_flip_calls_over_1000ms": 0,
+        })
+        cleaned = agent.validate_summary(data, data["run"])
+        self.assertTrue(cleaned["frame_timing_diagnostics_available"])
+        self.assertEqual(cleaned["metrics"]["window_blt_calls_over_1000ms"], 20)
+        self.assertNotIn("private_path", json.dumps(cleaned))
+        del data["metrics"]["frame_outside_flip_avg_ms"]
+        with self.assertRaisesRegex(ValueError, "Incomplete detailed diagnostics"):
+            agent.validate_summary(data, data["run"])
+
     def test_gdi_candidate_selects_matching_default_mode_baseline(self):
         first_name = "autobenchmark-2026-10-18_13-35-03"
         second_name = "autobenchmark-2026-10-18_13-39-20"

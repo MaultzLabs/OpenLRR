@@ -29,6 +29,11 @@ METRICS = (
     "present_intervals_over_1000ms", "present_accepted_calls",
     "present_busy_calls", "present_error_calls", "present_accepted_percent",
     "present_intervals", "gdi_accepted_calls", "gdi_fallback_calls",
+    "frame_start_gap_calls", "frame_start_gap_avg_ms",
+    "frame_start_gap_worst_ms", "frame_outside_flip_calls",
+    "frame_outside_flip_avg_ms", "frame_outside_flip_worst_ms",
+    "window_blt_calls_over_100ms", "window_blt_calls_over_1000ms",
+    "outside_flip_calls_over_100ms", "outside_flip_calls_over_1000ms",
 )
 CONFIG = Path.home() / ".config" / "openlrr-benchmark"
 STATE_DIR = Path.home() / ".local" / "share" / "openlrr-agent"
@@ -86,6 +91,14 @@ def validate_summary(data: dict, name: str) -> dict:
             raise ValueError("Invalid value for " + field)
     if not clean["present_calls"] or not clean["frame_flips"]:
         raise ValueError("Missing completed graphics samples")
+    available = raw.get("frame_timing_diagnostics_available")
+    if available is not None and type(available) is not bool:
+        raise ValueError("Invalid diagnostic availability")
+    diagnostic_fields = METRICS[16:]
+    if available is True and any(clean[name] is None for name in diagnostic_fields):
+        raise ValueError("Incomplete detailed diagnostics")
+    if available is not True and any(clean[name] is not None for name in diagnostic_fields):
+        raise ValueError("Detailed diagnostics cannot be reported when unavailable")
     dll = data.get("dll_sha256")
     if dll is not None and (not isinstance(dll, str) or not HEX_RE.fullmatch(dll)):
         raise ValueError("Unexpected DLL fingerprint")
@@ -95,6 +108,7 @@ def validate_summary(data: dict, name: str) -> dict:
         "mode": mode,
         "close_requested": data.get("close_requested") is True,
         "metrics": clean,
+        "frame_timing_diagnostics_available": raw.get("frame_timing_diagnostics_available") is True,
     }
 
 
@@ -146,6 +160,7 @@ def preview(pair):
         "matched_dll": bool(left["dll_sha256"] and left["dll_sha256"] == right["dll_sha256"]),
         "mode_changed": left["mode"] != right["mode"],
         "mean_present_ms_change_percent": delta,
+        "detailed_diagnostics_available": left["frame_timing_diagnostics_available"] and right["frame_timing_diagnostics_available"],
         "warning": "Logical frame rate is not visible FPS; check actual presentation success and visual behavior.",
     }
 
@@ -194,6 +209,12 @@ def run_ai(payload, model: str) -> dict:
         "No actions, commands, scripts, URLs, or code edits. "
         "Frame flips do not prove a frame reached the display. "
         "Use present_accepted_calls and present_busy_calls when available; "
+        "when frame timing diagnostics are present, separately compare "
+        "frame_outside_flip_avg_ms, frame_start_gap_avg_ms and "
+        "window_blt_calls_over_1000ms. These distinguish time in the API "
+        "from time between calls, but DO NOT prove where the low-level "
+        "graphics driver waits or whether a frame reached the screen. "
+        "If detailed diagnostics are absent, say so and request them. "
         "if absent, mark uncertainty. Do not equate changes to a confirmed fix "
         "without repeated like-for-like measurements and human visual review. "
         "A changed DLL means the comparison is not a strictly isolated A/B. "
