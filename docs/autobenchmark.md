@@ -91,7 +91,7 @@ modes; comparisons are measurements, not automatic code approvals.
 
 ### Upgrade the local test scripts
 
-The three scripts must be in the **same local directory**. Using your existing
+Each new JSON summary also includes the SHA256 of the reviewed benchmark DLL,\nso candidate results can be linked to the exact tested binary without uploading\nany executable.\n\nThe three scripts must be in the **same local directory**. Using your existing
 authenticated GitHub CLI and already-configured private destination needs no
 new token. In macOS Terminal:
 
