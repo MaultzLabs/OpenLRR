@@ -15,6 +15,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT.parent / "agent"))
 
 import bound_pair
+import pipeline
 import experiment_controller
 import visual_capture_binding as gate
 
@@ -84,6 +85,34 @@ class VerifiedPairTests(unittest.TestCase):
             self.manifest, self.runs, self.ledger,
             visual_report=report, visual_captures=captures,
             switches_dir=self.switches)
+
+    def test_one_command_pipeline_produces_verified_research_decision(self):
+        result = pipeline.run_once(self.manifest, self.runs, self.home / 'pipeline-result')
+        self.assertEqual(result['visual_status'], 'regression')
+        self.assertEqual(result['research_next_step'], 'isolate_regression')
+        self.assertFalse(result['capture_origin_authenticated'])
+        self.assertFalse(result['automatic_execution'])
+        self.assertTrue((self.home / 'pipeline-result/research-decision.json').is_file())
+        self.assertFalse((self.home / 'pipeline-result/read-only-ledger.json').exists())
+
+    def test_one_command_pipeline_wont_overwrite_existing_evidence(self):
+        destination = self.home / 'pipeline-result'
+        destination.mkdir()
+        marker = destination / 'keep.txt'
+        marker.write_text('protected')
+        with self.assertRaisesRegex(ValueError, 'overwrite'):
+            pipeline.run_once(self.manifest, self.runs, destination)
+        self.assertEqual(marker.read_text(), 'protected')
+
+    def test_one_command_pipeline_wont_write_into_run_folder(self):
+        with self.assertRaisesRegex(ValueError, 'outside'):
+            pipeline.run_once(self.manifest, self.runs, self.runs / 'injected')
+
+    def test_one_command_pipeline_refuses_missing_capture(self):
+        missing = self.runs / self.runs_by_arm['candidate'] / 'visual/menu.png'
+        missing.unlink()
+        with self.assertRaisesRegex(ValueError, 'absent'):
+            pipeline.run_once(self.manifest, self.runs, self.home / 'pipeline-result')
 
     def test_valid_pair_flags_visual_regression_for_research(self):
         captures = self.register()
