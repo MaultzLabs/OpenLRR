@@ -34,6 +34,9 @@ METRICS = (
     "frame_outside_flip_avg_ms", "frame_outside_flip_worst_ms",
     "window_blt_calls_over_100ms", "window_blt_calls_over_1000ms",
     "outside_flip_calls_over_100ms", "outside_flip_calls_over_1000ms",
+    "blit_thread_cpu_samples", "blit_thread_cpu_unavailable",
+    "blit_thread_cpu_avg_ms", "blit_slow_cpu_samples",
+    "blit_slow_thread_cpu_avg_ms", "blit_slow_low_cpu_calls",
 )
 CONFIG = Path.home() / ".config" / "openlrr-benchmark"
 STATE_DIR = Path.home() / ".local" / "share" / "openlrr-agent"
@@ -94,11 +97,34 @@ def validate_summary(data: dict, name: str) -> dict:
     available = raw.get("frame_timing_diagnostics_available")
     if available is not None and type(available) is not bool:
         raise ValueError("Invalid diagnostic availability")
-    diagnostic_fields = METRICS[16:]
+    diagnostic_fields = METRICS[16:26]
     if available is True and any(clean[name] is None for name in diagnostic_fields):
         raise ValueError("Incomplete detailed diagnostics")
     if available is not True and any(clean[name] is not None for name in diagnostic_fields):
         raise ValueError("Detailed diagnostics cannot be reported when unavailable")
+    cpu_available = raw.get("blit_cpu_probe_available")
+    if cpu_available is not None and type(cpu_available) is not bool:
+        raise ValueError("Invalid CPU-probe availability")
+    cpu_fields = METRICS[26:]
+    if cpu_available is True:
+        needed = (
+            "blit_thread_cpu_samples", "blit_thread_cpu_unavailable",
+            "blit_slow_cpu_samples", "blit_slow_low_cpu_calls",
+        )
+        if any(clean[field] is None for field in needed):
+            raise ValueError("Incomplete CPU probe counters")
+        if clean["blit_thread_cpu_samples"] + clean["blit_thread_cpu_unavailable"] != clean["present_calls"]:
+            raise ValueError("CPU sample counts disagree with Blt calls")
+        if clean["blit_slow_low_cpu_calls"] > clean["blit_slow_cpu_samples"]:
+            raise ValueError("Impossible low-CPU long-call count")
+        if (clean["blit_thread_cpu_samples"] > 0 and
+                clean["blit_thread_cpu_avg_ms"] is None):
+            raise ValueError("Missing CPU timing mean")
+        if (clean["blit_slow_cpu_samples"] > 0 and
+                clean["blit_slow_thread_cpu_avg_ms"] is None):
+            raise ValueError("Missing slow-call CPU mean")
+    elif any(clean[field] is not None for field in cpu_fields):
+        raise ValueError("CPU values cannot appear without sampling metadata")
     dll = data.get("dll_sha256")
     if dll is not None and (not isinstance(dll, str) or not HEX_RE.fullmatch(dll)):
         raise ValueError("Unexpected DLL fingerprint")
@@ -109,6 +135,7 @@ def validate_summary(data: dict, name: str) -> dict:
         "close_requested": data.get("close_requested") is True,
         "metrics": clean,
         "frame_timing_diagnostics_available": raw.get("frame_timing_diagnostics_available") is True,
+        "blit_cpu_probe_available": cpu_available is True,
     }
 
 
@@ -161,6 +188,7 @@ def preview(pair):
         "mode_changed": left["mode"] != right["mode"],
         "mean_present_ms_change_percent": delta,
         "detailed_diagnostics_available": left["frame_timing_diagnostics_available"] and right["frame_timing_diagnostics_available"],
+        "cpu_probe_available_in_both": left["blit_cpu_probe_available"] and right["blit_cpu_probe_available"],
         "warning": "Logical frame rate is not visible FPS; check actual presentation success and visual behavior.",
     }
 
@@ -214,6 +242,11 @@ def run_ai(payload, model: str) -> dict:
         "window_blt_calls_over_1000ms. These distinguish time in the API "
         "from time between calls, but DO NOT prove where the low-level "
         "graphics driver waits or whether a frame reached the screen. "
+        "When CPU-probe results exist, check blit_thread_cpu_samples, "
+        "blit_thread_cpu_unavailable and blit_slow_low_cpu_calls. "
+        "Low thread CPU time during a long Blt suggests blocking or "
+        "descheduling; it does NOT identify the Wine, driver or compositor "
+        "layer. Missing CPU samples are UNKNOWN, never zero CPU use. "
         "If detailed diagnostics are absent, say so and request them. "
         "if absent, mark uncertainty. Do not equate changes to a confirmed fix "
         "without repeated like-for-like measurements and human visual review. "
