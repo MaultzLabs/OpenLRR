@@ -61,6 +61,22 @@ class PairedDllTests(unittest.TestCase):
         }))
         (self.candidate.parent / "REVIEW-REQUIRED.txt").write_text(
             "Manual execution approval required")
+        (self.candidate.parent / "build-provenance.json").write_text(json.dumps({
+            "schema_version": 1,
+            "workflow": "OpenLRR AI Graphics Proposal (review only)",
+            "workflow_head_sha": "a" * 40,
+            "workflow_run_id": "39169390987",
+            "compiled_source_revision": "b" * 40,
+            "source_file": "src/openlrr/engine/drawing/DirectDraw.cpp",
+            "patched_source_file_sha256": "c" * 64,
+            "proposal_patch_sha256": hashlib.sha256(
+                (self.candidate.parent / "proposal.patch").read_bytes()).hexdigest(),
+            "compiled_dll_sha256": self.cand_sha,
+            "is_windows_x86": True,
+            "human_source_review_required": True,
+            "automatic_host_execution": False,
+            "automatic_deployment": False,
+        }))
         (self.candidate.parent / "provenance.json").write_text(json.dumps({
             "run_id": "39169390987", "candidate_sha256": self.cand_sha,
             "automatic_execution": False,
