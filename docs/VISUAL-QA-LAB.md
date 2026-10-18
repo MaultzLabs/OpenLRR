@@ -11,7 +11,7 @@ model. No screenshot/video collection has been installed on a Mac.
 - Screenshot agreement using normalized RGB mean absolute difference,
   changed-pixel percentage and **local structural similarity** (tile SSIM).
 - Sampled video agreement using the same frame metrics at a deterministic
-  frame sampling rate (default 2 samples/second, up to 48 samples).
+  frame sampling rate (default 2 samples/second, up to 24 samples, spread across the entire clip).
 - Targeted heuristics for black screens, likely frozen presentation (candidate
   static while reference moves), unusual luminance flicker, geometry mismatches
   and unequal sample counts.
@@ -22,8 +22,10 @@ model. No screenshot/video collection has been installed on a Mac.
 The comparison is pixel-spatial, not semantic. Animations, camera differences,
 rendering settings, display scaling, compression, frame timing offsets and
 gamma changes can cause false positives. Capture the *same scene, scale, aspect
-ratio, time window and settings* for both arms. The video sample index is
-aligned by timestamp from each file's start; it is not motion-synchronized.
+ratio, time window and settings* for both arms. Videos longer than the frame budget are sampled evenly through their full duration. The video sample index is
+aligned by approximate timestamp from each file's start; it is not motion-synchronized.
+Clips with more than 2% duration mismatch fail closed as inconclusive.
+Source captures larger than 2.5 million pixels per frame are refused to bound memory.
 Use a white-on-black exclusion mask PNG (white = ignore) to exclude clocks,
 cursors or reliably nondeterministic areas. Masks must match full frame size
 and cannot hide every pixel. Review artifacts before interpreting scores.
