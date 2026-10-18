@@ -9,7 +9,9 @@
 
 namespace MenuPerf {
 
-enum class Metric : unsigned { FlicLock, FlicDecode, FlicUnlock, FlicBlt, ImageBlt, Flip, MovieUpdate, WindowCoordinate, WindowBlt, FullscreenFlip, GdiAcquire, GdiStretch, GdiRelease, WindowPresentAccepted, WindowPresentBusy, WindowPresentError, GdiWindowAttempt, GdiPresentAccepted, GdiPresentFallback, Count };
+enum class Metric : unsigned { FlicLock, FlicDecode, FlicUnlock, FlicBlt, ImageBlt, Flip, MovieUpdate, WindowCoordinate, WindowBlt, FullscreenFlip, GdiAcquire, GdiStretch, GdiRelease, WindowPresentAccepted, WindowPresentBusy, WindowPresentError, GdiWindowAttempt, GdiPresentAccepted, GdiPresentFallback,
+    FrameStartGap, FrameOutsideFlip, WindowBltSlow100ms, WindowBltSlow1000ms,
+    OutsideFlipSlow100ms, OutsideFlipSlow1000ms, Count };
 struct Stat { std::uint64_t calls = 0; std::uint64_t ticks = 0; std::uint64_t maxTicks = 0; };
 
 inline bool HasMarker(const char* name) {
@@ -44,6 +46,10 @@ struct State {
     std::FILE* output = nullptr;
     LARGE_INTEGER frequency = {};
     LARGE_INTEGER intervalStart = {};
+    // Flip-entry cadence and time outside DirectDraw_Flip. Both are sampled
+    // only in diagnostic mode; neither proves what reached the display.
+    LARGE_INTEGER lastFlipEntry = {};
+    LARGE_INTEGER lastFlipExit = {};
     Stat counters[static_cast<unsigned>(Metric::Count)] = {};
 
     State() {
@@ -68,6 +74,53 @@ inline bool NonblockingWindowBlt() { return Get().nonblockingWindowBlt; }
 inline bool GdiWindowPresent() { return Get().gdiWindowPresent; }
 inline bool AutoTestEnabled() { return Get().autoTestSeconds != 0; }
 
+// A completed sample is held in memory until the existing one-second CSV
+// flush. Long operations get separate CALL counters (not interval maxima).
+inline void RecordTickSample(Metric metric, std::uint64_t ticks) {
+    State& state = Get();
+    if (!state.enabled) return;
+    Stat& stat = state.counters[static_cast<unsigned>(metric)];
+    ++stat.calls;
+    stat.ticks += ticks;
+    if (ticks > stat.maxTicks) stat.maxTicks = ticks;
+    if (metric == Metric::WindowBlt || metric == Metric::FrameOutsideFlip) {
+        const double ms = static_cast<double>(ticks) * 1000.0 / state.frequency.QuadPart;
+        const bool outside = metric == Metric::FrameOutsideFlip;
+        if (ms > 100.0) {
+            const Metric counter = outside ? Metric::OutsideFlipSlow100ms : Metric::WindowBltSlow100ms;
+            ++state.counters[static_cast<unsigned>(counter)].calls;
+        }
+        if (ms > 1000.0) {
+            const Metric counter = outside ? Metric::OutsideFlipSlow1000ms : Metric::WindowBltSlow1000ms;
+            ++state.counters[static_cast<unsigned>(counter)].calls;
+        }
+    }
+}
+
+// Tracks two disjoint boundaries: entry-to-entry cadence, and previous Flip
+// exit to current Flip entry (other work, scheduling, or waiting). Called
+// only from DirectDraw_Flip; normal rendering behavior stays unchanged.
+struct FrameBoundary {
+    bool active;
+    FrameBoundary() : active(Get().enabled) {
+        if (!active) return;
+        LARGE_INTEGER now = {};
+        if (!::QueryPerformanceCounter(&now)) return;
+        State& state = Get();
+        if (state.lastFlipEntry.QuadPart > 0 && now.QuadPart >= state.lastFlipEntry.QuadPart)
+            RecordTickSample(Metric::FrameStartGap,
+                static_cast<std::uint64_t>(now.QuadPart - state.lastFlipEntry.QuadPart));
+        if (state.lastFlipExit.QuadPart > 0 && now.QuadPart >= state.lastFlipExit.QuadPart)
+            RecordTickSample(Metric::FrameOutsideFlip,
+                static_cast<std::uint64_t>(now.QuadPart - state.lastFlipExit.QuadPart));
+        state.lastFlipEntry = now;
+    }
+    ~FrameBoundary() {
+        if (!active) return;
+        ::QueryPerformanceCounter(&Get().lastFlipExit);
+    }
+};
+
 struct Scope {
     Metric metric;
     bool active;
@@ -81,10 +134,7 @@ struct Scope {
         ::QueryPerformanceCounter(&stop);
         const std::uint64_t ticks = stop.QuadPart >= start.QuadPart ?
             static_cast<std::uint64_t>(stop.QuadPart - start.QuadPart) : 0;
-        Stat& s = Get().counters[static_cast<unsigned>(metric)];
-        ++s.calls;
-        s.ticks += ticks;
-        if (ticks > s.maxTicks) s.maxTicks = ticks;
+        RecordTickSample(metric, ticks);
     }
 };
 
@@ -121,7 +171,9 @@ inline void FlushIfDue() {
         "window_coordinate", "window_present_blt", "fullscreen_flip",
         "gdi_surface_getdc", "gdi_stretchblt", "gdi_surface_releasedc",
         "window_present_accepted", "window_present_busy", "window_present_error",
-        "gdi_window_attempt", "gdi_present_accepted", "gdi_present_fallback"
+        "gdi_window_attempt", "gdi_present_accepted", "gdi_present_fallback",
+        "frame_start_gap", "frame_outside_flip", "window_blt_over_100ms",
+        "window_blt_over_1000ms", "frame_outside_over_100ms", "frame_outside_over_1000ms"
     };
     const double seconds = static_cast<double>(elapsed) / s.frequency.QuadPart;
     const double factor = 1000.0 / s.frequency.QuadPart;
