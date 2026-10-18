@@ -2,7 +2,7 @@ name: OpenLRR Menu Diagnostics Win32
 
 on:
   push:
-    branches: [menu-perf-build, automated-benchmark-harness, benchmark-loop-v2, agent-loop-v1]
+    branches: [menu-perf-build, automated-benchmark-harness, benchmark-loop-v2, agent-loop-v1, lab-render-diagnostics-v1]
   workflow_dispatch:
 
 permissions:
