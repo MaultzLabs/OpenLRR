@@ -24,7 +24,13 @@ def make_csv(directory, *, mode=(0, 0, 0), malformed=False, outcomes=False):
         writer.writerow(module.HEADER if not malformed else ["unknown", "header"])
         for index, (seconds, present_ms) in enumerate([(1.1, 1200), (1.3, 200)]):
             writer.writerow([seconds, *mode, "frame_flip", 1, present_ms, present_ms])
-            writer.writerow([seconds, *mode, "window_present_blt", 1, present_ms, present_ms])
+            if mode[2]:
+                writer.writerow([seconds, *mode, "gdi_window_attempt", 1, present_ms, present_ms])
+                writer.writerow([seconds, *mode, "gdi_present_accepted", 1, 0, 0])
+                writer.writerow([seconds, *mode, "gdi_present_fallback", 0, 0, 0])
+                writer.writerow([seconds, *mode, "window_present_blt", 0, 0, 0])
+            else:
+                writer.writerow([seconds, *mode, "window_present_blt", 1, present_ms, present_ms])
             if outcomes:
                 writer.writerow([seconds, *mode, "window_present_accepted", int(index == 0), 0, 0])
                 writer.writerow([seconds, *mode, "window_present_busy", int(index == 1), 0, 0])
@@ -80,6 +86,37 @@ class AnalyzerTests(unittest.TestCase):
             self.assertEqual(metrics["present_busy_calls"], 1)
             self.assertEqual(metrics["present_error_calls"], 0)
             self.assertEqual(metrics["present_accepted_percent"], 50.0)
+
+    def test_gdi_success_reports_real_present_time_not_zero_directdraw_blts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp) / "autobenchmark-gdi"
+            make_csv(run, mode=(0, 0, 1))
+            completed = subprocess.run([sys.executable, str(SCRIPT), str(run)],
+                                       capture_output=True, text=True)
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            stats = json.loads((run / "summary.json").read_text())["metrics"]
+            self.assertEqual(stats["present_path"], "gdi")
+            self.assertEqual(stats["present_calls"], 2)
+            self.assertEqual(stats["gdi_accepted_calls"], 2)
+            self.assertEqual(stats["gdi_fallback_calls"], 0)
+            self.assertEqual(stats["present_accepted_percent"], 100.0)
+            self.assertAlmostEqual(stats["present_avg_ms"], 700)
+            self.assertAlmostEqual(stats["present_total_s"], 1.4)
+
+    def test_gdi_fallback_includes_directdraw_time(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp) / "autobenchmark-gdi-fallback"
+            make_csv(run, mode=(0, 0, 1))
+            with (run / "menuperf.csv").open("a", newline="") as handle:
+                writer = csv.writer(handle)
+                writer.writerow([1.1, 0, 0, 1, "gdi_present_fallback", 1, 0, 0])
+                writer.writerow([1.1, 0, 0, 1, "window_present_blt", 1, 300, 300])
+                writer.writerow([1.1, 0, 0, 1, "window_present_accepted", 1, 0, 0])
+            # The extra fallback does not match attempted GDI counts and
+            # must fail closed rather than offering a bogus improvement.
+            completed = subprocess.run([sys.executable, str(SCRIPT), str(run)],
+                                       capture_output=True, text=True)
+            self.assertNotEqual(completed.returncode, 0)
 
     def test_malformed_header_refused(self):
         with tempfile.TemporaryDirectory() as tmp:
