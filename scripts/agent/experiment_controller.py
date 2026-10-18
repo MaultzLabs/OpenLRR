@@ -18,7 +18,6 @@ import json
 import os
 from pathlib import Path
 import re
-import stat
 import sys
 
 import evidence_gate
@@ -28,6 +27,7 @@ LEDGER_SCHEMA = 1
 MAX_LEDGER_ROWS = 1000
 MAX_DAILY_RESEARCH_REQUESTS = 3
 MAX_REPORT_BYTES = 100_000
+MAX_LEDGER_BYTES = 1_000_000
 STOP_DIR = Path.home() / ".config/openlrr-benchmark"
 DEFAULT_LEDGER = Path.home() / ".local/share/openlrr-agent/research-controller.json"
 IDENTITY = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{2,63}$")
@@ -49,8 +49,8 @@ def canonical(value: dict) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
 
 
-def bounded_json(path: Path) -> dict:
-    if not path.is_file() or path.stat().st_size > MAX_REPORT_BYTES:
+def bounded_json(path: Path, *, limit: int = MAX_REPORT_BYTES) -> dict:
+    if not path.is_file() or path.stat().st_size > limit:
         raise ValueError("Input is missing or exceeds maximum size")
     doc = json.loads(path.read_text(encoding="utf-8"))
     if type(doc) is not dict:
@@ -82,7 +82,7 @@ def read_ledger(path: Path) -> dict:
         return {"schema_version": LEDGER_SCHEMA, "events": []}
     if path.is_symlink():
         raise ValueError("Controller ledger cannot be a symlink")
-    raw = bounded_json(path)
+    raw = bounded_json(path, limit=MAX_LEDGER_BYTES)
     if set(raw) != {"schema_version", "events"} or raw["schema_version"] != LEDGER_SCHEMA:
         raise ValueError("Unknown ledger schema")
     rows = raw["events"]
