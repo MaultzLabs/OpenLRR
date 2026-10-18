@@ -153,6 +153,8 @@ def analyze_csv(source):
     slow_cpu_samples = totals.get("window_blt_slow_thread_cpu", {}).get("calls", 0)
     slow_low_cpu = totals.get("window_blt_slow_low_cpu", {}).get("calls", 0)
     if cpu_probe_present:
+        if not diagnostic:
+            raise ValueError("CPU probe requires full frame-timing diagnostics")
         if cpu_samples + cpu_missing != dd_calls:
             raise ValueError("CPU sampling outcomes disagree with DirectDraw Blt count")
         if slow_cpu_samples > totals.get("window_blt_over_1000ms", {}).get("calls", 0):
