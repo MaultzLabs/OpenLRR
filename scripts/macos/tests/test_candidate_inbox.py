@@ -34,6 +34,22 @@ def fixture(root: Path):
         "host_execution_authorized": False,
     }))
     (root / "REVIEW-REQUIRED.txt").write_text("not approved for execution")
+    (root / "build-provenance.json").write_text(json.dumps({
+        "schema_version": 1,
+        "workflow": "OpenLRR AI Graphics Proposal (review only)",
+        "workflow_head_sha": "a" * 40,
+        "workflow_run_id": "39169390987",
+        "compiled_source_revision": "b" * 40,
+        "source_file": "src/openlrr/engine/drawing/DirectDraw.cpp",
+        "patched_source_file_sha256": "c" * 64,
+        "proposal_patch_sha256": hashlib.sha256(
+            (root / "proposal.patch").read_bytes()).hexdigest(),
+        "compiled_dll_sha256": digest,
+        "is_windows_x86": True,
+        "human_source_review_required": True,
+        "automatic_host_execution": False,
+        "automatic_deployment": False,
+    }))
 
 
 class InboxTests(unittest.TestCase):
@@ -58,6 +74,23 @@ class InboxTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "unexpected files"):
                 inbox.validate_bundle(root)
 
+    def test_compiled_binary_attestation_cannot_misstate_patch_or_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fixture(root)
+            path = root / "build-provenance.json"
+            data = json.loads(path.read_text())
+            data["proposal_patch_sha256"] = "a" * 64
+            path.write_text(json.dumps(data))
+            with self.assertRaisesRegex(ValueError, "provenance"):
+                inbox.validate_bundle(root)
+            data["proposal_patch_sha256"] = hashlib.sha256(
+                (root / "proposal.patch").read_bytes()).hexdigest()
+            data["workflow_head_sha"] = "not-the-run-head"
+            path.write_text(json.dumps(data))
+            with self.assertRaisesRegex(ValueError, "provenance"):
+                inbox.validate_bundle(root)
+
     def test_invalid_source_scope_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -74,7 +107,7 @@ class InboxTests(unittest.TestCase):
         expected = {"status": "completed", "conclusion": "success",
                     "headBranch": "agent-loop-v1",
                     "headSha": "a" * 40,
-                    "workflowName": "OpenLRR Evidence-Grounded AI Smoke Test"}
+                    "workflowName": "OpenLRR AI Graphics Proposal (review only)"}
         with mock.patch.object(inbox, "gh", return_value=json.dumps(expected)):
             self.assertEqual(inbox.run_metadata("39169390987"), expected)
         expected["conclusion"] = "failure"
