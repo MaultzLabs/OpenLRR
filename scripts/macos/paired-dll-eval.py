@@ -101,6 +101,17 @@ def preflight(base_sha: str, candidate_sha: str, run_id: str, pairs: int, second
     if any(not path.is_file() for path in (SUPERVISOR, CONTROLLER, PYTHON)):
         raise RuntimeError("Trusted supervisor/controller/Python checkout missing")
     assert_safe_file(BASELINE, base_sha)
+    baseline_metadata = BASELINE.parent / "provenance.json"
+    if baseline_metadata.is_symlink() or not baseline_metadata.is_file() or baseline_metadata.stat().st_size > 4096:
+        raise ValueError("Baseline lacks bounded, reviewed GitHub build provenance")
+    origin = json.loads(baseline_metadata.read_text(encoding="utf-8"))
+    if (origin.get("dll_sha256") != base_sha or
+        origin.get("reviewed_source_workflow") != "OpenLRR Menu Diagnostics Win32" or
+        origin.get("approved_for_automatic_execution") is not False or
+        origin.get("tested_in_game") is not False or
+        not RUN_ID.fullmatch(str(origin.get("source_run", ""))) or
+        not re.fullmatch(r"[a-f0-9]{40}", str(origin.get("head_sha", "")))):
+        raise ValueError("Baseline provenance does not match the reviewed hash")
     assert_safe_file(candidate_source(run_id, candidate_sha), candidate_sha)
     return {
         "baseline_sha256": base_sha, "candidate_sha256": candidate_sha,
