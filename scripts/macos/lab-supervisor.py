@@ -140,8 +140,11 @@ def run_one(mode: str, approved_sha: str, seconds: int, baseline: Path | None) -
     if fingerprint(DLL) != approved_sha:
         raise RuntimeError("Approved test DLL changed; aborting")
     before = known_runs()
-    env = dict(os.environ, OPENLRR_SUPERVISED="1",
-               OPENLRR_BENCH_MODE=mode, OPENLRR_BENCH_SECONDS=str(seconds))
+    env = {k: v for k, v in os.environ.items()
+           if not k.startswith("OPENAI_") and k not in
+           {"GITHUB_TOKEN", "GH_TOKEN", "GIT_ASKPASS", "SSH_ASKPASS"}}
+    env.update(OPENLRR_SUPERVISED="1", OPENLRR_BENCH_MODE=mode,
+               OPENLRR_BENCH_SECONDS=str(seconds))
     env.pop("OPENLRR_BASELINE_CSV", None)
     if baseline:
         env["OPENLRR_BASELINE_CSV"] = str(baseline)
