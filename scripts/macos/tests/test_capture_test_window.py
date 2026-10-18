@@ -51,6 +51,12 @@ class TestWindowCapture(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "missing"):
                 collector.eligible_window(99, [window()])
 
+    def test_listing_filters_non_test_windows_without_capture(self):
+        records = [window(301, pid=10), window(302, pid=20), window(303, pid=10, layer=1)]
+        with mock.patch.object(collector, 'process_uses_test_game', side_effect=lambda pid: pid == 10) as check:
+            found = collector.list_eligible_windows(records)
+        self.assertEqual([x['window_id'] for x in found], [301])
+        self.assertEqual(check.call_count, 2)
     def test_foreign_process_window_refused(self):
         with mock.patch.object(collector, "process_uses_test_game", return_value=False):
             with self.assertRaisesRegex(RuntimeError, "TEST game files"):
