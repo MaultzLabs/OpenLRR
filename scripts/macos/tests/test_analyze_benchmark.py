@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Offline fixture tests. No game installation, GitHub token or network needed."""
 import csv
+import hashlib
 import importlib.util
 import json
 import subprocess
@@ -33,6 +34,7 @@ class AnalyzerTests(unittest.TestCase):
             run = Path(tmp) / "autobenchmark-2026-10-18_22-01-01"
             make_csv(run)
             (run / "menuperf.finished").write_text("close requested")
+            (run / "benchmark-openlrr.dll").write_bytes(b"MZtest-pe-payload")
             completed = subprocess.run([sys.executable, str(SCRIPT), str(run)],
                                        capture_output=True, text=True)
             self.assertEqual(completed.returncode, 0, completed.stderr)
@@ -44,6 +46,7 @@ class AnalyzerTests(unittest.TestCase):
             self.assertAlmostEqual(stats["present_avg_ms"], 700)
             self.assertEqual(stats["present_intervals_over_1000ms"], 1)
             self.assertTrue(summary["close_requested"])
+            self.assertEqual(summary["dll_sha256"], hashlib.sha256(b"MZtest-pe-payload").hexdigest())
             self.assertNotIn(tmp, (run / "report.txt").read_text())
             self.assertNotIn(tmp, (run / "summary.json").read_text())
 
