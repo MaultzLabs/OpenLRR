@@ -28,7 +28,8 @@ python="$HOME/.local/share/openlrr-agent/venv/bin/python"
 [ ! -e "$config/STOP" ] || fail "STOP flag active; do not override it"
 [ ! -e "$config/PAUSE" ] || fail "PAUSE flag active; do not override it"
 [ ! -e "$config/supervisor.lock" ] || fail "Supervisor lock active; inspect test process before continuing"
-if lsof -nP -t +D "$game" 2>/dev/null | grep -q .; then
+open_handles="$(lsof -nP -t +D "$game" 2>/dev/null || true)"
+if [ -n "$open_handles" ]; then
   fail "TEST game has open file handles; close it before attempting diagnosis"
 fi
 
