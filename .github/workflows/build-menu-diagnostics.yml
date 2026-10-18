@@ -2,7 +2,7 @@ name: OpenLRR Menu Diagnostics Win32
 
 on:
   push:
-    branches: [menu-perf-build]
+    branches: [menu-perf-build, automated-benchmark-harness]
   workflow_dispatch:
 
 permissions:
