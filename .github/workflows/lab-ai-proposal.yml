@@ -1,10 +1,9 @@
 name: OpenLRR AI Graphics Proposal (review only)
 
 on:
+  # Manual-only until the evidence-driven planner supplies reviewed feedback.
+  # A clock-driven unconditioned patch generator is intentionally disabled.
   workflow_dispatch:
-  schedule:
-    # Disabled by default: runs only when the repository variable is explicitly true.
-    - cron: '18 7 * * *'
 
 permissions:
   contents: read
