@@ -26,8 +26,8 @@ IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".webp"}
 VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".webm", ".avi"}
 ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{2,63}$")
 MAX_BYTES = 1_000_000_000
-MAX_PIXELS = 12_000_000
-MAX_FRAMES = 48
+MAX_PIXELS = 2_500_000
+MAX_FRAMES = 24
 MAX_DURATION_S = 600
 Image.MAX_IMAGE_PIXELS = MAX_PIXELS
 
@@ -64,7 +64,7 @@ def run_checked(command: list[str], timeout: int) -> str:
     return proc.stdout
 
 
-def extract_video(path: Path, dest: Path, fps: int) -> list[np.ndarray]:
+def extract_video(path: Path, dest: Path, fps: int) -> tuple[list[np.ndarray], float]:
     if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
         raise ValueError("Video inspection requires ffmpeg and ffprobe")
     metadata = json.loads(run_checked(
@@ -83,14 +83,16 @@ def extract_video(path: Path, dest: Path, fps: int) -> list[np.ndarray]:
         raise ValueError("Cannot determine video duration") from exc
     if not math.isfinite(duration) or not 0 < duration <= MAX_DURATION_S:
         raise ValueError("Video duration outside safety bounds")
-    # fps filter is constructed from a bounded integer, never user shell text.
+    # Sample the ENTIRE clip at uniform time intervals, not only its first
+    # MAX_FRAMES/fps seconds; bound resident memory for long captures.
+    effective_fps = min(float(fps), (MAX_FRAMES - 0.1) / duration)
     run_checked(["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
-                 "-i", str(path), "-an", "-sn", "-vf", f"fps={fps}",
+                 "-i", str(path), "-an", "-sn", "-vf", f"fps={effective_fps:.8f}",
                  "-frames:v", str(MAX_FRAMES), str(dest / "frame-%04d.png")], 90)
     frames = sorted(dest.glob("frame-*.png"))
     if not frames:
         raise ValueError("Video produced no sampled frames")
-    return [load_image(frame) for frame in frames]
+    return [load_image(frame) for frame in frames], duration
 
 
 def load_mask(path: Path | None, shape: tuple[int, ...]) -> np.ndarray:
@@ -180,8 +182,14 @@ def heatmap(ref: np.ndarray, cand: np.ndarray, valid: np.ndarray,
 
 def compare_frames(ref_frames: list[np.ndarray], cand_frames: list[np.ndarray],
                    mask_path: Path | None, out: Path, tolerance: int,
-                   min_score: float) -> tuple[str, float | None, dict, list[dict], list[dict]]:
+                   min_score: float, duration_pair: tuple[float, float] | None = None) -> tuple[str, float | None, dict, list[dict], list[dict]]:
     issues: list[dict] = []
+    if duration_pair is not None and abs(duration_pair[0] - duration_pair[1]) > max(0.25, .02 * min(duration_pair)):
+        return ("inconclusive", None,
+                {"reference_duration_s": round(duration_pair[0], 3),
+                 "candidate_duration_s": round(duration_pair[1], 3)},
+                [issue("capture_duration_mismatch", "blocking",
+                       "Video durations differ by more than 2%; recapture matched windows.")], [])
     if len(ref_frames) != len(cand_frames):
         return ("inconclusive", None, {"reference_frames": len(ref_frames),
                 "candidate_frames": len(cand_frames)},
@@ -268,6 +276,7 @@ def report_for(reference: Path, candidate: Path, out: Path, experiment_id: str,
     if out.exists() and (out.is_symlink() or any(out.iterdir())):
         raise ValueError("Output directory must be empty and not a symlink")
     out.mkdir(parents=True, exist_ok=True)
+    durations = None
     if typ == "image":
         left, right = [load_image(reference)], [load_image(candidate)]
     else:
@@ -276,10 +285,11 @@ def report_for(reference: Path, candidate: Path, out: Path, experiment_id: str,
             a, b = Path(tmp) / "a", Path(tmp) / "b"
             a.mkdir()
             b.mkdir()
-            left = extract_video(reference, a, fps)
-            right = extract_video(candidate, b, fps)
+            left, reference_seconds = extract_video(reference, a, fps)
+            right, candidate_seconds = extract_video(candidate, b, fps)
+            durations = (reference_seconds, candidate_seconds)
     status, score, metrics, findings, frames = compare_frames(
-        left, right, mask, out, tolerance, min_score)
+        left, right, mask, out, tolerance, min_score, duration_pair=durations)
     recommended = ("isolate_regression" if status == "regression" else
                    "improve_instrumentation" if status == "inconclusive" else
                    "request_visual_review" if status == "review" else "record_no_regression")
