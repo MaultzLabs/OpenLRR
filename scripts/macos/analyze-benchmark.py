@@ -61,36 +61,78 @@ def analyze_csv(source):
             row_count += 1
 
     frames = totals.get("frame_flip", {})
-    present = totals.get("window_present_blt", {})
-    if not frames.get("calls") or not present.get("calls"):
-        raise ValueError("CSV has no completed frame flips or window presentations")
+    if not frames.get("calls"):
+        raise ValueError("CSV has no completed frame flips")
     if len(modes) != 1:
         raise ValueError("CSV contains inconsistent graphics-mode flags")
-    fps = frames["calls"] / frames["logged_seconds"] if frames["logged_seconds"] else 0
     mode = next(iter(modes))
-    accepted = totals.get("window_present_accepted", {}).get("calls", 0)
-    busy = totals.get("window_present_busy", {}).get("calls", 0)
-    errors = totals.get("window_present_error", {}).get("calls", 0)
-    outcome_samples = accepted + busy + errors
-    if outcome_samples and outcome_samples != present["calls"]:
-        raise ValueError("Presentation outcome counters disagree with Blt call count")
+    dd = totals.get("window_present_blt", {})
+    dd_calls = dd.get("calls", 0)
+    dd_accepted = totals.get("window_present_accepted", {}).get("calls", 0)
+    dd_busy = totals.get("window_present_busy", {}).get("calls", 0)
+    dd_errors = totals.get("window_present_error", {}).get("calls", 0)
+    dd_outcomes = dd_accepted + dd_busy + dd_errors
+    if dd_outcomes and dd_outcomes != dd_calls:
+        raise ValueError("DirectDraw outcome counters disagree with Blt calls")
+
+    gdi = totals.get("gdi_window_attempt", {})
+    gdi_accepted = totals.get("gdi_present_accepted", {}).get("calls", 0)
+    gdi_fallback = totals.get("gdi_present_fallback", {}).get("calls", 0)
+    if mode[2]:
+        # The alternative path does not invoke the DirectDraw window Blt on
+        # success. Analyzing only window_present_blt would report a false zero.
+        if not gdi.get("calls"):
+            raise ValueError("GDI mode requires instrumented gdi_window_attempt counters")
+        if gdi_accepted + gdi_fallback != gdi["calls"]:
+            raise ValueError("GDI outcome counters disagree with GDI attempts")
+        if dd_calls != gdi_fallback:
+            raise ValueError("GDI fallback counters disagree with DirectDraw calls")
+        present_calls = gdi["calls"]
+        present_total_ms = gdi["total_ms"] + dd.get("total_ms", 0)
+        # Exact for the expected zero-fallback GDI case; if fallback occurs,
+        # each timer is a distinct phase and a combined worst call is unknown.
+        present_worst_ms = max(gdi["max_ms"], dd.get("max_ms", 0))
+        present_intervals = gdi["intervals"]
+        slow_100ms = min(present_intervals, gdi["slow_100ms"] + dd.get("slow_100ms", 0))
+        slow_1000ms = min(present_intervals, gdi["slow_1000ms"] + dd.get("slow_1000ms", 0))
+        path = "gdi"
+    else:
+        if not dd_calls:
+            raise ValueError("CSV has no completed window presentations")
+        present_calls = dd_calls
+        present_total_ms = dd["total_ms"]
+        present_worst_ms = dd["max_ms"]
+        present_intervals = dd["intervals"]
+        slow_100ms = dd["slow_100ms"]
+        slow_1000ms = dd["slow_1000ms"]
+        path = "directdraw"
+
+    fps = frames["calls"] / frames["logged_seconds"] if frames["logged_seconds"] else 0
+    accepted = dd_accepted + gdi_accepted
+    busy = dd_busy
+    errors = dd_errors
+    outcome_samples = dd_outcomes + gdi_accepted
     return {
         "rows": row_count,
         "mode": {"optimization": mode[0], "nowait": mode[1], "gdi": mode[2]},
+        "present_path": path,
         "logged_duration_s": round(frames["logged_seconds"], 3),
         "frame_flips": frames["calls"],
         "frame_flips_per_s": round(fps, 4),
-        "present_calls": present["calls"],
-        "present_total_s": round(present["total_ms"] / 1000, 4),
-        "present_avg_ms": round(present["total_ms"] / present["calls"], 4),
-        "present_worst_ms": round(present["max_ms"], 4),
-        "present_intervals": present["intervals"],
-        "present_intervals_over_100ms": present["slow_100ms"],
-        "present_intervals_over_1000ms": present["slow_1000ms"],
+        "present_calls": present_calls,
+        "present_total_s": round(present_total_ms / 1000, 4),
+        "present_avg_ms": round(present_total_ms / present_calls, 4),
+        "present_worst_ms": round(present_worst_ms, 4),
+        "present_worst_is_exact": not bool(gdi_fallback),
+        "present_intervals": present_intervals,
+        "present_intervals_over_100ms": slow_100ms,
+        "present_intervals_over_1000ms": slow_1000ms,
         "present_accepted_calls": accepted if outcome_samples else None,
         "present_busy_calls": busy if outcome_samples else None,
         "present_error_calls": errors if outcome_samples else None,
-        "present_accepted_percent": round(100.0 * accepted / outcome_samples, 2) if outcome_samples else None,
+        "present_accepted_percent": round(100.0 * accepted / present_calls, 2) if outcome_samples else None,
+        "gdi_accepted_calls": gdi_accepted if mode[2] else None,
+        "gdi_fallback_calls": gdi_fallback if mode[2] else None,
     }
 
 
@@ -146,6 +188,7 @@ def main():
         "Logged duration (s): {:.3f}".format(current["logged_duration_s"]),
         "Frame flips: {}".format(current["frame_flips"]),
         "Frame flips per second: {:.3f}".format(current["frame_flips_per_s"]),
+        "Window presentation path: {}".format(current["present_path"]),
         "Window presentation calls: {}".format(current["present_calls"]),
         "Total window presentation time (s): {:.3f}".format(current["present_total_s"]),
         "Average window presentation (ms): {:.3f}".format(current["present_avg_ms"]),
@@ -160,6 +203,13 @@ def main():
             "Other DirectDraw presentation failures: {}".format(current["present_error_calls"]),
             "Accepted presentation calls (%): {:.2f}".format(current["present_accepted_percent"]),
         ])
+    if current["gdi_accepted_calls"] is not None:
+        report.extend([
+            "Successful GDI presentations: {}".format(current["gdi_accepted_calls"]),
+            "GDI fallback-to-DirectDraw calls: {}".format(current["gdi_fallback_calls"]),
+        ])
+        if not current["present_worst_is_exact"]:
+            report.append("Warning: worst GDI presentation timing is approximate when fallback occurs")
     if "dll_sha256" in summary:
         report.append("Reviewed test DLL SHA256: " + summary["dll_sha256"])
     if "comparison" in summary:
