@@ -40,3 +40,37 @@ This branch implements the first step toward automated debugging. It does **not*
 5. Add AI-assisted change suggestions, rebuild/test repetitions and human-approved promotion to the working game.
 
 All automated code modifications and performance experiments should be restricted to a separate test branch and test app. Never overwrite the known-good wrapper.
+
+## Automatic, private GitHub results submission
+
+The Mac runner can now optionally upload a **strictly selected** performance CSV and its small generated report to a **private** GitHub repository after each local run. It does not upload the user's home folder, game assets, executable, Wine registry or other data.
+
+### One-time setup on the Mac (user-authorized)
+
+1. Install GitHub CLI, if necessary: `brew install gh`. Log in using `gh auth login`, choosing GitHub.com and browser authorization. Credentials remain in GitHub CLI's local store, not in this repo or in ChatGPT.
+2. Create a **private** results repository, preferably `MaultzLabs/OpenLRR-Test-Results`, using the GitHub website or:
+   `gh repo create MaultzLabs/OpenLRR-Test-Results --private --add-readme`
+3. Configure its name once, WITHOUT storing tokens:
+
+```bash
+mkdir -p "$HOME/.config/openlrr-benchmark"
+printf '%s\n' 'MaultzLabs/OpenLRR-Test-Results' > "$HOME/.config/openlrr-benchmark/private-results-repo"
+```
+
+4. Give the ChatGPT GitHub connector access to that private results repository if you want its contents to be visible in later GitHub-connected conversations. This may require changing the GitHub App installation's repository permissions in GitHub. Grant only that repository, not all private repos.
+
+The benchmark runner reads ONLY the repository name from this config file. It invokes `publish-benchmark.sh` only if configured and a CSV was generated. The publisher verifies `gh` authentication, checks the target is actually **PRIVATE**, checks the CSV schema and 2MB limit, and publishes only `menuperf.csv` and the small summary `report.txt`. Any upload failure is non-fatal; the local files remain available and the prior test DLL is restored.
+
+Results become available at `https://github.com/MaultzLabs/OpenLRR-Test-Results/tree/main/runs/` under unique timestamp-named subdirectories. Each file is committed separately through the GitHub API, and each run has its own directory; partial uploads may occur if connection fails. Do not grant the uploader write access to the public OpenLRR code repo to store logs.
+
+**Important:** This is automatic **upload**, not a self-running agent. It will not independently wake this ChatGPT conversation or cause the assistant to modify code without a separate authorized CI / OpenAI API agent. Mac Wine graphics must still be run on the real M4 Pro for a meaningful performance verdict.
+
+## Acceptance goals (technical quality gates, subject to real user validation)
+
+- Cold launch until first interactive title menu: **target under 5 seconds**, compared to current ~120 seconds; log time to first frame and menu-interactive milestone separately in a subsequent instrumented build.
+- Main menu input latency: **target below 100 milliseconds**. Avoid the repeatable ~1250ms DirectDraw stalls.
+- Menu rendering: no repeated >100ms frame hitches under normal usage; animations visually and functionally match stock at chosen quality.
+- Gameplay: no unacceptable performance regression compared with current ~213 FPS baseline on identical mission, wrapper and graphics settings; preserve resolution/effects.
+- No crashes, black frames, corrupted colors, broken input, or disabled features. Verify visually on actual machine before promoting any patch.
+
+Long term: instrument one subsystem at a time, classify each test phase, create short synthetic graphics probes, use repeatable baselines and regression checks, then integrate reviewed AI-assisted patch recommendations. We are adapting the open-source OpenLRR reconstruction of the classic game; testing does not automatically recover the complete original proprietary source code.
