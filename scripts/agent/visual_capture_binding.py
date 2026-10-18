@@ -10,6 +10,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import tempfile
 
 import evidence_gate
 
@@ -143,7 +144,8 @@ def verified_capture_binding(experiment: dict, runs_dir: Path,
 
 
 def verify_bound_report(experiment: dict, runs_dir: Path,
-                        capture_manifest: dict, report: dict) -> dict:
+                        capture_manifest: dict, report: dict,
+                        *, recheck_pixels: bool = True) -> dict:
     if type(report) is not dict or report.get("tool") != "openlrr-visual-qa":
         raise ValueError("Not a recognized visual QA report")
     binding, baseline, candidate = verified_capture_binding(
@@ -160,4 +162,38 @@ def verify_bound_report(experiment: dict, runs_dir: Path,
             or report.get("may_deploy_automatically") is not False
             or report.get("may_install_or_run_candidate") is not False):
         raise ValueError("Visual report attempts to authorize execution")
+    if recheck_pixels:
+        # Re-render evidence into a disposable directory and compare the FULL
+        # material report, not a user-editable status or similarity score.
+        # Imports are lazy so nonvisual experiments need no image dependencies.
+        import sys
+        visual_dir = Path(__file__).resolve().parents[1] / "visual_qa"
+        if str(visual_dir) not in sys.path:
+            sys.path.insert(0, str(visual_dir))
+        from qa import report_for
+        threshold = report.get("threshold")
+        tolerance = report.get("pixel_tolerance")
+        fps = report.get("sampling_fps")
+        kind = report.get("input_kind")
+        if (type(threshold) not in (int, float) or
+                type(tolerance) is not int or
+                kind not in ("image", "video") or
+                (kind == "video" and type(fps) is not int) or
+                (kind == "image" and fps is not None)):
+            raise ValueError("Invalid visual scoring parameters")
+        with tempfile.TemporaryDirectory(prefix="openlrr-visual-verify-") as tmp:
+            calculated = report_for(
+                baseline, candidate, Path(tmp) / "diagnostics",
+                binding["experiment_id"], binding["scene"],
+                tolerance=tolerance, min_score=threshold,
+                fps=fps if kind == "video" else 2,
+            )
+        for field in ("tool", "schema_version", "experiment_id", "scene",
+                      "status", "score", "threshold", "pixel_tolerance",
+                      "input_kind", "sampling_fps", "metrics", "frames",
+                      "findings", "capture_hashes", "repair_feedback",
+                      "may_touch_working_game", "may_deploy_automatically",
+                      "may_install_or_run_candidate", "visual_fps_verified"):
+            if report.get(field) != calculated.get(field):
+                raise ValueError("Visual report differs from independently computed evidence: " + field)
     return binding
