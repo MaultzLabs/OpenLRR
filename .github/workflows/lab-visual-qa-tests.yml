@@ -2,16 +2,18 @@ name: OpenLRR Visual QA (offline synthetic proof)
 
 on:
   push:
-    branches: [lab-visual-qa-v1]
+    branches: [lab-visual-qa-v1, lab-visual-binding-v1]
     paths:
       - 'scripts/visual_qa/**'
       - 'scripts/agent/visual_feedback.py'
+      - 'scripts/agent/visual_capture_binding.py'
       - 'scripts/agent/experiment_controller.py'
       - '.github/workflows/lab-visual-qa-tests.yml'
   pull_request:
     paths:
       - 'scripts/visual_qa/**'
       - 'scripts/agent/visual_feedback.py'
+      - 'scripts/agent/visual_capture_binding.py'
       - 'scripts/agent/experiment_controller.py'
       - '.github/workflows/lab-visual-qa-tests.yml'
   workflow_dispatch:
