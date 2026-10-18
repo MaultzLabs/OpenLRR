@@ -88,12 +88,13 @@ def verify_bundle(folder: Path, expected: str):
 def prepare(run_id: str, commit: str, sha: str, *, dry_run=True):
     if (CONFIG / "STOP").exists() or (CONFIG / "PAUSE").exists():
         raise RuntimeError("STOP/PAUSE active")
-    approved = metadata(run_id, commit)
     final = ROOT / "openlrr.dll"
     if ROOT.is_symlink() or final.exists() or final.is_symlink() or LOCK.exists():
         raise RuntimeError("A baseline or install lock exists; refusing replacement")
     if not SHA_RE.fullmatch(sha):
         raise ValueError("Full lowercase SHA256 approval required")
+    # Refuse existing local state before making any GitHub request.
+    approved = metadata(run_id, commit)
     if dry_run:
         return {"cloud_run_id": run_id, "commit": approved["headSha"],
                 "approved_sha256": sha, "downloaded": False, "game_launched": False}
