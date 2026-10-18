@@ -68,8 +68,12 @@ upload() {
       echo "Already uploaded and unchanged: $name"
       return 0
     fi
-    echo "Refusing to overwrite existing result: $run_name/$name" >&2
-    return 1
+    if [[ "$name" == "menuperf.csv" ]]; then
+      echo "Refusing to overwrite a DIFFERENT raw benchmark: $run_name/$name" >&2
+      return 1
+    fi
+    echo "Keeping existing $name (contents differ); no overwrite." >&2
+    return 0
   fi
   payload="$(mktemp)"
   {
