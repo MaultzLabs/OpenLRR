@@ -67,8 +67,9 @@ class PairedDllTests(unittest.TestCase):
         }))
         self.supervisor = self.root / "OpenLRR-Agent/scripts/macos/lab-supervisor.py"
         self.controller = self.root / "OpenLRR-Agent/scripts/agent/experiment_controller.py"
+        self.publisher = self.root / "OpenLRR-Agent/scripts/agent/publish_experiment.py"
         self.python = self.state / "venv/bin/python"
-        for p in (self.supervisor, self.controller, self.python):
+        for p in (self.supervisor, self.controller, self.publisher, self.python):
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text("fixture")
         for name in lab.HELPERS:
@@ -84,6 +85,7 @@ class PairedDllTests(unittest.TestCase):
             "SUPERVISOR": self.supervisor,
             "SCRIPT_DIR": self.supervisor.parent,
             "CONTROLLER": self.controller,
+            "PUBLISHER": self.publisher,
             "PYTHON": self.python,
         }.items():
             patcher = mock.patch.object(lab, key, value)
@@ -207,6 +209,49 @@ class PairedDllTests(unittest.TestCase):
             self.assertFalse((self.download.parent / (".openlrr-paired-previous-" + name)).exists())
         self.assertFalse(lab.BACKUP.exists())
         self.assertFalse(lab.LOCK.exists())
+
+    def test_publish_requires_explicit_run(self):
+        with self.assertRaises(SystemExit):
+            lab.main([
+                "--baseline-sha", self.base_sha,
+                "--candidate-sha", self.cand_sha,
+                "--candidate-run-id", "39169390987",
+                "--publish-evidence",
+            ])
+        self.assertFalse(lab.LOCK.exists())
+
+    def test_private_publication_is_separate_from_game_completion(self):
+        observed = []
+        def fake_supervisor(sha, seconds, *, run):
+            observed.append(sha)
+            return f"autobenchmark-2026-10-18_17-00-{len(observed):02d}"
+
+        def fake_run(argv, **kwargs):
+            self.assertNotIn("OPENAI_API_KEY", kwargs["env"])
+            if str(self.controller) in argv:
+                manifest = Path(argv[argv.index("--manifest") + 1])
+                metadata = json.loads(manifest.read_text())
+                Path(argv[argv.index("--output") + 1]).write_text(json.dumps({
+                    "experiment_id": metadata["experiment_id"],
+                    "manifest_verified": True,
+                    "may_install_or_run_candidate": False,
+                    "disposition": "requires_safe_worker_or_human",
+                    "next_step": "complete_paired_measurement",
+                }))
+                return mock.Mock(returncode=0)
+            self.assertIn(str(self.publisher), argv)
+            self.assertIn("--publish", argv)
+            self.assertIn("--runs-dir", argv)
+            return mock.Mock(returncode=2)  # network outage, not a game failure
+
+        with mock.patch.object(lab, "candidate_source", return_value=self.candidate), \
+             mock.patch.object(lab, "invoke_supervisor", side_effect=fake_supervisor), \
+             mock.patch.dict(lab.os.environ, {"OPENAI_API_KEY": "secret"}):
+            with self.assertRaisesRegex(RuntimeError, "safely completed local results"):
+                lab.execute(self.base_sha, self.cand_sha, "39169390987",
+                            1, 60, run=fake_run, publish_evidence=True)
+        self.assertEqual(observed, [self.base_sha, self.cand_sha])
+        self.assertFalse(lab.LOCK.exists(), "An upload outage must not pretend Wine still runs")
 
     def test_failed_supervisor_holds_lock_but_restores_downloads(self):
         original = b"ORIGINAL FILE"
