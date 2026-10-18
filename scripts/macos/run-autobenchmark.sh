@@ -3,6 +3,7 @@
 set -euo pipefail
 APP="$HOME/Applications/Sikarugir/OpenLRR Menu Test.app"
 GAME="$APP/Contents/SharedSupport/prefix/drive_c/Program Files/Rock Raiders OpenLRR"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ZIP="${OPENLRR_BENCH_ZIP:-$HOME/Downloads/OpenLRR-autobenchmark-x86.zip}"
 SECONDS_TO_RUN="${OPENLRR_BENCH_SECONDS:-210}"
 RESULTS="$HOME/Downloads/OpenLRR Benchmark Runs"
@@ -11,8 +12,8 @@ if [[ ! -d "$APP" || ! -f "$GAME/openlrr.dll" || ! -f "$GAME/LegoRR.exe" ]]; the
   echo "ERROR: Expected TEST APP missing. No changes were made." >&2
   exit 1
 fi
-if [[ ! -f "$ZIP" ]]; then
-  echo "ERROR: Missing benchmark DLL ZIP: $ZIP" >&2
+if [[ ! -f "$SCRIPT_DIR/openlrr.dll" && ! -f "$ZIP" ]]; then
+  echo "ERROR: Cannot find openlrr.dll beside this script or benchmark DLL ZIP: $ZIP" >&2
   exit 1
 fi
 if [[ ! "$SECONDS_TO_RUN" =~ ^[0-9]+$ ]] || (( SECONDS_TO_RUN < 15 || SECONDS_TO_RUN > 600 )); then
@@ -29,7 +30,11 @@ done
 STAMP="$(date +%Y-%m-%d_%H-%M-%S)"
 RUN="$RESULTS/autobenchmark-$STAMP"
 mkdir -p "$RUN"
-unzip -p "$ZIP" openlrr.dll > "$RUN/benchmark-openlrr.dll"
+if [[ -f "$SCRIPT_DIR/openlrr.dll" ]]; then
+  cp "$SCRIPT_DIR/openlrr.dll" "$RUN/benchmark-openlrr.dll"
+else
+  unzip -p "$ZIP" openlrr.dll > "$RUN/benchmark-openlrr.dll"
+fi
 if [[ ! -s "$RUN/benchmark-openlrr.dll" ]]; then
   echo "ERROR: No DLL was found inside the ZIP." >&2
   exit 1
