@@ -77,7 +77,9 @@ def validate_bundle(root: Path) -> dict:
     if not patch.startswith("--- a/src/openlrr/engine/drawing/DirectDraw.cpp\n"
                             "+++ b/src/openlrr/engine/drawing/DirectDraw.cpp\n"):
         raise ValueError("Unexpected patch scope")
-    if patch.count("\n--- ") or patch.count("\n+++ "):
+    # One newline-prefixed +++ header is expected (the second line of a
+    # unified diff). Any newline-prefixed --- or extra +++ signals another file.
+    if patch.count("\n--- ") or patch.count("\n+++ ") != 1:
         raise ValueError("Multiple patch files disallowed")
     expected = (root / "SHA256.txt").read_text(encoding="utf-8").strip().lower()
     if not SHA_RE.fullmatch(expected):
