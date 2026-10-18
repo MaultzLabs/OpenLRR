@@ -147,6 +147,20 @@ inline void MaybeFinishAutoTest(HWND hwnd) {
     if (s.autoTestSeconds == 0 || s.autoTestExitIssued || hwnd == nullptr || !s.enabled || s.frequency.QuadPart <= 0) return;
     LARGE_INTEGER now;
     if (!::QueryPerformanceCounter(&now)) return;
+    // The Mac supervisor may request an early, graceful stop. This only
+    // posts WM_CLOSE; it does not assert that Wine or the wrapper has exited.
+    if (HasMarker("menuperf.stop")) {
+        FlushIfDue();
+        if (::PostMessageA(hwnd, WM_CLOSE, 0, 0)) {
+            s.autoTestExitIssued = true;
+            std::FILE* done = std::fopen("menuperf.finished", "w");
+            if (done) {
+                std::fprintf(done, "close_requested_by=supervisor_stop\n");
+                std::fclose(done);
+            }
+        }
+        return;
+    }
     if (s.autoTestStart.QuadPart == 0) {
         s.autoTestStart = now;
         return;
