@@ -373,6 +373,7 @@ void __cdecl Gods98::DirectDraw_Flip(void)
 	Draw_AssertUnlocked("DirectDraw_Flip");
 	MenuPerf::Scope timer(MenuPerf::Metric::Flip);
 	if (directDrawGlobs.fullScreen) {
+		MenuPerf::Scope presentation(MenuPerf::Metric::FullscreenFlip);
 		HRESULT r = DirectDraw_fSurf()->Flip(nullptr, DDFLIP_WAIT);
 		Error_Fatal(r == DDERR_SURFACELOST, "Surface lost");
 	}
@@ -454,8 +455,11 @@ void __cdecl Gods98::DirectDraw_BlitBuffers(void)
 		(sint32) directDrawGlobs.width  * Main_Scale(),
 		(sint32) directDrawGlobs.height * Main_Scale(),
 	};
-	::ClientToScreen(directDrawGlobs.hWnd, &pt);
-	::OffsetRect(&dest, pt.x, pt.y);
+	{
+		MenuPerf::Scope coordinate(MenuPerf::Metric::WindowCoordinate);
+		::ClientToScreen(directDrawGlobs.hWnd, &pt);
+		::OffsetRect(&dest, pt.x, pt.y);
+	}
 
 	// Fill out the source of the blit
 	RECT src = { // sint32 casts to stop compiler from complaining
@@ -465,8 +469,15 @@ void __cdecl Gods98::DirectDraw_BlitBuffers(void)
 	};
 
 	Draw_AssertUnlocked("DirectDraw_BlitBuffers");
-	HRESULT r = DirectDraw_fSurf()->Blt(&dest, DirectDraw_bSurf(), &src, DDBLT_WAIT, nullptr);
-	Error_Fatal(r == DDERR_SURFACELOST, "Front surface lost");
+	// In diagnostic mode keep the original blocking blit unchanged.
+	// Opt in to non-blocking with a menuperf.nowait marker in the game's working directory.
+	// DDERR_WASSTILLDRAWING is permitted in that experiment: a frame may be skipped.
+	const DWORD flags = MenuPerf::NonblockingWindowBlt() ? 0 : DDBLT_WAIT;
+	{
+		MenuPerf::Scope presentation(MenuPerf::Metric::WindowBlt);
+		HRESULT r = DirectDraw_fSurf()->Blt(&dest, DirectDraw_bSurf(), &src, flags, nullptr);
+		Error_Fatal(r == DDERR_SURFACELOST, "Front surface lost");
+	}
 
 /*		while (true){
 
