@@ -29,7 +29,7 @@ WORKFLOWS = (
     "OpenLRR AI Graphics Proposal (review only)",
 )
 ALLOWED = {"openlrr.dll", "SHA256.txt", "proposal.patch",
-           "proposal.json", "REVIEW-REQUIRED.txt"}
+           "proposal.json", "REVIEW-REQUIRED.txt", "build-provenance.json"}
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 RUN_RE = re.compile(r"^[0-9]{8,14}$")
 
@@ -101,8 +101,37 @@ def validate_bundle(root: Path) -> dict:
         raise ValueError("Corrupted Windows PE header")
     if int.from_bytes(header[offset + 4:offset + 6], "little") != 0x14c:
         raise ValueError("Expected x86, not x64 or ARM")
-    return {"candidate_sha256": h, "source_file": manifest["source_file"],
-            "review_required": True, "automatic_execution": False}
+    provenance = json.loads((root / "build-provenance.json").read_text(encoding="utf-8"))
+    keys = {
+        "schema_version", "workflow", "workflow_head_sha", "workflow_run_id",
+        "compiled_source_revision", "source_file", "patched_source_file_sha256",
+        "proposal_patch_sha256", "compiled_dll_sha256", "is_windows_x86",
+        "human_source_review_required", "automatic_host_execution",
+        "automatic_deployment",
+    }
+    if type(provenance) is not dict or set(provenance) != keys or (
+        provenance["schema_version"] != 1 or
+        provenance["workflow"] != "OpenLRR AI Graphics Proposal (review only)" or
+        provenance["source_file"] != manifest["source_file"] or
+        provenance["compiled_dll_sha256"] != h or
+        provenance["proposal_patch_sha256"] != hashlib.sha256(patch.encode("utf-8")).hexdigest() or
+        provenance["is_windows_x86"] is not True or
+        provenance["human_source_review_required"] is not True or
+        provenance["automatic_host_execution"] is not False or
+        provenance["automatic_deployment"] is not False or
+        not RUN_RE.fullmatch(str(provenance["workflow_run_id"])) or
+        any(not re.fullmatch(r"[a-f0-9]{40}", str(provenance[k])) for k in
+            ("compiled_source_revision", "workflow_head_sha")) or
+        not SHA_RE.fullmatch(str(provenance["patched_source_file_sha256"]))
+    ):
+        raise ValueError("Incomplete or contradictory compiled source provenance")
+    return {
+        "candidate_sha256": h, "source_file": manifest["source_file"],
+        "compiled_source_revision": provenance["compiled_source_revision"],
+        "workflow_run_id": provenance["workflow_run_id"],
+        "workflow_head_sha": provenance["workflow_head_sha"],
+        "review_required": True, "automatic_execution": False,
+    }
 
 
 def stage(run_id: str) -> dict:
@@ -128,6 +157,10 @@ def stage(run_id: str) -> dict:
         if not success:
             raise ValueError("No compiled candidate artifact; AI may have abstained")
         verified = validate_bundle(temp)
+        if (verified["workflow_run_id"] != run_id or
+            verified["workflow_head_sha"] != run["headSha"] or
+            run["workflowName"] != "OpenLRR AI Graphics Proposal (review only)"):
+            raise ValueError("Compiled source attestation does not match GitHub workflow run")
         if (CONFIG / "STOP").exists() or (CONFIG / "PAUSE").exists():
             raise RuntimeError("STOP/PAUSE active before quarantine write")
         staging = INBOX / (".run-" + run_id + "-pending")
@@ -138,7 +171,8 @@ def stage(run_id: str) -> dict:
             for file in temp.iterdir():
                 shutil.copyfile(file, staging / file.name)
             (staging / "provenance.json").write_text(
-                json.dumps({"run_id": run_id, "cloud_revision": run["headSha"],
+                json.dumps({"run_id": run_id,
+                            "workflow_trigger_revision": run["headSha"],
                             "workflow": run["workflowName"], **verified},
                            indent=2) + "\n", encoding="utf-8")
             for path in staging.iterdir():
