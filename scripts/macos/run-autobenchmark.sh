@@ -6,6 +6,16 @@ GAME="$APP/Contents/SharedSupport/prefix/drive_c/Program Files/Rock Raiders Open
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ZIP="${OPENLRR_BENCH_ZIP:-$HOME/Downloads/OpenLRR-autobenchmark-x86.zip}"
 SECONDS_TO_RUN="${OPENLRR_BENCH_SECONDS:-210}"
+BENCH_MODE="${OPENLRR_BENCH_MODE:-baseline}"
+# Only one graphics variable may change in a run. Keep all variants opt-in.
+# The nonblocking DirectDraw flag can skip presentation; frame counts alone
+# cannot prove that every frame reached the display.
+case "$BENCH_MODE" in
+  baseline) MODE_MARKER="" ;;
+  nowait) MODE_MARKER="menuperf.nowait" ;;
+  gdi) MODE_MARKER="menuperf.gdi" ;;
+  *) echo "ERROR: Unsupported benchmark mode: $BENCH_MODE (use baseline, nowait or gdi)." >&2; exit 2 ;;
+esac
 RESULTS="$HOME/Downloads/OpenLRR Benchmark Runs"
 # Read only a repository name, never execute arbitrary commands from a config file.
 UPLOAD_CONFIG="$HOME/.config/openlrr-benchmark/private-results-repo"
@@ -60,6 +70,7 @@ if [[ -e "$GAME/menuperf.enable" ]]; then had_enable=1; fi
 cleanup() {
   set +e
   rm -f "$GAME/menuperf.autotest" "$GAME/menuperf.finished" "$GAME/menuperf.enable"
+  if [[ -n "$MODE_MARKER" ]]; then rm -f "$GAME/$MODE_MARKER"; fi
   if (( had_enable )); then touch "$GAME/menuperf.enable"; fi
   if [[ -f "$RUN/previous-openlrr.dll" ]]; then
     cp -p "$RUN/previous-openlrr.dll" "$GAME/openlrr.dll"
@@ -71,8 +82,10 @@ rm -f "$GAME/menuperf.csv" "$GAME/menuperf.finished"
 cp "$RUN/benchmark-openlrr.dll" "$GAME/openlrr.dll"
 printf '%s\n' "$SECONDS_TO_RUN" > "$GAME/menuperf.autotest"
 touch "$GAME/menuperf.enable"
+if [[ -n "$MODE_MARKER" ]]; then touch "$GAME/$MODE_MARKER"; fi
 
 echo "Running OpenLRR Menu Test.app with automatic mode selection and shutdown."
+echo "Graphics experiment: $BENCH_MODE"
 echo "Benchmark duration: $SECONDS_TO_RUN seconds after first rendered frame."
 echo "Logs: $RUN"
 open "$APP"
@@ -102,35 +115,31 @@ sleep 3
 if [[ -f "$GAME/menuperf.csv" ]]; then cp -p "$GAME/menuperf.csv" "$RUN/menuperf.csv"; fi
 if [[ -f "$GAME/menuperf.finished" ]]; then cp -p "$GAME/menuperf.finished" "$RUN/menuperf.finished"; fi
 
-{
-  echo "OpenLRR unattended benchmark"
-  echo "Run: $STAMP"
-  echo "Requested duration: $SECONDS_TO_RUN s"
-  if (( finished )); then echo "In-game close requested"; else echo "Timed out before close marker"; fi
-  if [[ -f "$RUN/menuperf.csv" ]]; then
-    awk -F, '
-      NR == 1 { for (i=1; i<=NF; i++) { gsub(/\r/, "", $i); col[$i]=i }; next }
-      $(col["operation"])=="frame_flip" {
-        total_secs += $(col["seconds"]); flips += $(col["calls"])
-      }
-      $(col["operation"])=="window_present_blt" {
-        presents += $(col["calls"]); present_ms += $(col["total_ms"])
-        if ($(col["max_ms"])>1000) slow_intervals++
-        if ($(col["max_ms"])>max_ms) max_ms=$(col["max_ms"])
-      }
-      END {
-        printf "Logged duration (s): %.1f\n", total_secs
-        printf "Frames presented: %.0f\n", flips
-        printf "Present calls: %.0f\n", presents
-        printf "Time inside present (s): %.3f\n", present_ms/1000
-        printf "Intervals with >1s present call: %d\n", slow_intervals
-        printf "Worst present call (ms): %.3f\n", max_ms
-      }
-    ' "$RUN/menuperf.csv"
-  else
-    echo "No new performance CSV was written."
+
+if [[ ! -f "$RUN/menuperf.csv" ]]; then
+  echo "ERROR: Game produced no new menuperf.csv; no upload performed." >&2
+  exit 2
+fi
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "ERROR: Python 3 is needed for portable performance reporting; no upload performed." >&2
+  exit 2
+fi
+if [[ ! -f "$SCRIPT_DIR/analyze-benchmark.py" ]]; then
+  echo "ERROR: analyze-benchmark.py must be beside this script; no upload performed." >&2
+  exit 2
+fi
+baseline_args=()
+DEFAULT_BASELINE="$RESULTS/autobenchmark-2026-10-18_01-40-16/menuperf.csv"
+if [[ -n "${OPENLRR_BASELINE_CSV:-}" ]]; then
+  if [[ ! -f "$OPENLRR_BASELINE_CSV" ]]; then
+    echo "ERROR: Explicit baseline CSV missing: $OPENLRR_BASELINE_CSV" >&2
+    exit 2
   fi
-} | tee "$RUN/report.txt"
+  baseline_args=(--baseline "$OPENLRR_BASELINE_CSV")
+elif [[ -f "$DEFAULT_BASELINE" && "$DEFAULT_BASELINE" != "$RUN/menuperf.csv" ]]; then
+  baseline_args=(--baseline "$DEFAULT_BASELINE")
+fi
+python3 "$SCRIPT_DIR/analyze-benchmark.py" "$RUN" "${baseline_args[@]}"
 
 # Optional private GitHub reporting. Never send data without explicit configuration,
 # and never publish to a public repository (uploader checks visibility).

@@ -9,7 +9,7 @@
 
 namespace MenuPerf {
 
-enum class Metric : unsigned { FlicLock, FlicDecode, FlicUnlock, FlicBlt, ImageBlt, Flip, MovieUpdate, WindowCoordinate, WindowBlt, FullscreenFlip, GdiAcquire, GdiStretch, GdiRelease, Count };
+enum class Metric : unsigned { FlicLock, FlicDecode, FlicUnlock, FlicBlt, ImageBlt, Flip, MovieUpdate, WindowCoordinate, WindowBlt, FullscreenFlip, GdiAcquire, GdiStretch, GdiRelease, WindowPresentAccepted, WindowPresentBusy, WindowPresentError, Count };
 struct Stat { std::uint64_t calls = 0; std::uint64_t ticks = 0; std::uint64_t maxTicks = 0; };
 
 inline bool HasMarker(const char* name) {
@@ -88,6 +88,16 @@ struct Scope {
     }
 };
 
+// Track the result of the actual DirectDraw window Blt. In nowait mode,
+// logical frames may advance even when Wine declines a busy presentation.
+inline void RecordWindowPresentOutcome(bool accepted, bool busy) {
+    State& s = Get();
+    if (!s.enabled) return;
+    const Metric metric = accepted ? Metric::WindowPresentAccepted :
+                          (busy ? Metric::WindowPresentBusy : Metric::WindowPresentError);
+    ++s.counters[static_cast<unsigned>(metric)].calls;
+}
+
 // Called after each full frame presentation, so only one disk write per second.
 inline void FlushIfDue() {
     State& s = Get();
@@ -100,7 +110,8 @@ inline void FlushIfDue() {
         "flic_surface_lock", "flic_decode", "flic_surface_unlock",
         "flic_backbuffer_blt", "image_blt", "frame_flip", "movie_update",
         "window_coordinate", "window_present_blt", "fullscreen_flip",
-        "gdi_surface_getdc", "gdi_stretchblt", "gdi_surface_releasedc"
+        "gdi_surface_getdc", "gdi_stretchblt", "gdi_surface_releasedc",
+        "window_present_accepted", "window_present_busy", "window_present_error"
     };
     const double seconds = static_cast<double>(elapsed) / s.frequency.QuadPart;
     const double factor = 1000.0 / s.frequency.QuadPart;

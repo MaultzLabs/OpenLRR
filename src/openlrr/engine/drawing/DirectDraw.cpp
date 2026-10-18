@@ -512,6 +512,7 @@ void __cdecl Gods98::DirectDraw_BlitBuffers(void)
 	{
 		MenuPerf::Scope presentation(MenuPerf::Metric::WindowBlt);
 		HRESULT r = DirectDraw_fSurf()->Blt(&dest, DirectDraw_bSurf(), &src, flags, nullptr);
+		MenuPerf::RecordWindowPresentOutcome(r == DD_OK, r == DDERR_WASSTILLDRAWING);
 		Error_Fatal(r == DDERR_SURFACELOST, "Front surface lost");
 	}
 

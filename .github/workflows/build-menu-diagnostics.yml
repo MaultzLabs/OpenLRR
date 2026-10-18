@@ -2,7 +2,7 @@ name: OpenLRR Menu Diagnostics Win32
 
 on:
   push:
-    branches: [menu-perf-build, automated-benchmark-harness]
+    branches: [menu-perf-build, automated-benchmark-harness, benchmark-loop-v2]
   workflow_dispatch:
 
 permissions:
@@ -34,6 +34,7 @@ jobs:
           Copy-Item BUILD-AND-TEST.md dist/
           Copy-Item scripts/macos/run-autobenchmark.sh dist/
           Copy-Item scripts/macos/publish-benchmark.sh dist/
+          Copy-Item scripts/macos/analyze-benchmark.py dist/
           Copy-Item docs/autobenchmark.md dist/
           (Get-FileHash $dll -Algorithm SHA256).Hash | Set-Content dist/SHA256.txt
       - name: Upload DLL
@@ -48,3 +49,16 @@ jobs:
           name: OpenLRR-build-binlog
           path: build.binlog
           if-no-files-found: ignore
+
+  telemetry-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate benchmark analyzer with synthetic CSVs
+        run: python -m unittest discover -s scripts/macos/tests -p 'test_*.py' -v
+      - name: Check Mac shell script syntax
+        run: bash -n scripts/macos/run-autobenchmark.sh scripts/macos/publish-benchmark.sh

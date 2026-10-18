@@ -74,3 +74,108 @@ Results become available at `https://github.com/MaultzLabs/OpenLRR-Test-Results/
 - No crashes, black frames, corrupted colors, broken input, or disabled features. Verify visually on actual machine before promoting any patch.
 
 Long term: instrument one subsystem at a time, classify each test phase, create short synthetic graphics probes, use repeatable baselines and regression checks, then integrate reviewed AI-assisted patch recommendations. We are adapting the open-source OpenLRR reconstruction of the classic game; testing does not automatically recover the complete original proprietary source code.
+
+
+## Benchmark loop v2 (reporting and comparison)
+
+The `benchmark-loop-v2` branch adds a portable Python 3 CSV analyzer, regression
+tests, structured `summary.json`, and immutable/retry-safe private uploads. It
+does not download or execute arbitrary unreviewed GitHub builds on your Mac.
+
+The very first private run is
+`autobenchmark-2026-10-18_01-40-16`. If its CSV is still in Downloads,
+subsequent runs compare themselves with that baseline by default. To use a
+different known-good baseline, explicitly set `OPENLRR_BASELINE_CSV` to its
+full local `menuperf.csv` path. Reports flag mismatched GDI/nowait/optimization
+modes; comparisons are measurements, not automatic code approvals.
+
+### Upgrade the local test scripts
+
+Each new JSON summary also includes the SHA256 of the reviewed benchmark DLL,
+so candidate results can be linked to the exact tested binary without uploading
+any executable.
+
+The three scripts must be in the **same local directory**. Using your existing
+authenticated GitHub CLI and already-configured private destination needs no
+new token. In macOS Terminal:
+
+```bash
+base="https://raw.githubusercontent.com/MaultzLabs/OpenLRR/benchmark-loop-v2/scripts/macos"
+for script in run-autobenchmark.sh publish-benchmark.sh analyze-benchmark.py; do
+  curl -fLsS "$base/$script" -o "$HOME/Downloads/$script" || exit 1
+done
+python3 --version
+```
+
+These downloads are plain text and can be inspected before execution. Backfill
+an isolated machine-readable summary for your prior local run without relaunching:
+
+```bash
+past="$HOME/Downloads/OpenLRR Benchmark Runs/autobenchmark-2026-10-18_01-40-16"
+python3 "$HOME/Downloads/analyze-benchmark.py" "$past"
+bash "$HOME/Downloads/publish-benchmark.sh" "$past"
+```
+
+The uploader checks the destination's `PRIVATE` visibility every time. Identical
+remote files are safely skipped on retries, and differing files are never
+overwritten (a different raw CSV aborts the upload). Old incomplete `report.txt`
+files are retained and the newly generated `summary.json` fills in comparable
+statistics. No game files or personal directories are uploaded.
+
+To perform the next actual graphics run with the **previously reviewed benchmark
+DLL ZIP**, run:
+
+```bash
+bash "$HOME/Downloads/run-autobenchmark.sh"
+```
+
+Only use a DLL build you approved for the TEST copy of the app; keep your
+working installation intact. The runner generates and uploads the validated
+CSV, report and JSON. Failure to upload never discards local results. The close
+marker indicates a Windows close request was posted, not proof the Wine process
+terminated successfully.
+
+The Python summary script and its synthetic CSV unit tests run automatically
+in GitHub Actions. CI compilation and analyzer tests alone do **not** verify
+Mac Wine performance; that verdict requires the real Mac runtime data.
+
+
+## Controlled DirectDraw A/B: blocking versus non-blocking blit
+
+The default runner is unchanged. Starting with the experimental
+`benchmark-loop-v2` runner, explicitly set `OPENLRR_BENCH_MODE=nowait`
+to place `menuperf.nowait` temporarily in the isolated TEST app.
+The marker removes `DDBLT_WAIT` for window presentation; it is deleted by
+the runner's EXIT cleanup, alongside restoring the original DLL. Pre-existing
+graphics markers still cause refusal, to avoid mixed or destructive experiments.
+
+**Important:** non-blocking Blt may return `DDERR_WASSTILLDRAWING`. A higher
+logical `frame_flip` rate may merely reflect dropped presentations, not
+improved visible animation. The instrumented Win32 DLL now records
+`window_present_accepted`, `window_present_busy` and
+`window_present_error` counters in the same telemetry CSV. The portable
+analyzer includes acceptance and rejection counts in the report and JSON.
+Verify visually that the menu is visible, responsive, and updating smoothly
+before claiming improvement.
+
+For a reasonably comparable A/B trial, use a freshly compiled, SHA-verified
+benchmark DLL **from the same commit** for both runs, and the same duration,
+wrapper, resolution, window state, graphics settings and machine conditions.
+The test app must be closed before each launch; the `menuperf.finished`
+sentinel confirms only that a close request was posted.
+
+```bash
+# Baseline
+OPENLRR_BENCH_SECONDS=210 OPENLRR_BENCH_MODE=baseline \
+  bash "$HOME/Downloads/run-autobenchmark.sh"
+
+# Candidate, AFTER baseline completes and the TEST app has exited:
+OPENLRR_BENCH_SECONDS=210 OPENLRR_BENCH_MODE=nowait \
+  bash "$HOME/Downloads/run-autobenchmark.sh"
+```
+
+For more targeted comparisons set `OPENLRR_BASELINE_CSV` explicitly to
+the baseline run's local `menuperf.csv`, rather than relying on the
+historical October 18 fallback. Compare frame rate, presenter latency,
+busy/rejected Blt counts, crashes, appearance and menu responsiveness.
+Do not apply this experiment to the user's working game wrapper.
