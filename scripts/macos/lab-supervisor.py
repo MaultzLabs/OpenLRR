@@ -71,11 +71,15 @@ def switches() -> str:
 
 def wait_unpaused(limit_seconds: int = 1800) -> bool:
     start = time.monotonic()
-    while switches() == "pause":
+    while True:
+        status = switches()
+        if status == "stop":
+            return False
+        if status == "ready":
+            return True
         if time.monotonic() - start >= limit_seconds:
             raise RuntimeError("PAUSE wait exceeded configured maximum")
         time.sleep(2)
-    return switches() != "stop"
 
 
 def known_runs() -> set[str]:
