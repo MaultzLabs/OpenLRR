@@ -42,6 +42,22 @@ class PairedDllTests(unittest.TestCase):
         self.candidate = self.root / "quarantine/run-39169390987/openlrr.dll"
         self.base_sha = pe_stub(self.baseline, 42)
         self.cand_sha = pe_stub(self.candidate, 43)
+        (self.candidate.parent / "SHA256.txt").write_text(self.cand_sha + "\n")
+        (self.candidate.parent / "proposal.patch").write_text(
+            "--- a/src/openlrr/engine/drawing/DirectDraw.cpp\n"
+            "+++ b/src/openlrr/engine/drawing/DirectDraw.cpp\n"
+            "@@ -1 +1 @@\n-old\n+new\n")
+        (self.candidate.parent / "proposal.json").write_text(json.dumps({
+            "source_file": "src/openlrr/engine/drawing/DirectDraw.cpp",
+            "status": "patch_ready", "review_required": True,
+            "host_execution_authorized": False,
+        }))
+        (self.candidate.parent / "REVIEW-REQUIRED.txt").write_text(
+            "Manual execution approval required")
+        (self.candidate.parent / "provenance.json").write_text(json.dumps({
+            "run_id": "39169390987", "candidate_sha256": self.cand_sha,
+            "automatic_execution": False,
+        }))
         self.supervisor = self.root / "OpenLRR-Agent/scripts/macos/lab-supervisor.py"
         self.controller = self.root / "OpenLRR-Agent/scripts/agent/experiment_controller.py"
         self.python = self.state / "venv/bin/python"
@@ -98,12 +114,18 @@ class PairedDllTests(unittest.TestCase):
         self.assertEqual(lab.BACKUP.read_bytes(), b"original")
 
     def test_requires_candidate_manifest_and_distinct_source(self):
-        with self.assertRaisesRegex(ValueError, "Candidate"):
+        self.assertEqual(
+            lab.candidate_source("39169390987", self.cand_sha), self.candidate)
+        valid = lab.preflight(self.base_sha, self.cand_sha, "39169390987", 1, 60)
+        self.assertEqual(valid["max_game_runs"], 2)
+        self.assertFalse(valid["working_game_modified"])
+        metadata = self.candidate.parent / "provenance.json"
+        metadata.write_text(json.dumps({
+            "run_id": "39169390987", "candidate_sha256": "a" * 64,
+            "automatic_execution": False,
+        }))
+        with self.assertRaisesRegex(ValueError, "provenance"):
             lab.candidate_source("39169390987", self.cand_sha)
-        with mock.patch.object(lab, "candidate_source", return_value=self.candidate):
-            valid = lab.preflight(self.base_sha, self.cand_sha, "39169390987", 1, 60)
-            self.assertEqual(valid["max_game_runs"], 2)
-            self.assertFalse(valid["working_game_modified"])
 
     def test_supervisor_must_confirm_exit_and_correct_hash(self):
         name = "autobenchmark-2026-10-18_17-25-28"
