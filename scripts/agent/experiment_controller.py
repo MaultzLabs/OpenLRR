@@ -111,7 +111,9 @@ def read_ledger(path: Path) -> dict:
 
 
 def decision_for(report: dict, ledger: dict, *, feedback=None,
-                 visual_report: dict | None = None, now: datetime | None = None):
+                 visual_report: dict | None = None,
+                 visual_binding_verified: bool = False,
+                 now: datetime | None = None):
     if type(report) is not dict or report.get("schema_version") != 1:
         raise ValueError("Requires verified evidence-gate report")
     exp = report.get("experiment_id")
@@ -125,7 +127,11 @@ def decision_for(report: dict, ledger: dict, *, feedback=None,
         raise ValueError("Unexpected human notification")
     cleaned = validated_feedback(feedback, exp)
     visual = validate_visual_report(visual_report, exp)
-    step = adapt_policy(lab_policy.decide(report, cleaned), visual, report.get("status"))
+    # Unbound screenshots may be noted as diagnostics, but cannot change the
+    # next research decision. Only coordinate() can verify the local files.
+    step = adapt_policy(lab_policy.decide(report, cleaned),
+                        visual if visual_binding_verified else None,
+                        report.get("status"))
     action = step["next_step"]
     if action not in SUPPORTED_ACTIONS:
         raise ValueError("Unknown policy action")
@@ -166,6 +172,8 @@ def decision_for(report: dict, ledger: dict, *, feedback=None,
         "visual_quality_status": visual["status"] if visual else "not_supplied",
         "visual_quality_score": visual["score"] if visual else None,
         "visual_quality_fingerprint": visual["fingerprint"] if visual else None,
+        "visual_capture_binding_verified": visual_binding_verified and visual is not None,
+        "visual_capture_origin_authenticated": False,
     }
 
 
@@ -217,7 +225,7 @@ def append_ledger(path: Path, ledger: dict, decision: dict):
 
 def coordinate(manifest: Path, runs_dir: Path, ledger_file: Path, *,
                feedback: dict | None = None, visual_report: dict | None = None,
-               commit: bool = False,
+               visual_captures: dict | None = None, commit: bool = False,
                switches_dir: Path = STOP_DIR, now: datetime | None = None) -> dict:
     if (switches_dir / "STOP").exists() or (switches_dir / "PAUSE").exists():
         raise RuntimeError("Lab STOP or PAUSE is active")
@@ -225,9 +233,18 @@ def coordinate(manifest: Path, runs_dir: Path, ledger_file: Path, *,
     # Crucially: reconstruct evidence from actual local Mac receipts, metric
     # summaries, and the declared A/B pair manifest; never trust input status.
     report = evidence_gate.decision(manifest_data, runs_dir)
+    if (visual_report is None) != (visual_captures is None):
+        raise ValueError("Visual report requires the paired capture manifest")
+    visual_binding_verified = False
+    if visual_report is not None:
+        from visual_capture_binding import verify_bound_report
+        verify_bound_report(manifest_data, runs_dir, visual_captures, visual_report)
+        visual_binding_verified = True
     ledger = read_ledger(ledger_file)
     result = decision_for(report, ledger, feedback=feedback,
-                          visual_report=visual_report, now=now)
+                          visual_report=visual_report,
+                          visual_binding_verified=visual_binding_verified,
+                          now=now)
     result["manifest_verified"] = True
     result["ledger_committed"] = False
     if commit and result["disposition"] not in (
@@ -249,7 +266,9 @@ def main(argv=None):
     review_input.add_argument("--review-issue", type=int,
                               help="Fetch private GitHub feedback and verify experiment identity")
     parser.add_argument("--visual-report", type=Path,
-                        help="Offline screenshot/video QA report (advisory, never execution authority)")
+                        help="Bound screenshot/video QA report (never execution authority)")
+    parser.add_argument("--visual-captures", type=Path,
+                        help="Capture manifest binding report hashes to verified local runs")
     parser.add_argument("--commit", action="store_true",
                         help="Write one safe decision to the ledger (still no execution)")
     parser.add_argument("--output", type=Path)
@@ -259,9 +278,10 @@ def main(argv=None):
         from review_queue import fetch_feedback
         feedback = fetch_feedback(args.review_issue)
     visual_report = bounded_json(args.visual_report, limit=250_000) if args.visual_report else None
+    visual_captures = bounded_json(args.visual_captures) if args.visual_captures else None
     answer = coordinate(args.manifest, args.runs_dir, args.ledger,
                         feedback=feedback, visual_report=visual_report,
-                        commit=args.commit)
+                        visual_captures=visual_captures, commit=args.commit)
     result = json.dumps(answer, indent=2, sort_keys=True) + "\n"
     if args.output:
         args.output.write_text(result, encoding="utf-8")

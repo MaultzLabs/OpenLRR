@@ -67,26 +67,73 @@ regressions are reported in JSON but do not fail the command), 3 = non-pass
 with `--fail-on-regression`, 2 = failed/incomplete processing. See
 `out/report.json` and `out/diff-*.png` (red indicates different pixels).
 
-## Research-controller handoff
+## Bound capture-to-benchmark handoff (TEST results only)
 
-After a *separate* A/B benchmark has already produced genuine, verified
-`summary.json` and `lifecycle.verified` evidence, the controller can
-consume the visual report **as an advisory, additional research input**:
+Standalone `qa.py` diagnostics are **not** enough to alter controller research decisions.
+The controller now requires captures bound to an existing verified baseline/candidate
+benchmark pair, with hashes of the exact media and independently verified run summaries.
+Media belong in each matching private `runs/<run_id>/visual/` directory, never in a game folder.
+
+Register hashes only after the TEST run finishes and the captures already exist:
+
+```sh
+python scripts/visual_qa/bound_pair.py register \
+  --experiment /private/experiments/graphics_test_001.json \
+  --runs-dir /private/benchmark-runs \
+  --pair-index 0 --baseline-file visual/menu.png \
+  --candidate-file visual/menu.png \
+  --out /private/experiments/graphics_test_001-captures.json
+```
+
+Analyze those already-registered captures without running the game:
+
+```sh
+python scripts/visual_qa/bound_pair.py analyze \
+  --experiment /private/experiments/graphics_test_001.json \
+  --runs-dir /private/benchmark-runs \
+  --captures /private/experiments/graphics_test_001-captures.json \
+  --out /private/qa-results/graphics_test_001
+```
+
+Then route evidence into the existing research controller:
 
 ```sh
 python scripts/agent/experiment_controller.py \
   --manifest /private/experiments/graphics_test_001.json \
   --runs-dir /private/benchmark-runs \
+  --visual-captures /private/experiments/graphics_test_001-captures.json \
   --visual-report /private/qa-results/graphics_test_001/report.json \
   --ledger /private/experiments/controller-ledger.json
 ```
 
-This does not need `--commit`; without it the ledger is not changed.
-A `--visual-report` is accepted only when the experiment ID matches the
-verified benchmark manifest and safety fields explicitly prohibit automatic
-execution/deployment. The visual evidence fingerprint is included in the
-controller's deduplication identity.
+The controller **rechecks lifecycle receipts, experiment pairing, summary hashes,
+capture hashes and the full visual score independently from pixels/frames**.
+A missing binding, forged classification or modified file fails closed. The ledger
+is not written unless `--commit` is supplied. No code, DLL or game is executed.
 
+This is **file/run consistency**, NOT authenticated capture origin: the tools
+cannot prove the images were actually taken from the TEST game at run time.
+The report records `capture_origin_authenticated=false`. A separate reviewed
+TEST-window-only recorder would be required for authenticated origin. Do not
+upload private original game assets or screen recordings into public CI.
+### One-command offline postprocessing
+
+After the two verified run folders already contain matching `visual/menu.png` files,
+registration, image analysis and the verified research decision can be produced
+in one invocation (no game launch, no model call and **no ledger commit**):
+
+```sh
+python scripts/visual_qa/pipeline.py \
+  --experiment /private/experiments/graphics_test_001.json \
+  --runs-dir /private/benchmark-runs \
+  --out /private/qa-results/graphics_test_001-bundle
+```
+
+This creates `captures.json`, `analysis/report.json`, comparison heatmaps and
+`research-decision.json`, all outside the source benchmark runs. The output
+directory must be new or empty; reruns must use a different directory.
+Missing, tampered or unverified captures fail closed rather than triggering a
+new game run. The command does not publish or upload private images.
 Research policy mapping:
 
 | Visual QA | Policy effect |
@@ -97,10 +144,8 @@ Research policy mapping:
 | review, other performance result | preserve original performance policy |
 | pass | preserve original performance policy; does **not** approve deployment |
 
-The controller still independently validates paired Mac test receipts. A
-visual report is not proof that the captures actually came from the controlled
-run. Capture integrity is represented by SHA256 to help correlate files; it
-does not authenticate the person or process that recorded them. Do not upload
+The controller validates genuine run receipt files and recomputes captured media
+scores, but this still does not authenticate who captured each screenshot. Do not upload
 private game footage to a public GitHub issue/PR or CI. Only synthetic images
 are included in this branch's tests and proof artifacts.
 
@@ -120,7 +165,7 @@ video decoding and controller boundary behavior.
 
 ## V1 limitations and next safeguards
 
-- No capture agent, no authenticated capture-to-run receipt binding, no
+- No capture agent or authenticated capture origin, no
   scene landmark registration or optical flow, no OCR, and no model-based
   semantic inspection. These require separate reviewed research.
 - Video brightness/freeze heuristics require movement in the reference and
