@@ -1,0 +1,47 @@
+name: OpenLRR Menu Diagnostics Win32
+
+on:
+  push:
+    branches: [menu-perf-build]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  win32:
+    runs-on: windows-2022
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: microsoft/setup-msbuild@v2
+      - name: Build 32-bit OpenLRR DLL
+        shell: pwsh
+        run: |
+          msbuild openlrr.sln /t:openlrr /m /p:Configuration=Release /p:Platform=x86 /verbosity:minimal /bl:build.binlog
+          if ($LASTEXITCODE -ne 0) { throw "MSBuild failed: $LASTEXITCODE" }
+      - name: Verify x86 DLL and package
+        shell: pwsh
+        run: |
+          $dll = 'bin/openlrr.dll'
+          if (-not (Test-Path $dll)) { throw "Missing expected binary: $dll" }
+          $bytes = [System.IO.File]::ReadAllBytes((Resolve-Path $dll))
+          $pe = [System.BitConverter]::ToInt32($bytes, 0x3c)
+          $arch = [System.BitConverter]::ToUInt16($bytes, $pe+4)
+          if ($arch -ne 0x014c) { throw ("Expected x86 PE, got 0x{0:x4}" -f $arch) }
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          Copy-Item $dll dist/openlrr.dll
+          Copy-Item BUILD-AND-TEST.md dist/
+          (Get-FileHash $dll -Algorithm SHA256).Hash | Set-Content dist/SHA256.txt
+      - name: Upload DLL
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenLRR-menu-diagnostics-x86
+          path: dist/
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenLRR-build-binlog
+          path: build.binlog
+          if-no-files-found: ignore
