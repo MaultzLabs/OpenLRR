@@ -18,6 +18,17 @@ def review(choice="awaiting_human", reason=""):
 
 
 class PolicyTests(unittest.TestCase):
+    def test_no_feedback_defaults_to_safe_pending_review(self):
+        data = policy.decide(report("candidate_for_review"))
+        self.assertEqual(data["next_step"], "hold_for_review")
+        self.assertEqual(data["review_decision"], "awaiting_human")
+        self.assertFalse(data["may_deploy_automatically"])
+
+    def test_no_feedback_allows_research_without_human_approval(self):
+        data = policy.decide(report("no_improvement"))
+        self.assertEqual(data["next_step"], "new_hypothesis")
+        self.assertFalse(data["request_human_review"])
+
     def test_candidate_waits_without_approval(self):
         data = policy.decide(report("candidate_for_review"), review())
         self.assertEqual(data["next_step"], "hold_for_review")

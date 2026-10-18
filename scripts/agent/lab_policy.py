@@ -22,7 +22,11 @@ REVIEWS = frozenset({"awaiting_human", "good", "continue", "reject"})
 def decide(report: dict, feedback: dict | None = None) -> dict:
     if not isinstance(report, dict) or report.get("status") not in STATES:
         raise ValueError("Requires a validated evidence-gate result")
-    feedback = feedback or {"decision": "awaiting_human", "reason": ""}
+    if feedback is None:
+        feedback = {
+            "decision": "awaiting_human", "reason": "",
+            "automatic_deploy_allowed": False,
+        }
     if not isinstance(feedback, dict) or feedback.get("decision") not in REVIEWS:
         raise ValueError("Invalid feedback state")
     if feedback.get("automatic_deploy_allowed") is not False:
