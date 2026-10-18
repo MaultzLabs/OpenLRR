@@ -23,9 +23,9 @@ STATE = HOME / ".local" / "share" / "openlrr-agent"
 GAME = HOME / "Applications" / "Sikarugir" / "OpenLRR Menu Test.app" / "Contents" / "SharedSupport" / "prefix" / "drive_c" / "Program Files" / "Rock Raiders OpenLRR"
 RESULTS = HOME / "Downloads" / "OpenLRR Benchmark Runs"
 DLL = HOME / "Downloads" / "openlrr.dll"
-RUNNER = Path(__file__).with_name("run-autobenchmark.sh")
-ANALYZER = Path(__file__).with_name("analyze-benchmark.py")
-AGENT = Path(__file__).resolve().parents[1] / "agent" / "openlrr_agent.py"
+RUNNER = HOME / "Downloads" / "run-autobenchmark.sh"
+ANALYZER = HOME / "Downloads" / "analyze-benchmark.py"
+AGENT = HOME / "OpenLRR-Agent" / "scripts" / "agent" / "openlrr_agent.py"
 STOP = CONFIG / "STOP"
 PAUSE = CONFIG / "PAUSE"
 LOCK = CONFIG / "supervisor.lock"
@@ -230,6 +230,7 @@ def main(argv=None) -> int:
         LOCK.mkdir(mode=0o700)
     except FileExistsError:
         raise RuntimeError("Concurrent/stale supervisor.lock. No test launched.")
+    completed_safely = False
     try:
         audit("supervisor_started", plan=plan, approved_sha=args.approved_sha)
         baseline = None
@@ -256,9 +257,14 @@ def main(argv=None) -> int:
             audit("analysis_completed")
         audit("supervisor_completed", runs=completed)
         print("Verified test plan finished:", ", ".join(completed))
+        completed_safely = True
         return 0
     finally:
-        LOCK.rmdir()
+        if completed_safely:
+            LOCK.rmdir()
+        else:
+            print("SAFETY HOLD: supervisor.lock retained; verify TEST game is closed, "
+                  "then remove the lock manually before any restart.", file=sys.stderr)
 
 
 if __name__ == "__main__":
