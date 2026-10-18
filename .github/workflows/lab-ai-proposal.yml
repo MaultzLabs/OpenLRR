@@ -20,7 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: a3fda37598a452d85e5bb0bea7e45720c9762390
+          ref: fd3e1313b052557ffa2adcc68794c2a7b2a429a9
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -53,7 +53,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: a3fda37598a452d85e5bb0bea7e45720c9762390
+          ref: fd3e1313b052557ffa2adcc68794c2a7b2a429a9
       - uses: actions/download-artifact@v4
         with:
           name: OpenLRR-AI-Research-Result
