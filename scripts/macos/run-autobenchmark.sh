@@ -13,7 +13,8 @@ BENCH_MODE="${OPENLRR_BENCH_MODE:-baseline}"
 case "$BENCH_MODE" in
   baseline) MODE_MARKER="" ;;
   nowait) MODE_MARKER="menuperf.nowait" ;;
-  *) echo "ERROR: Unsupported benchmark mode: $BENCH_MODE (use baseline or nowait)." >&2; exit 2 ;;
+  gdi) MODE_MARKER="menuperf.gdi" ;;
+  *) echo "ERROR: Unsupported benchmark mode: $BENCH_MODE (use baseline, nowait or gdi)." >&2; exit 2 ;;
 esac
 RESULTS="$HOME/Downloads/OpenLRR Benchmark Runs"
 # Read only a repository name, never execute arbitrary commands from a config file.
