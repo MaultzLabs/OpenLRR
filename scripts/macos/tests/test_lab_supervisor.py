@@ -93,7 +93,10 @@ class SupervisorSafetyTests(unittest.TestCase):
                     "wrapper_wait_exited=yes\ntest_game_handles=none\n")
                 csv = lab.verify_result(name, "baseline", sha)
                 self.assertEqual(csv, run / "menuperf.csv")
-                self.assertEqual(check.call_count, 2)
+                self.assertEqual(check.call_count, 3)
+                self.assertEqual(
+                    [entry.args[1] for entry in check.call_args_list],
+                    ["menuperf.csv", "summary.json", "lifecycle.verified"])
                 with self.assertRaisesRegex(RuntimeError, "approved binary"):
                     lab.verify_result(name, "baseline", "b" * 64)
                 with self.assertRaisesRegex(RuntimeError, "graphics mode"):
