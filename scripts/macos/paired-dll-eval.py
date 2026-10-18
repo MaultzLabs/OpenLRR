@@ -34,6 +34,8 @@ LOCK = STATE / "paired-eval.lock"
 SUPERVISOR = HOME / "OpenLRR-Agent/scripts/macos/lab-supervisor.py"
 CONTROLLER = HOME / "OpenLRR-Agent/scripts/agent/experiment_controller.py"
 PYTHON = STATE / "venv/bin/python"
+HELPERS = ("run-autobenchmark.sh", "publish-benchmark.sh", "analyze-benchmark.py")
+SCRIPT_DIR = SUPERVISOR.parent
 SHA = re.compile(r"^[a-f0-9]{64}$")
 RUN_ID = re.compile(r"^[0-9]{8,14}$")
 BENCH_ID = re.compile(r"^autobenchmark-\d{4}-\d\d-\d\d_\d\d-\d\d-\d\d$")
@@ -98,6 +100,17 @@ def preflight(base_sha: str, candidate_sha: str, run_id: str, pairs: int, second
         raise RuntimeError("Unrecovered staged DLL backup exists; manual inspection required")
     if DOWNLOAD_DLL.is_symlink():
         raise ValueError("Refuse to replace a symlinked Downloads DLL")
+    for name in HELPERS:
+        original = SCRIPT_DIR / name
+        target = DOWNLOAD_DLL.parent / name
+        backup = DOWNLOAD_DLL.parent / (".openlrr-paired-previous-" + name)
+        if (original.is_symlink() or not original.is_file() or
+            original.stat().st_size > 2_000_000):
+            raise ValueError("Trusted benchmark helper script missing or unsafe")
+        if backup.exists() or backup.is_symlink():
+            raise RuntimeError("Unrecovered benchmark helper backup")
+        if target.is_symlink() or (target.exists() and not target.is_file()):
+            raise ValueError("Existing benchmark helper is not a regular file")
     if any(not path.is_file() for path in (SUPERVISOR, CONTROLLER, PYTHON)):
         raise RuntimeError("Trusted supervisor/controller/Python checkout missing")
     assert_safe_file(BASELINE, base_sha)
@@ -126,6 +139,30 @@ def names() -> set[str]:
     if not RESULTS.exists():
         return set()
     return {p.name for p in RESULTS.iterdir() if p.is_dir() and BENCH_ID.fullmatch(p.name)}
+
+
+def stage_helpers(previous: dict) -> None:
+    """Install only fixed local lab scripts, preserving all Downloads originals."""
+    for name in HELPERS:
+        target = DOWNLOAD_DLL.parent / name
+        backup = DOWNLOAD_DLL.parent / (".openlrr-paired-previous-" + name)
+        existed = target.exists()
+        previous[name] = existed
+        if existed:
+            os.replace(target, backup)
+        shutil.copyfile(SCRIPT_DIR / name, target)
+
+
+def restore_helpers(previous: dict) -> None:
+    for name in reversed(tuple(previous)):
+        target = DOWNLOAD_DLL.parent / name
+        backup = DOWNLOAD_DLL.parent / (".openlrr-paired-previous-" + name)
+        if previous[name]:
+            if not backup.is_file():
+                raise RuntimeError("Benchmark helper backup missing; manual recovery required")
+            os.replace(backup, target)
+        elif target.exists():
+            target.unlink()
 
 
 def stage_source(source: Path, sha: str):
@@ -177,11 +214,13 @@ def execute(base_sha: str, cand_sha: str, run_id: str,
     originally_present = DOWNLOAD_DLL.exists()
     completed_safely = False
     staged = False
+    previous_helpers = {}
     recorded = []
     try:
         if originally_present:
             os.replace(DOWNLOAD_DLL, BACKUP)
         staged = True
+        stage_helpers(previous_helpers)
         candidate = candidate_source(run_id, cand_sha)
         for i in range(pairs):
             # Reverse AB order every other pair to reduce temporal bias.
@@ -244,6 +283,7 @@ def execute(base_sha: str, cand_sha: str, run_id: str,
                 DOWNLOAD_DLL.unlink()
             if TEMP.exists():
                 TEMP.unlink()
+            restore_helpers(previous_helpers)
         if completed_safely:
             LOCK.rmdir()
         else:
