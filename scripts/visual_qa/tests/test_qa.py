@@ -130,6 +130,25 @@ class VisualQATests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "empty"):
             self.analyze(a, b)
 
+    def test_output_directory_symlink_is_refused(self):
+        a = self.save("a.png", self.scene)
+        b = self.save("b.png", self.scene)
+        destination = self.dir / "real-output"
+        destination.mkdir()
+        linked = self.dir / "linked-output"
+        linked.symlink_to(destination, target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, "symlinks"):
+            self.analyze(a, b, out="linked-output")
+
+    def test_refuse_write_under_game_installation(self):
+        a = self.save("a.png", self.scene)
+        b = self.save("b.png", self.scene)
+        game = self.dir / "test-game-install"
+        game.mkdir()
+        (game / "LegoRR.exe").write_bytes(b"test sentinel only")
+        with self.assertRaisesRegex(ValueError, "game installation"):
+            self.analyze(a, b, out="test-game-install/results")
+
     def test_cli_failure_on_regression(self):
         a = self.save("a.png", self.scene)
         b = self.save("b.png", np.zeros_like(self.scene))
