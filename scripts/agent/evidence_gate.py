@@ -87,6 +87,8 @@ def quantile(sorted_numbers: list[float], q: float) -> float:
     position = (len(sorted_numbers) - 1) * q
     low = int(position)
     high = min(low + 1, len(sorted_numbers) - 1)
+    if high == low:
+        return sorted_numbers[low]
     return sorted_numbers[low] * (high - position) + sorted_numbers[high] * (position - low)
 
 
