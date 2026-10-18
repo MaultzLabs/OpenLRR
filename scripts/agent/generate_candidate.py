@@ -2,7 +2,7 @@
 """Create one AI-authored OpenLRR graphics experiment for offline review/build.
 
 No GitHub write access, no shell tool for the model, no Mac/game execution.
-The only output is an allowlisted C++ diff and a small JSON experiment note.
+The output is an allowlisted C++ diff or a structured request for missing evidence.
 """
 from __future__ import annotations
 
@@ -109,8 +109,12 @@ def generate(source: str, model: str) -> dict:
         "nothing before or after. Do not change other files, headers, telemetry "
         "definitions, source markers, app startup or process management. "
         "Never access credentials, resources, or use OS command execution. "
-        "If uncertain, propose diagnostic instrumentation in this narrow block "
-        "rather than an ungrounded performance change."
+        "If no specific, measurable and defensible change fits this scope, "
+        "return the original block UNCHANGED. This is an accepted ABSTENTION, "
+        "not failure. Use hypothesis to explain why the current evidence cannot "
+        "justify a patch, and expected_measurement to specify which new evidence "
+        "would change that decision. Never produce a cosmetic or speculative "
+        "patch merely to satisfy the workflow."
     )
     agent = Agent(name="OpenLRR Candidate Author", model=model,
                   instructions=instructions, tools=[], output_type=Suggestion)
@@ -125,8 +129,25 @@ def generate(source: str, model: str) -> dict:
     return result.model_dump()
 
 
-def write_proposal(source_file: Path, output_dir: Path, proposal: dict) -> None:
+def write_proposal(source_file: Path, output_dir: Path, proposal: dict) -> str:
     source = source_file.read_text(encoding="utf-8")
+    _, _, original, _ = extract_block(source)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    if proposal["replacement_block"] == original:
+        # Abstaining from an ungrounded experiment is a valid research result.
+        # Do not compile an identical build or charge the Mac for a blind test.
+        note = {
+            "status": "needs_better_evidence",
+            "reason": proposal["hypothesis"][:500],
+            "recommended_next_measurement": proposal["expected_measurement"][:450],
+            "possible_regression": proposal["possible_regression"][:450],
+            "source_file": SOURCE_REL,
+            "compiled": False, "host_execution_authorized": False,
+            "review_required": False, "based_on": REFERENCE_CONTEXT,
+        }
+        (output_dir / "proposal.json").write_text(
+            json.dumps(note, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        return "needs_better_evidence"
     revised = validate_replacement(source, proposal["replacement_block"])
     patch = make_patch(source, revised)
     if not patch.startswith("--- a/" + SOURCE_REL + "\n+++ b/" + SOURCE_REL + "\n"):
@@ -136,12 +157,14 @@ def write_proposal(source_file: Path, output_dir: Path, proposal: dict) -> None:
     note = {k: proposal[k] for k in (
         "hypothesis", "expected_measurement", "possible_regression")}
     note.update({
+        "status": "patch_ready",
         "source_file": SOURCE_REL, "review_required": True,
         "compiled": False, "host_execution_authorized": False,
         "based_on": REFERENCE_CONTEXT,
     })
     (output_dir / "proposal.json").write_text(
         json.dumps(note, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return "patch_ready"
 
 
 def main(argv=None) -> int:
@@ -163,8 +186,11 @@ def main(argv=None) -> int:
     if not os.getenv("OPENAI_API_KEY"):
         raise RuntimeError("Missing restricted OpenAI API key; no model request made")
     result = generate(source, args.model)
-    write_proposal(args.source, args.out, result)
-    print("AI proposal saved for remote compilation/review; Mac execution disabled.")
+    status = write_proposal(args.source, args.out, result)
+    if status == "needs_better_evidence":
+        print("AI abstained: evidence request saved. No patch and no Mac execution.")
+    else:
+        print("AI proposal saved for remote compilation/review; Mac execution disabled.")
     return 0
 
 
