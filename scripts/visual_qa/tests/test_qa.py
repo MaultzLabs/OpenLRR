@@ -229,7 +229,9 @@ class VisualQATests(unittest.TestCase):
         ledger = {"schema_version": 1, "events": []}
         result = experiment_controller.decision_for(
             report, ledger, visual_report=self.fake_visual())
-        self.assertEqual(result["next_step"], "isolate_regression")
+        # Unbound reports cannot change a benchmark decision.
+        self.assertEqual(result["next_step"], "hold_for_review")
+        self.assertFalse(result["visual_capture_binding_verified"])
         self.assertEqual(result["visual_quality_status"], "regression")
         self.assertFalse(result["may_install_or_run_candidate"])
         self.assertFalse(result["may_touch_working_game"])
