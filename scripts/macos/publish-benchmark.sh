@@ -5,8 +5,14 @@ set -euo pipefail
 
 RUN_DIR="${1:?Usage: publish-benchmark.sh /path/to/benchmark-run-directory}"
 REPORT_REPO="${OPENLRR_REPORT_REPO:-}"
+UPLOAD_CONFIG="$HOME/.config/openlrr-benchmark/private-results-repo"
+# Allow standalone uploads and the unattended runner to use the same trusted
+# repository-name setting. Never source the configuration as shell commands.
+if [[ -z "$REPORT_REPO" && -f "$UPLOAD_CONFIG" ]]; then
+  IFS= read -r REPORT_REPO < "$UPLOAD_CONFIG" || true
+fi
 if [[ -z "$REPORT_REPO" ]]; then
-  echo "Upload not configured. Set OPENLRR_REPORT_REPO to an existing private GitHub repo." >&2
+  echo "Upload not configured. Set OPENLRR_REPORT_REPO or private-results-repo." >&2
   exit 2
 fi
 if [[ ! "$REPORT_REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
