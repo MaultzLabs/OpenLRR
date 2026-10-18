@@ -41,6 +41,13 @@ class PairedDllTests(unittest.TestCase):
         self.baseline = self.state / "approved-baselines/openlrr.dll"
         self.candidate = self.root / "quarantine/run-39169390987/openlrr.dll"
         self.base_sha = pe_stub(self.baseline, 42)
+        (self.baseline.parent / "provenance.json").write_text(json.dumps({
+            "dll_sha256": self.base_sha,
+            "reviewed_source_workflow": "OpenLRR Menu Diagnostics Win32",
+            "source_run": "39170729410", "head_sha": "a" * 40,
+            "approved_for_automatic_execution": False,
+            "tested_in_game": False,
+        }))
         self.cand_sha = pe_stub(self.candidate, 43)
         (self.candidate.parent / "SHA256.txt").write_text(self.cand_sha + "\n")
         (self.candidate.parent / "proposal.patch").write_text(
