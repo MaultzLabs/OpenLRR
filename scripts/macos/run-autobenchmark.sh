@@ -71,12 +71,24 @@ echo "Benchmark duration: $SECONDS_TO_RUN seconds after first rendered frame."
 echo "Logs: $RUN"
 open "$APP"
 
-deadline=$(( $(date +%s) + SECONDS_TO_RUN + 300 ))
+started_at=$(date +%s)
+deadline=$(( started_at + SECONDS_TO_RUN + 300 ))
+last_status=0
 finished=0
 while (( $(date +%s) < deadline )); do
   if [[ -f "$GAME/menuperf.finished" ]]; then
     finished=1
     break
+  fi
+  now=$(date +%s)
+  if (( now - last_status >= 20 )); then
+    last_status=$now
+    if [[ -f "$GAME/menuperf.csv" && $(wc -l < "$GAME/menuperf.csv") -gt 10 ]]; then
+      phase="performance data is being recorded"
+    else
+      phase="waiting for initial frames"
+    fi
+    echo "[elapsed $((now - started_at))s, watchdog limit $((deadline - now))s remaining] $phase"
   fi
   sleep 2
 done
@@ -91,7 +103,7 @@ if [[ -f "$GAME/menuperf.finished" ]]; then cp -p "$GAME/menuperf.finished" "$RU
   if (( finished )); then echo "In-game close requested"; else echo "Timed out before close marker"; fi
   if [[ -f "$RUN/menuperf.csv" ]]; then
     awk -F, '
-      NR == 1 { for (i=1; i<=NF; i++) col[$i]=i; next }
+      NR == 1 { for (i=1; i<=NF; i++) { gsub(/\r/, "", $i); col[$i]=i }; next }
       $(col["operation"])=="frame_flip" {
         total_secs += $(col["seconds"]); flips += $(col["calls"])
       }
