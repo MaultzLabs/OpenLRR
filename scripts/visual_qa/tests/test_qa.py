@@ -160,6 +160,37 @@ class VisualQATests(unittest.TestCase):
         self.assertGreater(report["metrics"]["frame_count"], 1)
         self.assertEqual(report["status"], "pass")
 
+    def test_unmatched_durations_cannot_claim_quality_score(self):
+        out = self.dir / "diffs"
+        out.mkdir()
+        status, score, _, findings, _ = qa.compare_frames(
+            [self.scene] * 3, [self.scene] * 3, None, out, 12, 94,
+            duration_pair=(3.0, 10.0))
+        self.assertEqual((status, score), ("inconclusive", None))
+        self.assertEqual(findings[0]["code"], "capture_duration_mismatch")
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg unavailable")
+    def test_long_video_samples_late_regression(self):
+        clips = []
+        for suffix, broken in (("long_ref", False), ("long_candidate", True)):
+            directory = self.dir / suffix
+            directory.mkdir()
+            for i in range(32):
+                frame = np.roll(self.scene, 3 * i, axis=1)
+                if broken and i >= 26:
+                    frame = np.zeros_like(frame)
+                Image.fromarray(frame).save(directory / f"frame-{i:04d}.png")
+            clip = self.dir / (suffix + ".mp4")
+            proc = subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-y",
+                 "-framerate", "2", "-i", str(directory / "frame-%04d.png"),
+                 "-c:v", "mpeg4", "-q:v", "2", str(clip)], capture_output=True, text=True)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            clips.append(clip)
+        result = self.analyze(clips[0], clips[1], out="long-video-report", fps=2)
+        self.assertLessEqual(result["metrics"]["frame_count"], qa.MAX_FRAMES)
+        self.assertEqual(result["status"], "regression")
+        self.assertIn("black_screen", [f["code"] for f in result["findings"]])
+
     def test_adapter_rejects_permission_elevation(self):
         payload = self.fake_visual()
         payload["may_deploy_automatically"] = True
