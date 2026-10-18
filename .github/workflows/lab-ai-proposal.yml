@@ -93,7 +93,9 @@ jobs:
             throw 'AI patch touched an unexpected file'
           }
       - uses: microsoft/setup-msbuild@v2
+        if: steps.candidate.outputs.compile == 'true'
       - name: Compile 32-bit proposed DLL (never execute it)
+        if: steps.candidate.outputs.compile == 'true'
         shell: pwsh
         run: |
           msbuild openlrr.sln /t:openlrr /m /p:Configuration=Release /p:Platform=x86 /verbosity:minimal
