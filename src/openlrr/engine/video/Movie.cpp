@@ -5,6 +5,7 @@
 #include "../drawing/Draw.h"
 #include "../core/Files.h"
 #include "../Main.h"
+#include "../util/MenuPerf.h"
 
 #include "Movie.hpp"
 #include "Movie.h"
@@ -325,6 +326,7 @@ bool32 __cdecl Gods98::Movie_Update(Movie_t* mov, real32 speed, const Rect2I* de
 	G98CMovie* movie = (G98CMovie*)mov;
 
 	Draw_AssertUnlocked("Movie_Update");
+	MenuPerf::Scope timer(MenuPerf::Metric::MovieUpdate);
 	return (bool32)(movie->Update(speed, destRect) != false);
 }
 
