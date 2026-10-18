@@ -59,7 +59,7 @@ upload() {
   {
     printf '{"message":"Record isolated OpenLRR benchmark: %s (%s)","content":"' "$run_name" "$name"
     base64 < "$path" | tr -d '\r\n'
-    printf '"}\\n'
+    printf '"}'
   } > "$payload"
   # --input avoids OS command-line size limits for larger CSV files.
   if ! gh api --method PUT "repos/$REPORT_REPO/contents/runs/$run_name/$name" \
