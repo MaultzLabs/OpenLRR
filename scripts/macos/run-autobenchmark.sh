@@ -7,6 +7,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ZIP="${OPENLRR_BENCH_ZIP:-$HOME/Downloads/OpenLRR-autobenchmark-x86.zip}"
 SECONDS_TO_RUN="${OPENLRR_BENCH_SECONDS:-210}"
 RESULTS="$HOME/Downloads/OpenLRR Benchmark Runs"
+# Read only a repository name, never execute arbitrary commands from a config file.
+UPLOAD_CONFIG="$HOME/.config/openlrr-benchmark/private-results-repo"
+if [[ -z "${OPENLRR_REPORT_REPO:-}" && -f "$UPLOAD_CONFIG" ]]; then
+  IFS= read -r OPENLRR_REPORT_REPO < "$UPLOAD_CONFIG" || true
+  export OPENLRR_REPORT_REPO
+fi
 
 if [[ ! -d "$APP" || ! -f "$GAME/openlrr.dll" || ! -f "$GAME/LegoRR.exe" ]]; then
   echo "ERROR: Expected TEST APP missing. No changes were made." >&2
