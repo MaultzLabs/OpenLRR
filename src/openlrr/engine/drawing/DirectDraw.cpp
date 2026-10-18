@@ -379,6 +379,7 @@ void __cdecl Gods98::DirectDraw_Flip(void)
 	}
 	else DirectDraw_BlitBuffers();
 	MenuPerf::FlushIfDue();
+	MenuPerf::MaybeFinishAutoTest(directDrawGlobs.hWnd);
 }
 
 // <LegoRR.exe @0047cbb0>
