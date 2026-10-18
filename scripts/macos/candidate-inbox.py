@@ -61,7 +61,11 @@ def run_metadata(run_id: str) -> dict:
 def validate_bundle(root: Path) -> dict:
     root = root.resolve()
     files = list(root.iterdir())
-    if {p.name for p in files} != ALLOWED:
+    names = {p.name for p in files}
+    # Raw GitHub artifact has exactly ALLOWED files. Once quarantined, our
+    # staging process adds only a provenance.json sidecar; accept that single
+    # trusted layout too, but never ignore arbitrary extra files.
+    if names != ALLOWED and names != ALLOWED | {"provenance.json"}:
         raise ValueError("Artifact is missing required files or contains unexpected files")
     if any(p.is_symlink() or not p.is_file() or p.parent.resolve() != root
            or p.stat().st_size > 10_000_000 for p in files):
