@@ -9,7 +9,7 @@
 
 namespace MenuPerf {
 
-enum class Metric : unsigned { FlicLock, FlicDecode, FlicUnlock, FlicBlt, ImageBlt, Flip, MovieUpdate, WindowCoordinate, WindowBlt, FullscreenFlip, GdiAcquire, GdiStretch, GdiRelease, WindowPresentAccepted, WindowPresentBusy, WindowPresentError, Count };
+enum class Metric : unsigned { FlicLock, FlicDecode, FlicUnlock, FlicBlt, ImageBlt, Flip, MovieUpdate, WindowCoordinate, WindowBlt, FullscreenFlip, GdiAcquire, GdiStretch, GdiRelease, WindowPresentAccepted, WindowPresentBusy, WindowPresentError, GdiWindowAttempt, GdiPresentAccepted, GdiPresentFallback, Count };
 struct Stat { std::uint64_t calls = 0; std::uint64_t ticks = 0; std::uint64_t maxTicks = 0; };
 
 inline bool HasMarker(const char* name) {
@@ -98,6 +98,15 @@ inline void RecordWindowPresentOutcome(bool accepted, bool busy) {
     ++s.counters[static_cast<unsigned>(metric)].calls;
 }
 
+// GDI success is recorded separately from attempted presentations and any
+// DirectDraw fallback. A model must not infer smoothness from flip counts alone.
+inline void RecordGdiWindowOutcome(bool succeeded) {
+    State& s = Get();
+    if (!s.enabled) return;
+    const Metric metric = succeeded ? Metric::GdiPresentAccepted : Metric::GdiPresentFallback;
+    ++s.counters[static_cast<unsigned>(metric)].calls;
+}
+
 // Called after each full frame presentation, so only one disk write per second.
 inline void FlushIfDue() {
     State& s = Get();
@@ -111,7 +120,8 @@ inline void FlushIfDue() {
         "flic_backbuffer_blt", "image_blt", "frame_flip", "movie_update",
         "window_coordinate", "window_present_blt", "fullscreen_flip",
         "gdi_surface_getdc", "gdi_stretchblt", "gdi_surface_releasedc",
-        "window_present_accepted", "window_present_busy", "window_present_error"
+        "window_present_accepted", "window_present_busy", "window_present_error",
+        "gdi_window_attempt", "gdi_present_accepted", "gdi_present_fallback"
     };
     const double seconds = static_cast<double>(elapsed) / s.frequency.QuadPart;
     const double factor = 1000.0 / s.frequency.QuadPart;
