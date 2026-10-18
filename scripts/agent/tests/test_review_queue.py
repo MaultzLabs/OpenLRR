@@ -89,13 +89,42 @@ class ReviewQueueTests(unittest.TestCase):
         def gh_stub(*args):
             calls.append(args)
             if "/comments?" in args[-1]:
-                return json.dumps([{"user": {"login": "MaultzLabs"}, "id": 12,
-                                    "body": "/lab reject: visual artifacts"}])
+                return json.dumps([[{"user": {"login": "MaultzLabs"}, "id": 12,
+                                    "body": "/lab reject: visual artifacts"}]])
             return json.dumps({"body": "<!-- openlrr-lab-review:experiment_001 -->"})
         with mock.patch.object(review, "gh", side_effect=gh_stub):
             result = review.fetch_feedback(3)
         self.assertEqual(result["decision"], "reject")
+        self.assertEqual(result["experiment_id"], "experiment_001")
         self.assertTrue(all("OpenLRR-Test-Results" in args[-1] for args in calls))
+        self.assertIn("--paginate", calls[1])
+        self.assertIn("--slurp", calls[1])
+
+    def test_review_feedback_pages_do_not_drop_late_user_corrections(self):
+        def gh_stub(*args):
+            if "/comments?" in args[-1]:
+                return json.dumps([
+                    [{"user": {"login": "MaultzLabs"}, "id": 1,
+                      "body": "/lab good: first try"}],
+                    [{"user": {"login": "attacker"}, "id": 2,
+                      "body": "/lab reject: not authorized"},
+                     {"user": {"login": "MaultzLabs"}, "id": 3,
+                      "body": "/lab continue: still freezes"}]
+                ])
+            return json.dumps({"body": "<!-- openlrr-lab-review:experiment_001 -->"})
+        with mock.patch.object(review, "gh", side_effect=gh_stub):
+            final = review.fetch_feedback(99)
+        self.assertEqual(final["decision"], "continue")
+        self.assertEqual(final["reason"], "still freezes")
+        self.assertEqual(final["experiment_id"], "experiment_001")
+
+    def test_ambiguous_experiment_identity_is_rejected(self):
+        with mock.patch.object(review, "gh", return_value=json.dumps({
+            "body": "<!-- openlrr-lab-review:foo_001 -->\n"
+                    "<!-- openlrr-lab-review:bar_001 -->"
+        })):
+            with self.assertRaisesRegex(ValueError, "uniquely identified"):
+                review.fetch_feedback(3)
 
 
 if __name__ == "__main__":
