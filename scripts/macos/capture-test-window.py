@@ -137,6 +137,22 @@ def eligible_window(selected: int, observed: list[dict]) -> dict:
     return selected_window
 
 
+def list_eligible_windows(observed: list[dict]) -> list[dict]:
+    """Show only windows whose owning PID has a verified TEST game handle."""
+    matched = []
+    owner_checks: dict[int, bool] = {}
+    for record in observed:
+        window = normalize_window(record)
+        if window is None or window["window_id"] <= 0:
+            continue
+        pid = window["pid"]
+        if pid not in owner_checks:
+            owner_checks[pid] = process_uses_test_game(pid)
+        if owner_checks[pid]:
+            matched.append(window)
+    return sorted(matched, key=lambda item: item["window_id"])
+
+
 def inspect_png(path: Path, window: dict) -> tuple[int, int]:
     if not path.is_file() or not 24 <= path.stat().st_size <= MAX_IMAGE_BYTES:
         raise ValueError("Screen capture absent or suspicious size")
@@ -215,13 +231,23 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--approved-sha", required=True)
     parser.add_argument("--run-id", required=True)
-    parser.add_argument("--window-id", type=int, required=True)
+    parser.add_argument("--window-id", type=int)
+    parser.add_argument("--list-eligible", action="store_true",
+                        help="List only windows backed by the dedicated TEST game")
     parser.add_argument("--capture", action="store_true",
                         help="Actually invoke window-ID-only screenshot command")
     parser.add_argument("--confirm-test-only", action="store_true")
     opts = parser.parse_args(argv)
     try:
         test_install_preflight(opts.approved_sha, opts.run_id)
+        if opts.list_eligible:
+            if opts.capture or opts.window_id is not None:
+                raise ValueError("Window listing is separate from capture")
+            print(json.dumps({"test_only": True, "will_capture": False,
+                              "eligible_windows": list_eligible_windows(window_info())}, indent=2))
+            return 0
+        if opts.window_id is None:
+            raise ValueError("Explicit --window-id required; run --list-eligible first")
         eligible = eligible_window(opts.window_id, window_info())
         if not opts.capture:
             print(json.dumps({"preflight_only": True, "window": eligible,
