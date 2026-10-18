@@ -26,3 +26,20 @@ New CSV columns include `nowait` (0 by default). New metric rows:
 With only `menuperf.enable`, the exact original blocking `DDBLT_WAIT` behavior remains active. No renderer settings change.
 
 **Experimental alternate path:** add an empty marker `menuperf.nowait` to disable `DDBLT_WAIT` on the windowed present Blt. This can return `DDERR_WASSTILLDRAWING`, skipping frames; it may or may not cure stalls and is NOT enabled by default. Only attempt after the new diagnostic CSV confirms that `window_present_blt` accounts for most of `frame_flip`. Retest on the duplicated app only, and remove `menuperf.nowait` to restore the original operation. The `menuperf.optimize` flag for FLIC locks should remain off because FLIC locks are not dominant in the first log.
+
+## Third-stage reversible GDI window presentation experiment
+
+The `menuperf.nowait` experiment returned essentially identical slowest presentation calls (~1.25 s each) so a nonblocking `DirectDraw_fSurf()->Blt` does not solve this environment's delay.
+
+When a marker file named `menuperf.gdi` is placed in the game working directory **before game launch**, a new diagnostic path attempts `DirectDraw_bSurf()->GetDC()` and `StretchBlt()` directly into the client window's GDI DC, then `ReleaseDC()`. This bypasses the front DirectDraw primary surface presentation, **not** the game's existing Direct3D back-buffer rendering. If GetDC, window DC retrieval, or StretchBlt fails, automatically fall back to the original DirectDraw front-surface Blt.
+
+This experiment is disabled by default and has not been validated on macOS/Wine/dgVoodoo. It may fail, perform worse, or show incorrect color/frames; only test in `OpenLRR Menu Test.app`, never the working copy.
+
+To compare:
+- Remove `menuperf.nowait` and `menuperf.optimize`.
+- Add `menuperf.enable` and `menuperf.gdi`.
+- Launch test app, wait through startup, observe 2D screen and record console/log observations. If visual output fails or stalls indefinitely, force quit the *test* app; delete `menuperf.gdi` to revert.
+- New CSV column `gdi=1`, new rows `gdi_surface_getdc`, `gdi_stretchblt`, and `gdi_surface_releasedc`.
+- A successful GDI present won't run `window_present_blt` on that frame. If GDI can't be used, the fallback DirectDraw blit is measured as before.
+
+No image quality reductions, resolution switches, game data modifications, or changes to the 3D renderer are built into this experiment.
