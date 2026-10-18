@@ -18,7 +18,23 @@ inline bool HasMarker(const char* name) {
     return false;
 }
 
+// Absence of this marker keeps normal gameplay completely unchanged.
+// The file can contain a whole number of seconds; default is 210, range 15..600.
+inline unsigned ReadAutoTestSeconds() {
+    std::FILE* f = std::fopen("menuperf.autotest", "rb");
+    if (!f) return 0;
+    unsigned requested = 210;
+    if (std::fscanf(f, "%u", &requested) != 1) requested = 210;
+    std::fclose(f);
+    if (requested < 15) requested = 15;
+    if (requested > 600) requested = 600;
+    return requested;
+}
+
 struct State {
+    unsigned autoTestSeconds = ReadAutoTestSeconds();
+    LARGE_INTEGER autoTestStart = {};
+    bool autoTestExitIssued = false;
     bool enabled = HasMarker("menuperf.enable");
     bool optimizeStaticFlic = HasMarker("menuperf.optimize");
     // Optional reversible Windows blit experiment; disabled unless explicitly enabled.
@@ -50,6 +66,7 @@ inline State& Get() { static State state; return state; }
 inline bool OptimizeStaticFlic() { return Get().optimizeStaticFlic; }
 inline bool NonblockingWindowBlt() { return Get().nonblockingWindowBlt; }
 inline bool GdiWindowPresent() { return Get().gdiWindowPresent; }
+inline bool AutoTestEnabled() { return Get().autoTestSeconds != 0; }
 
 struct Scope {
     Metric metric;
@@ -100,4 +117,33 @@ inline void FlushIfDue() {
     std::fflush(s.output);
     s.intervalStart = now;
 }
+
+// Called on completed presentation frames. Benchmark mode starts timing on the
+// first frame (not during graphics-device selection) and requests an ordinary
+// window close on expiration. No process killing or registry changes.
+inline void MaybeFinishAutoTest(HWND hwnd) {
+    State& s = Get();
+    if (s.autoTestSeconds == 0 || s.autoTestExitIssued || hwnd == nullptr) return;
+    LARGE_INTEGER now;
+    if (!::QueryPerformanceCounter(&now)) return;
+    if (s.autoTestStart.QuadPart == 0) {
+        s.autoTestStart = now;
+        return;
+    }
+    const std::int64_t elapsed = now.QuadPart - s.autoTestStart.QuadPart;
+    if (elapsed < static_cast<std::int64_t>(s.autoTestSeconds) * s.frequency.QuadPart) return;
+
+    FlushIfDue();
+    // The sentinel indicates the close request was successfully posted,
+    // NOT necessarily that the entire Wine wrapper process exited.
+    if (::PostMessageA(hwnd, WM_CLOSE, 0, 0)) {
+        s.autoTestExitIssued = true;
+        std::FILE* done = std::fopen("menuperf.finished", "w");
+        if (done) {
+            std::fprintf(done, "close_requested_after_seconds=%u\\n", s.autoTestSeconds);
+            std::fclose(done);
+        }
+    }
+}
+
 } // namespace MenuPerf
