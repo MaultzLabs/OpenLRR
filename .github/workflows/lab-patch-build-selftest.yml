@@ -1,0 +1,93 @@
+name: OpenLRR Proposed-Patch Build Self-Test
+
+on:
+  push:
+    branches: [lab-blit-cpu-probe-v1]
+    paths:
+      - '.github/workflows/lab-patch-build-selftest.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  construct_known_safe_patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Create harmless fixture without using OpenAI
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import sys
+          sys.path.insert(0, 'scripts/agent')
+          import generate_candidate as agent
+          source = Path(agent.SOURCE_REL)
+          original = source.read_text(encoding='utf-8')
+          _, _, block, _ = agent.extract_block(original)
+          target = '\t\tMenuPerf::Scope presentation(MenuPerf::Metric::WindowBlt);'
+          if block.count(target) != 1:
+              raise SystemExit("Trusted fixture anchor missing")
+          changed = block.replace(target, '\t\t// SELFTEST ONLY: no rendering behavior change\n' + target)
+          agent.write_proposal(source, Path('candidate-output'), {
+              'hypothesis': 'Test bounded patch apply and x86 compiler plumbing without a graphics change.',
+              'replacement_block': changed,
+              'expected_measurement': 'Patch applies to one file, x86 build compiles, game is never executed.',
+              'possible_regression': 'No runtime changes; a compiler incompatibility is possible.'
+          })
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OpenLRR-Fixed-Source-Patch
+          path: candidate-output/
+          if-no-files-found: error
+
+  compile_known_safe_patch:
+    needs: construct_known_safe_patch
+    runs-on: windows-2022
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: OpenLRR-Fixed-Source-Patch
+          path: candidate-output
+      - name: Verify scope and apply known safe patch
+        shell: pwsh
+        run: |
+          $patch = 'candidate-output/proposal.patch'
+          $changes = @(git apply --numstat -- $patch)
+          if ($LASTEXITCODE -ne 0) { throw 'Malformed patch' }
+          if ($changes.Count -ne 1 -or $changes[0] -notmatch 'src/openlrr/engine/drawing/DirectDraw\.cpp$') {
+            throw 'Fixture escaped approved file'
+          }
+          git apply --check -- $patch
+          if ($LASTEXITCODE -ne 0) { throw 'Failed patch check' }
+          git apply -- $patch
+          if ($LASTEXITCODE -ne 0) { throw 'Failed patch application' }
+          $paths = @(git diff --name-only)
+          if ($paths.Count -ne 1 -or $paths[0] -ne 'src/openlrr/engine/drawing/DirectDraw.cpp') {
+            throw 'Unexpected modified source file'
+          }
+      - uses: microsoft/setup-msbuild@v2
+      - name: Compile patched x86 DLL; never launch
+        shell: pwsh
+        run: |
+          msbuild openlrr.sln /t:openlrr /m /p:Configuration=Release /p:Platform=x86 /verbosity:minimal
+          if ($LASTEXITCODE -ne 0) { throw 'Compiler failed' }
+          $dll = 'bin/openlrr.dll'
+          if (-not (Test-Path $dll)) { throw 'Compiled DLL missing' }
+          $bytes = [IO.File]::ReadAllBytes((Resolve-Path $dll))
+          $pe = [BitConverter]::ToInt32($bytes, 0x3c)
+          if ([BitConverter]::ToUInt16($bytes, $pe + 4) -ne 0x014c) {
+            throw 'Compiler did not emit x86'
+          }
+          Write-Host 'PATCH APPLY AND WINDOWS X86 COMPILATION PASSED; NO GAME EXECUTION'
