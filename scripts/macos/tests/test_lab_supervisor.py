@@ -105,6 +105,33 @@ class SupervisorSafetyTests(unittest.TestCase):
                                side_effect=AssertionError("launched on pause")):
             self.assertFalse(lab.wait_unpaused(1))
 
+    def test_game_runner_does_not_inherit_model_credentials(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            dll = Path(tmp) / "openlrr.dll"
+            dll.write_bytes(b"MZapproved")
+            sha = lab.fingerprint(dll)
+            name = "autobenchmark-2026-10-18_15-20-00"
+            child = mock.Mock()
+            child.poll.return_value = 0
+            child.returncode = 0
+            with mock.patch.object(lab, "DLL", dll), \
+                 mock.patch.object(lab, "switches", return_value="ready"), \
+                 mock.patch.object(lab, "known_runs", side_effect=[set(), {name}]), \
+                 mock.patch.object(lab, "verify_result", return_value=Path(tmp) / "menuperf.csv"), \
+                 mock.patch.object(lab, "audit"), \
+                 mock.patch.object(lab.subprocess, "Popen", return_value=child) as launch, \
+                 mock.patch.dict(lab.os.environ, {
+                     "OPENAI_API_KEY": "should-not-reach-game",
+                     "GH_TOKEN": "should-not-reach-game",
+                     "GITHUB_TOKEN": "should-not-reach-game",
+                 }):
+                lab.run_one("baseline", sha, 30, None)
+                passed_env = launch.call_args.kwargs["env"]
+                self.assertNotIn("OPENAI_API_KEY", passed_env)
+                self.assertNotIn("GH_TOKEN", passed_env)
+                self.assertNotIn("GITHUB_TOKEN", passed_env)
+                self.assertEqual(passed_env["OPENLRR_SUPERVISED"], "1")
+
     def test_launch_refuses_checksum_change(self):
         with tempfile.TemporaryDirectory() as tmp:
             file = Path(tmp) / "openlrr.dll"
