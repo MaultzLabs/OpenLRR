@@ -118,6 +118,32 @@ class AnalyzerTests(unittest.TestCase):
                                        capture_output=True, text=True)
             self.assertNotEqual(completed.returncode, 0)
 
+    def test_gdi_fallback_adds_both_phases_without_lying_about_worst(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp) / "autobenchmark-gdi-fallback-success"
+            run.mkdir()
+            with (run / "menuperf.csv").open("w", newline="") as handle:
+                writer = csv.writer(handle)
+                writer.writerow(module.HEADER)
+                for operation, calls, total_ms, max_ms in (
+                        ("frame_flip", 1, 500, 500),
+                        ("gdi_window_attempt", 1, 50, 50),
+                        ("gdi_present_accepted", 0, 0, 0),
+                        ("gdi_present_fallback", 1, 0, 0),
+                        ("window_present_blt", 1, 450, 450),
+                        ("window_present_accepted", 1, 0, 0),
+                        ("window_present_busy", 0, 0, 0),
+                        ("window_present_error", 0, 0, 0)):
+                    writer.writerow([1.1, 0, 0, 1, operation, calls, total_ms, max_ms])
+            completed = subprocess.run([sys.executable, str(SCRIPT), str(run)],
+                                       capture_output=True, text=True)
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            metrics = json.loads((run / "summary.json").read_text())["metrics"]
+            self.assertEqual(metrics["present_calls"], 1)
+            self.assertAlmostEqual(metrics["present_avg_ms"], 500.0)
+            self.assertEqual(metrics["gdi_fallback_calls"], 1)
+            self.assertFalse(metrics["present_worst_is_exact"])
+
     def test_malformed_header_refused(self):
         with tempfile.TemporaryDirectory() as tmp:
             run = Path(tmp) / "autobenchmark-malformed"
