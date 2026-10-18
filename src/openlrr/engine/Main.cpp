@@ -10,6 +10,7 @@
 
 #include "../cmdline/CLGen.h"
 #include "../cmdline/CommandLine.hpp"
+#include "util/MenuPerf.h"
 
 #include "audio/Sound.h"
 #include "video/Animation.h"
@@ -770,8 +771,8 @@ sint32 __stdcall Gods98::Main_WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTAN
 		if (Sound_Initialise(mainOptions.noSound.value_or(false)) &&
 			Init_Initialise(setup /*true in LegoRR*/,
 							mainGlobs.flags & MainFlags::MAIN_FLAG_DEBUGMODE,
-							mainGlobs.flags & MainFlags::MAIN_FLAG_BEST,
-							mainGlobs.flags & MainFlags::MAIN_FLAG_WINDOW,
+							(mainGlobs.flags & MainFlags::MAIN_FLAG_BEST) || MenuPerf::AutoTestEnabled(),
+							(mainGlobs.flags & MainFlags::MAIN_FLAG_WINDOW) || MenuPerf::AutoTestEnabled(),
 							noHALMsg))
 		{
 			Animation_Initialise(DirectDraw());
