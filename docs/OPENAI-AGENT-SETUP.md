@@ -39,6 +39,12 @@ project API key at https://platform.openai.com/api-keys and configure an
 organization/project HARD spending limit. Avoid saving your key in source files
 or pasting it into ChatGPT.
 
+Create a **Restricted** API key granting **Responses: Write** and leaving
+Agents, Traces, Vaults and other unrelated endpoints at **None**. The observer
+disables Agents SDK trace export; it does not need Traces permission.
+After changing your local checkout, use `git -C "$HOME/OpenLRR-Agent" pull --ff-only`
+before running the paid analysis.
+
 In macOS default zsh Terminal, enter the key interactively without echoing it:
 
     printf 'Paste API key (hidden): '
