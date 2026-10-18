@@ -165,7 +165,9 @@ def save_state(state):
 
 def run_ai(payload, model: str) -> dict:
     # Delayed import lets preview and tests run without any SDK or API account.
-    from agents import Agent, Runner
+    from agents import Agent, Runner, set_tracing_disabled
+    # API key is intentionally scoped to model inference only; do not export traces.
+    set_tracing_disabled(True)
     from pydantic import BaseModel, Field
     from typing import Literal
 
