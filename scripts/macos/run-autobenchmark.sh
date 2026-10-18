@@ -126,6 +126,20 @@ if [[ -f "$GAME/menuperf.finished" ]]; then cp -p "$GAME/menuperf.finished" "$RU
   fi
 } | tee "$RUN/report.txt"
 
+# Optional private GitHub reporting. Never send data without explicit configuration,
+# and never publish to a public repository (uploader checks visibility).
+if [[ -n "${OPENLRR_REPORT_REPO:-}" ]]; then
+  if [[ -f "$SCRIPT_DIR/publish-benchmark.sh" ]]; then
+    if bash "$SCRIPT_DIR/publish-benchmark.sh" "$RUN"; then
+      echo "GitHub benchmark upload completed."
+    else
+      echo "WARNING: private GitHub upload failed. Local logs remain in $RUN" >&2
+    fi
+  else
+    echo "WARNING: private GitHub uploader script not found; local results preserved." >&2
+  fi
+fi
+
 if [[ -f "$RUN/menuperf.csv" ]]; then open -R "$RUN/menuperf.csv"; else open "$RUN"; fi
 if (( ! finished )); then
   echo "Benchmark timeout: close the TEST game manually if still running." >&2
