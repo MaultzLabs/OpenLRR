@@ -138,3 +138,44 @@ terminated successfully.
 The Python summary script and its synthetic CSV unit tests run automatically
 in GitHub Actions. CI compilation and analyzer tests alone do **not** verify
 Mac Wine performance; that verdict requires the real Mac runtime data.
+
+
+## Controlled DirectDraw A/B: blocking versus non-blocking blit
+
+The default runner is unchanged. Starting with the experimental
+`benchmark-loop-v2` runner, explicitly set `OPENLRR_BENCH_MODE=nowait`
+to place `menuperf.nowait` temporarily in the isolated TEST app.
+The marker removes `DDBLT_WAIT` for window presentation; it is deleted by
+the runner's EXIT cleanup, alongside restoring the original DLL. Pre-existing
+graphics markers still cause refusal, to avoid mixed or destructive experiments.
+
+**Important:** non-blocking Blt may return `DDERR_WASSTILLDRAWING`. A higher
+logical `frame_flip` rate may merely reflect dropped presentations, not
+improved visible animation. The instrumented Win32 DLL now records
+`window_present_accepted`, `window_present_busy` and
+`window_present_error` counters in the same telemetry CSV. The portable
+analyzer includes acceptance and rejection counts in the report and JSON.
+Verify visually that the menu is visible, responsive, and updating smoothly
+before claiming improvement.
+
+For a reasonably comparable A/B trial, use a freshly compiled, SHA-verified
+benchmark DLL **from the same commit** for both runs, and the same duration,
+wrapper, resolution, window state, graphics settings and machine conditions.
+The test app must be closed before each launch; the `menuperf.finished`
+sentinel confirms only that a close request was posted.
+
+```bash
+# Baseline
+OPENLRR_BENCH_SECONDS=210 OPENLRR_BENCH_MODE=baseline \
+  bash "$HOME/Downloads/run-autobenchmark.sh"
+
+# Candidate, AFTER baseline completes and the TEST app has exited:
+OPENLRR_BENCH_SECONDS=210 OPENLRR_BENCH_MODE=nowait \
+  bash "$HOME/Downloads/run-autobenchmark.sh"
+```
+
+For more targeted comparisons set `OPENLRR_BASELINE_CSV` explicitly to
+the baseline run's local `menuperf.csv`, rather than relying on the
+historical October 18 fallback. Compare frame rate, presenter latency,
+busy/rejected Blt counts, crashes, appearance and menu responsiveness.
+Do not apply this experiment to the user's working game wrapper.
