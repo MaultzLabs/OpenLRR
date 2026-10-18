@@ -1,0 +1,32 @@
+name: OpenLRR Cloud Build Provenance Safety
+
+on:
+  push:
+    branches: [lab-build-attestation-v1]
+    paths:
+      - 'scripts/agent/candidate_attestation.py'
+      - 'scripts/agent/tests/test_candidate_attestation.py'
+      - 'scripts/macos/candidate-inbox.py'
+      - 'scripts/macos/tests/**'
+      - '.github/workflows/lab-attestation-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  provenance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run complete artifact and Mac safety regression suite
+        run: |
+          python -m py_compile scripts/agent/candidate_attestation.py scripts/macos/candidate-inbox.py
+          python -m unittest discover -s scripts/agent/tests -p 'test_*.py' -v
+          python -m unittest discover -s scripts/macos/tests -p 'test_*.py' -v
