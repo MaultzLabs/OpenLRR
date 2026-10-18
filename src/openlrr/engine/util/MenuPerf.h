@@ -140,7 +140,7 @@ inline void MaybeFinishAutoTest(HWND hwnd) {
         s.autoTestExitIssued = true;
         std::FILE* done = std::fopen("menuperf.finished", "w");
         if (done) {
-            std::fprintf(done, "close_requested_after_seconds=%u\\n", s.autoTestSeconds);
+            std::fprintf(done, "close_requested_after_seconds=%u\n", s.autoTestSeconds);
             std::fclose(done);
         }
     }
