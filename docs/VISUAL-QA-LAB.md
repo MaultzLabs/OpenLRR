@@ -116,6 +116,24 @@ cannot prove the images were actually taken from the TEST game at run time.
 The report records `capture_origin_authenticated=false`. A separate reviewed
 TEST-window-only recorder would be required for authenticated origin. Do not
 upload private original game assets or screen recordings into public CI.
+### One-command offline postprocessing
+
+After the two verified run folders already contain matching `visual/menu.png` files,
+registration, image analysis and the verified research decision can be produced
+in one invocation (no game launch, no model call and **no ledger commit**):
+
+```sh
+python scripts/visual_qa/pipeline.py \
+  --experiment /private/experiments/graphics_test_001.json \
+  --runs-dir /private/benchmark-runs \
+  --out /private/qa-results/graphics_test_001-bundle
+```
+
+This creates `captures.json`, `analysis/report.json`, comparison heatmaps and
+`research-decision.json`, all outside the source benchmark runs. The output
+directory must be new or empty; reruns must use a different directory.
+Missing, tampered or unverified captures fail closed rather than triggering a
+new game run. The command does not publish or upload private images.
 Research policy mapping:
 
 | Visual QA | Policy effect |
