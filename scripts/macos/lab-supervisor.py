@@ -190,6 +190,78 @@ def run_one(mode: str, approved_sha: str, seconds: int, baseline: Path | None) -
             audit("runner_still_active", mode=mode)
 
 
+def handoff_verified_pair(runs: list[str], plan: list[str], approved_sha: str) -> Path:
+    """Hand a completed, genuine two-arm supervisor trial to the policy controller.
+
+    This only creates a manifest and reads validated run evidence. No model,
+    patch, game execution or extra benchmark is scheduled.
+    """
+    if len(runs) != 2 or len(plan) != 2 or plan[0] != "baseline" or plan[1] not in ("nowait", "gdi"):
+        raise ValueError("Automatic policy handoff requires exactly baseline,nowait or baseline,gdi")
+    if any(not RUN_RE.fullmatch(run) for run in runs) or runs[0] == runs[1]:
+        raise ValueError("Invalid or reused run identity")
+    if not SHA_RE.fullmatch(approved_sha):
+        raise ValueError("Invalid reviewed DLL identity")
+    if switches() != "ready":
+        raise RuntimeError("STOP or PAUSE before verified policy handoff")
+
+    # The supervisor already checked these after each run. Check again here:
+    # the controller must never trust an unverified filename.
+    for name, mode in zip(runs, plan):
+        verify_result(name, mode, approved_sha)
+
+    checkout = HOME / "OpenLRR-Agent"
+    controller = checkout / "scripts" / "agent" / "experiment_controller.py"
+    python = HOME / ".local/share/openlrr-agent/venv/bin/python"
+    if not controller.is_file() or not python.is_file():
+        raise RuntimeError("Verified policy controller not installed in local lab checkout")
+    experiments = STATE / "experiments"
+    experiments.mkdir(parents=True, exist_ok=True, mode=0o700)
+    experiment_id = "paired_" + runs[0][-19:].replace("-", "_") + "_" + runs[1][-19:].replace("-", "_")
+    if len(experiment_id) > 64:
+        raise RuntimeError("Pair identity exceeded manifest format")
+    manifest = {
+        "schema_version": 1,
+        "experiment_id": experiment_id,
+        "hypothesis": (
+            "Test whether the " + plan[1] +
+            " windowed presentation variant improves timing without regressions."
+        ),
+        "controlled_scene": "menu_boot_autotest_v1",
+        "pairs": [{"baseline": runs[0], "candidate": runs[1]}],
+    }
+    target = experiments / (experiment_id + ".json")
+    if target.exists():
+        raise RuntimeError("Experiment handoff already exists; refusing to overwrite")
+    fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as output:
+        output.write(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+        output.flush()
+        os.fsync(output.fileno())
+
+    decision_path = experiments / (experiment_id + "-decision.json")
+    env = {k: v for k, v in os.environ.items()
+           if not k.startswith("OPENAI_") and k not in
+           {"GH_TOKEN", "GITHUB_TOKEN", "GIT_ASKPASS", "SSH_ASKPASS"}}
+    command = [
+        str(python), str(controller), "--manifest", str(target),
+        "--runs-dir", str(RESULTS), "--ledger",
+        str(STATE / "research-controller.json"),
+        "--output", str(decision_path), "--commit",
+    ]
+    audited = subprocess.run(command, env=env, timeout=60, check=False)
+    if audited.returncode != 0 or not decision_path.is_file():
+        raise RuntimeError("Verified A/B handoff failed; do not advance the experiment")
+    decision = json.loads(decision_path.read_text(encoding="utf-8"))
+    if (decision.get("experiment_id") != experiment_id or
+        decision.get("manifest_verified") is not True or
+        decision.get("may_install_or_run_candidate") is not False):
+        raise RuntimeError("Policy handoff did not establish safe boundaries")
+    audit("policy_handoff_completed", experiment_id=experiment_id,
+          next_step=decision.get("next_step"))
+    return decision_path
+
+
 def preflight(sha: str, plan: list[str], seconds: int, do_run: bool):
     if not SHA_RE.fullmatch(sha):
         raise ValueError("Expected a full lowercase SHA256 checksum")
@@ -221,8 +293,12 @@ def main(argv=None) -> int:
     parser.add_argument("--analyze", action="store_true",
                         help="After two or more verified runs, call the read-only OpenAI agent once")
     parser.add_argument("--model", default="gpt-6-luna")
+    parser.add_argument("--coordinate", action="store_true",
+                        help="After two verified A/B runs, record one policy decision; no AI or extra game execution")
     args = parser.parse_args(argv)
     plan = parse_plan(args.plan)
+    if args.coordinate and (not args.run or len(plan) != 2 or plan[1] == "baseline"):
+        parser.error("--coordinate requires --run and exactly baseline,nowait or baseline,gdi")
     if args.analyze and not args.run:
         parser.error("--analyze requires --run")
     if args.analyze and len(plan) < 2:
@@ -262,6 +338,9 @@ def main(argv=None) -> int:
             if completed_ai.returncode:
                 raise RuntimeError("AI analysis failed; benchmark data was preserved")
             audit("analysis_completed")
+        if args.coordinate:
+            policy_output = handoff_verified_pair(completed, plan, args.approved_sha)
+            print("Verified experiment policy record:", policy_output)
         audit("supervisor_completed", runs=completed)
         print("Verified test plan finished:", ", ".join(completed))
         completed_safely = True
