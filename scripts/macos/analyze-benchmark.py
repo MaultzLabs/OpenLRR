@@ -6,6 +6,7 @@ Only two text artifacts are created: report.txt and summary.json.
 """
 import argparse
 import csv
+import hashlib
 import json
 import math
 import re
@@ -114,6 +115,14 @@ def main():
         "close_requested": finished,
         "metrics": current,
     }
+    # Fingerprint the reviewed test DLL without sending its executable bytes.
+    benchmark_dll = args.run_dir / "benchmark-openlrr.dll"
+    if benchmark_dll.is_file():
+        digest = hashlib.sha256()
+        with benchmark_dll.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        summary["dll_sha256"] = digest.hexdigest()
     if args.baseline:
         baseline = analyze_csv(args.baseline)
         summary["comparison"] = make_comparison(current, baseline)
@@ -134,6 +143,8 @@ def main():
         "Sampling intervals with >100ms presentation: {}".format(current["present_intervals_over_100ms"]),
         "Sampling intervals with >1000ms presentation: {}".format(current["present_intervals_over_1000ms"]),
     ]
+    if "dll_sha256" in summary:
+        report.append("Reviewed test DLL SHA256: " + summary["dll_sha256"])
     if "comparison" in summary:
         comparison = summary["comparison"]
         report.extend([
