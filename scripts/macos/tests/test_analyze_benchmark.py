@@ -38,6 +38,21 @@ def make_csv(directory, *, mode=(0, 0, 0), malformed=False, outcomes=False):
     return path
 
 
+def add_frame_boundary_fixture(run):
+    # The newer CPU probe is an extension of the complete frame-timing suite.
+    with (run / "menuperf.csv").open("a", newline="") as handle:
+        writer = csv.writer(handle)
+        for name, calls in (
+            ("frame_start_gap", 2),
+            ("frame_outside_flip", 2),
+            ("window_blt_over_100ms", 2),
+            ("window_blt_over_1000ms", 1),
+            ("frame_outside_over_100ms", 0),
+            ("frame_outside_over_1000ms", 0),
+        ):
+            writer.writerow([1.1, 0, 0, 0, name, calls, 0, 0])
+
+
 class AnalyzerTests(unittest.TestCase):
     def test_correct_totals_and_safe_report(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -197,6 +212,7 @@ class AnalyzerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             run = Path(tmp) / "autobenchmark-cpu-probe"
             make_csv(run)
+            add_frame_boundary_fixture(run)
             with (run / "menuperf.csv").open("a", newline="") as handle:
                 writer = csv.writer(handle)
                 for name, calls, total_ms in (
@@ -219,6 +235,7 @@ class AnalyzerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             run = Path(tmp) / "autobenchmark-cpu-unavailable"
             make_csv(run)
+            add_frame_boundary_fixture(run)
             with (run / "menuperf.csv").open("a", newline="") as handle:
                 writer = csv.writer(handle)
                 for name, calls in (
@@ -240,6 +257,7 @@ class AnalyzerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             run = Path(tmp) / "autobenchmark-cpu-incomplete"
             make_csv(run)
+            add_frame_boundary_fixture(run)
             with (run / "menuperf.csv").open("a", newline="") as handle:
                 writer = csv.writer(handle)
                 for name, calls in (
