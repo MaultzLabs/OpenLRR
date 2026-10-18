@@ -1,0 +1,47 @@
+name: OpenLRR Causal Research Experiment
+
+on:
+  push:
+    branches: [lab-evidence-planner-v1]
+    paths:
+      - '.github/workflows/lab-research-plan.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: openlrr-causal-investigation
+  cancel-in-progress: false
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run all offline lab safety tests
+        run: |
+          python -m compileall -q scripts/agent
+          python -m unittest discover -s scripts/agent/tests -p 'test_*.py' -v
+          python scripts/agent/research_planner.py --preflight
+      - name: Install pinned model dependency
+        run: python -m pip install 'openai-agents==0.24.0'
+      - name: Develop one falsifiable research hypothesis
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENLRR_AI_LAB_KEY }}
+        run: |
+          test -n "$OPENAI_API_KEY" || { echo 'Missing research API key'; exit 2; }
+          python scripts/agent/research_planner.py --out research-output --model gpt-6-luna
+      - name: Archive hypothesis for review
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenLRR-Causal-Research-Plan
+          path: research-output/plan.json
+          if-no-files-found: error
+          retention-days: 21

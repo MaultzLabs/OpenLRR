@@ -1,0 +1,126 @@
+name: OpenLRR Evidence-Grounded AI Smoke Test
+
+on:
+  push:
+    branches: [lab-evidence-planner-v1]
+    paths:
+      - '.github/workflows/lab-evidence-proposal.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: openlrr-evidence-smoke
+  cancel-in-progress: false
+
+jobs:
+  propose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      compile: ${{ steps.classify.outputs.compile }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pinned model client
+        run: python -m pip install 'openai-agents==0.24.0'
+      - name: Validate reviewed evidence and code boundary offline
+        run: |
+          python scripts/agent/generate_candidate.py --preflight
+          python -m unittest discover -s scripts/agent/tests -p 'test_*.py' -q
+      - name: One bounded evidence-grounded AI proposal
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENLRR_AI_LAB_KEY }}
+        run: |
+          test -n "$OPENAI_API_KEY" || { echo 'AI key unavailable'; exit 2; }
+          python scripts/agent/generate_candidate.py --model gpt-6-luna --out candidate-output
+      - name: Classify and validate research result
+        id: classify
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          output = Path("candidate-output")
+          report = json.loads((output / "proposal.json").read_text())
+          status = report.get("status")
+          patch = output / "proposal.patch"
+          if status == "patch_ready" and patch.is_file() and patch.stat().st_size > 100:
+              flag = "true"
+          elif status == "needs_better_evidence" and not patch.exists():
+              flag = "false"
+          else:
+              raise SystemExit("Inconsistent research report and patch")
+          if report.get("host_execution_authorized") is not False:
+              raise SystemExit("Unsafe execution flag")
+          print("Research status:", status)
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"compile={flag}\n")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OpenLRR-Evidence-Research-Report
+          path: candidate-output/
+          if-no-files-found: error
+          retention-days: 14
+
+  compile_candidate:
+    needs: propose
+    if: needs.propose.outputs.compile == 'true'
+    runs-on: windows-2022
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: OpenLRR-Evidence-Research-Report
+          path: candidate-output
+      - name: Restrict patch to audited DirectDraw source
+        shell: pwsh
+        run: |
+          $patch = 'candidate-output/proposal.patch'
+          $paths = @(git apply --numstat -- $patch)
+          if ($LASTEXITCODE -ne 0) { throw 'Invalid patch format' }
+          if ($paths.Count -ne 1 -or $paths[0] -notmatch 'src/openlrr/engine/drawing/DirectDraw\.cpp$') {
+            throw 'Patch exceeds approved source scope'
+          }
+          git apply --check -- $patch
+          if ($LASTEXITCODE -ne 0) { throw 'Patch does not apply' }
+          git apply -- $patch
+          if ($LASTEXITCODE -ne 0) { throw 'Patch apply failed' }
+          $paths = @(git diff --name-only)
+          if ($paths.Count -ne 1 -or $paths[0] -ne 'src/openlrr/engine/drawing/DirectDraw.cpp') {
+            throw 'Unexpected modified file'
+          }
+      - uses: microsoft/setup-msbuild@v2
+      - name: Build x86 candidate without executing it
+        shell: pwsh
+        run: |
+          msbuild openlrr.sln /t:openlrr /m /p:Configuration=Release /p:Platform=x86 /verbosity:minimal
+          if ($LASTEXITCODE -ne 0) { throw 'Compilation failed' }
+          $dll = 'bin/openlrr.dll'
+          if (-not (Test-Path $dll)) { throw 'DLL not produced' }
+          $bytes = [IO.File]::ReadAllBytes((Resolve-Path $dll))
+          $pe = [BitConverter]::ToInt32($bytes, 0x3c)
+          $arch = [BitConverter]::ToUInt16($bytes, $pe + 4)
+          if ($arch -ne 0x014c) { throw 'Non-x86 binary refused' }
+          New-Item -Path dist -ItemType Directory -Force | Out-Null
+          Copy-Item $dll dist/openlrr.dll
+          Copy-Item candidate-output/proposal.* dist/
+          (Get-FileHash $dll -Algorithm SHA256).Hash | Set-Content dist/SHA256.txt
+          "REVIEW REQUIRED: no execution on the user's Mac" | Set-Content dist/REVIEW-REQUIRED.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OpenLRR-Evidence-Candidate-REVIEW-REQUIRED
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14

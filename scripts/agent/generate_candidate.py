@@ -19,6 +19,7 @@ FUNCTION_START = "void __cdecl Gods98::DirectDraw_BlitBuffers(void)"
 FUNCTION_END = "// <LegoRR.exe @0047cfb0>"
 BLOCK_START = "\tconst DWORD flags = MenuPerf::NonblockingWindowBlt() ? 0 : DDBLT_WAIT;"
 BLOCK_END = "\n\n/*\t\twhile (true){"
+EVIDENCE_REL = "scripts/agent/evidence/approved-menu-aggregate.json"
 REFERENCE_CONTEXT = {
     "date": "2026-10-18",
     "summary": "The Mac Wine menu test has a very slow DirectDraw windowed present. GDI presentation was slower. Nowait=1 versus 0 was inconclusive in paired benchmarks. Logical flip counts do not confirm displayed FPS.",
@@ -33,6 +34,56 @@ FORBIDDEN = re.compile(
     r"OPENAI_API_KEY|GITHUB_TOKEN)",
     re.IGNORECASE,
 )
+
+
+def validate_research_evidence(path: Path) -> dict:
+    """Accept one reviewed, bounded aggregate; never raw private benchmark data."""
+    if not path.is_file() or path.stat().st_size > 4096:
+        raise ValueError("Reviewed aggregate missing or too large")
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    expected = {
+        "schema_version", "kind", "experiment", "workload",
+        "repeated_baselines", "same_binary_and_graphics_mode",
+        "mean_present_ms", "long_directdraw_blits_per_run",
+        "long_outside_flip_periods_per_run", "present_wall_fraction",
+        "prior_negative_tests", "interpretation", "important_limits"
+    }
+    if type(doc) is not dict or set(doc) != expected:
+        raise ValueError("Unexpected aggregate fields")
+    if doc["schema_version"] != 1 or doc["kind"] != "reviewed_aggregate":
+        raise ValueError("Unsupported research evidence")
+    if doc["experiment"] != "windowed_directdraw_stalls_2026_10_18":
+        raise ValueError("Unreviewed experiment")
+    if doc["workload"] != "isolated_mac_wine_menu":
+        raise ValueError("Unreviewed workload")
+    if doc["repeated_baselines"] != 2 or doc["same_binary_and_graphics_mode"] is not True:
+        raise ValueError("Comparison is not verified")
+    for key, hi in (
+        ("mean_present_ms", 5000),
+        ("long_directdraw_blits_per_run", 1000),
+        ("long_outside_flip_periods_per_run", 1000),
+        ("present_wall_fraction", 1),
+    ):
+        values = doc[key]
+        if type(values) is not list or len(values) != 2:
+            raise ValueError("Invalid evidence measurements")
+        for value in values:
+            if type(value) not in (int, float) or not 0 <= value <= hi or not float(value) < float("inf"):
+                raise ValueError("Invalid aggregate metric")
+    if any(type(x) is not int for x in doc["long_directdraw_blits_per_run"] + doc["long_outside_flip_periods_per_run"]):
+        raise ValueError("Nonintegral call count")
+    history = doc["prior_negative_tests"]
+    if type(history) is not list or history != ["gdi_slower_in_single_pair", "nowait_inconclusive"]:
+        raise ValueError("Unreviewed experiment history")
+    if doc["interpretation"] != (
+        "Each of two ~63-second baseline runs showed 31 individual >1000ms Windows DirectDraw Blt calls while none of the periods outside DirectDraw_Flip were >1000ms. API-side durations do not prove visible frame rate or isolate the cause inside Wine."
+    ):
+        raise ValueError("Aggregate interpretation is not reviewed")
+    if doc["important_limits"] != (
+        "A repeated baseline is not an A/B improvement. The original nonblocking experiment was inconclusive. Do not assume a driver root cause or invent speedups."
+    ):
+        raise ValueError("Aggregate limits are not reviewed")
+    return doc
 
 
 def extract_block(source: str) -> tuple[int, int, str, str]:
@@ -84,7 +135,7 @@ def make_patch(source: str, revised: str) -> str:
     ))
 
 
-def generate(source: str, model: str) -> dict:
+def generate(source: str, model: str, evidence: dict | None = None) -> dict:
     from agents import Agent, Runner, set_tracing_disabled
     from pydantic import BaseModel, Field
 
@@ -109,6 +160,12 @@ def generate(source: str, model: str) -> dict:
         "nothing before or after. Do not change other files, headers, telemetry "
         "definitions, source markers, app startup or process management. "
         "Never access credentials, resources, or use OS command execution. "
+        "Two isolated baseline runs reported 31 windowed DirectDraw Blt calls "
+        "taking over a second per run, but no periods outside DirectDraw_Flip "
+        "over a second. The cause INSIDE Wine or DirectDraw is NOT established. "
+        "Do not interpret baseline repeats as a performance improvement. "
+        "Avoid re-running GDI or nowait without a new mechanism. "
+        "The supported scope is narrow; no pre-existing fix is proven. "
         "If no specific, measurable and defensible change fits this scope, "
         "return the original block UNCHANGED. This is an accepted ABSTENTION, "
         "not failure. Use hypothesis to explain why the current evidence cannot "
@@ -120,6 +177,7 @@ def generate(source: str, model: str) -> dict:
                   instructions=instructions, tools=[], output_type=Suggestion)
     input_data = {
         "historical_evidence": REFERENCE_CONTEXT,
+        "reviewed_diagnostic_aggregate": evidence or {},
         "surrounding_function": region[:12000],
         "allowed_original_block": current,
     }
@@ -173,19 +231,22 @@ def main(argv=None) -> int:
     parser.add_argument("--out", type=Path, default=Path("candidate-output"))
     parser.add_argument("--model", default="gpt-6-luna")
     parser.add_argument("--preflight", action="store_true")
+    parser.add_argument("--evidence", type=Path, default=Path(EVIDENCE_REL))
     args = parser.parse_args(argv)
     source = args.source.read_text(encoding="utf-8")
     _, _, block, _ = extract_block(source)
+    evidence = validate_research_evidence(args.evidence)
     if args.preflight:
         print(json.dumps({
             "mode": "offline_preflight", "source": str(args.source),
-            "editable_block_size": len(block), "api_called": False,
+            "editable_block_size": len(block),
+            "evidence_id": evidence["experiment"], "api_called": False,
             "game_executed": False, "working_game_modified": False,
         }, indent=2))
         return 0
     if not os.getenv("OPENAI_API_KEY"):
         raise RuntimeError("Missing restricted OpenAI API key; no model request made")
-    result = generate(source, args.model)
+    result = generate(source, args.model, evidence)
     status = write_proposal(args.source, args.out, result)
     if status == "needs_better_evidence":
         print("AI abstained: evidence request saved. No patch and no Mac execution.")

@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "kind": "reviewed_aggregate",
+  "experiment": "windowed_directdraw_stalls_2026_10_18",
+  "workload": "isolated_mac_wine_menu",
+  "repeated_baselines": 2,
+  "same_binary_and_graphics_mode": true,
+  "mean_present_ms": [247.516, 248.031],
+  "long_directdraw_blits_per_run": [31, 31],
+  "long_outside_flip_periods_per_run": [0, 0],
+  "present_wall_fraction": [0.7995, 0.8068],
+  "prior_negative_tests": ["gdi_slower_in_single_pair", "nowait_inconclusive"],
+  "interpretation": "Each of two ~63-second baseline runs showed 31 individual >1000ms Windows DirectDraw Blt calls while none of the periods outside DirectDraw_Flip were >1000ms. API-side durations do not prove visible frame rate or isolate the cause inside Wine.",
+  "important_limits": "A repeated baseline is not an A/B improvement. The original nonblocking experiment was inconclusive. Do not assume a driver root cause or invent speedups."
+}
