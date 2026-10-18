@@ -21,7 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: agent-loop-v1
+          ref: 6386c843059e4c77f8b3794fd55d3df54e6d9443
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -54,7 +54,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: agent-loop-v1
+          ref: 6386c843059e4c77f8b3794fd55d3df54e6d9443
       - uses: actions/download-artifact@v4
         with:
           name: OpenLRR-AI-Proposed-Patch
