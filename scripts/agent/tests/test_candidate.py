@@ -45,6 +45,25 @@ class CoderTests(unittest.TestCase):
             with self.subTest(bad=bad[-50:]), self.assertRaises(ValueError):
                 coder.validate_replacement(self.original, bad)
 
+    def test_model_can_abstain_without_fake_patch_or_build(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "DirectDraw.cpp"
+            source.write_text(self.original)
+            out = Path(tmp) / "generated"
+            status = coder.write_proposal(source, out, {
+                "replacement_block": self.block,
+                "hypothesis": "Existing evidence cannot isolate the windowed driver bottleneck.",
+                "expected_measurement": "Measure driver present and screen display latency separately.",
+                "possible_regression": "Unknown until rendering evidence is obtained.",
+            })
+            self.assertEqual(status, "needs_better_evidence")
+            self.assertEqual({p.name for p in out.iterdir()}, {"proposal.json"})
+            note = json.loads((out / "proposal.json").read_text())
+            self.assertEqual(note["status"], "needs_better_evidence")
+            self.assertIn("driver", note["recommended_next_measurement"])
+            self.assertFalse(note["host_execution_authorized"])
+            self.assertFalse(note["compiled"])
+
     def test_writes_one_file_patch_and_review_metadata_only(self):
         changed = self.block.replace(
             "\t\tMenuPerf::Scope presentation(MenuPerf::Metric::WindowBlt);",
@@ -69,6 +88,7 @@ class CoderTests(unittest.TestCase):
             self.assertEqual({p.name for p in out.iterdir()},
                              {"proposal.patch", "proposal.json"})
             metadata = json.loads((out / "proposal.json").read_text())
+            self.assertEqual(metadata["status"], "patch_ready")
             self.assertTrue(metadata["review_required"])
             self.assertFalse(metadata["host_execution_authorized"])
             self.assertFalse(metadata["compiled"])
