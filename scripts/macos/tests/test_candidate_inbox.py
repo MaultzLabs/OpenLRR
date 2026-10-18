@@ -124,7 +124,7 @@ class InboxTests(unittest.TestCase):
             expected = {"status": "completed", "conclusion": "success",
                         "headBranch": "agent-loop-v1",
                         "headSha": "a" * 40,
-                        "workflowName": "OpenLRR Evidence-Grounded AI Smoke Test"}
+                        "workflowName": "OpenLRR AI Graphics Proposal (review only)"}
 
             def fake_gh(*args):
                 if args[0:2] == ("run", "view"):
