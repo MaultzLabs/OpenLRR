@@ -123,7 +123,7 @@ inline void FlushIfDue() {
 // window close on expiration. No process killing or registry changes.
 inline void MaybeFinishAutoTest(HWND hwnd) {
     State& s = Get();
-    if (s.autoTestSeconds == 0 || s.autoTestExitIssued || hwnd == nullptr) return;
+    if (s.autoTestSeconds == 0 || s.autoTestExitIssued || hwnd == nullptr || !s.enabled || s.frequency.QuadPart <= 0) return;
     LARGE_INTEGER now;
     if (!::QueryPerformanceCounter(&now)) return;
     if (s.autoTestStart.QuadPart == 0) {
