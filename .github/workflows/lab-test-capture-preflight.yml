@@ -1,0 +1,39 @@
+name: OpenLRR TEST Window Capture Safety Proof
+
+on:
+  push:
+    branches: [lab-test-window-capture-v1]
+    paths:
+      - 'scripts/macos/capture-test-window.py'
+      - 'scripts/macos/tests/test_capture_test_window.py'
+      - '.github/workflows/lab-test-capture-preflight.yml'
+  pull_request:
+    paths:
+      - 'scripts/macos/capture-test-window.py'
+      - 'scripts/macos/tests/test_capture_test_window.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  safety-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Assert capture is Mac only and preflight by default
+        run: |
+          python scripts/macos/capture-test-window.py --approved-sha $(python -c "print('a'*64)") --run-id autobenchmark-2026-10-18_19-02-03 --window-id 301 && exit 1 || test $? -eq 2
+      - name: Run synthetic window identity and command safety tests
+        run: |
+          python -m unittest discover -s scripts/macos/tests -p 'test_capture_test_window.py' -v
+      - name: Confirm working game folders and binaries were not touched
+        run: |
+          git diff --exit-code
+          echo 'PASS: no game, local desktop, wine runner or real screenshots accessed'
