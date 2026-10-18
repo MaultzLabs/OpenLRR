@@ -1,0 +1,26 @@
+name: OpenLRR Candidate Auto-Inbox Safety Tests
+
+on:
+  push:
+    branches: [lab-inbox-autoscan-v1]
+    paths:
+      - 'scripts/macos/candidate-inbox-scan.py'
+      - 'scripts/macos/install-candidate-inbox-watch.sh'
+      - 'scripts/macos/tests/test_candidate_inbox_scan.py'
+      - '.github/workflows/lab-inbox-scan-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m unittest discover -s scripts/macos/tests -p 'test_candidate_inbox*.py' -v
+      - run: bash -n scripts/macos/install-candidate-inbox-watch.sh
