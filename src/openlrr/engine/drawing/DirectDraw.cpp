@@ -11,6 +11,7 @@
 #include "../util/Dxbug.h"
 #include "../Graphics.h"
 #include "../Main.h"
+#include "../util/MenuPerf.h"
 #include "Bmp.h"
 #include "Draw.h"
 
@@ -370,11 +371,13 @@ void __cdecl Gods98::DirectDraw_Flip(void)
 	log_firstcall();
 
 	Draw_AssertUnlocked("DirectDraw_Flip");
+	MenuPerf::Scope timer(MenuPerf::Metric::Flip);
 	if (directDrawGlobs.fullScreen) {
 		HRESULT r = DirectDraw_fSurf()->Flip(nullptr, DDFLIP_WAIT);
 		Error_Fatal(r == DDERR_SURFACELOST, "Surface lost");
 	}
 	else DirectDraw_BlitBuffers();
+	MenuPerf::FlushIfDue();
 }
 
 // <LegoRR.exe @0047cbb0>
