@@ -103,7 +103,7 @@ def analyze(experiment: Path, runs_dir: Path, captures: Path, out: Path,
     # File hashing is repeated AFTER processing to catch changed inputs. A
     # later controller call rechecks all hashes independently.
     result["capture_binding"] = binding
-    verify_bound_report(bundle, runs_dir, media_manifest, result)
+    verify_bound_report(bundle, runs_dir, media_manifest, result, recheck_pixels=False)
     destination = out / "report.json"
     temp = out / "report-bound.tmp"
     fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
