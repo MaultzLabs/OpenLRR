@@ -152,12 +152,21 @@ def fetch_feedback(issue_number: int) -> dict:
     if not 1 <= issue_number <= 1_000_000:
         raise ValueError("Invalid review issue number")
     issue = json.loads(gh("api", f"repos/{REPO}/issues/{issue_number}"))
-    if "<!-- openlrr-lab-review:" not in issue.get("body", ""):
+    body = issue.get("body", "")
+    if not isinstance(body, str):
         raise ValueError("Not an OpenLRR lab review issue")
-    comments = json.loads(gh("api", f"repos/{REPO}/issues/{issue_number}/comments?per_page=100"))
-    if not isinstance(comments, list):
-        raise RuntimeError("Unexpected GitHub feedback data")
-    return {"issue": issue_number, **feedback_from_comments(comments)}
+    markers = re.findall(r"<!-- openlrr-lab-review:([a-zA-Z0-9][a-zA-Z0-9_-]{2,63}) -->", body)
+    if len(markers) != 1:
+        raise ValueError("Not a uniquely identified OpenLRR review issue")
+    experiment_id = markers[0]
+    # Request every page. GitHub --slurp returns an outer list of page lists.
+    pages = json.loads(gh("api", "--paginate", "--slurp",
+                          f"repos/{REPO}/issues/{issue_number}/comments?per_page=100"))
+    if not isinstance(pages, list) or not all(isinstance(p, list) for p in pages):
+        raise RuntimeError("Unexpected paginated GitHub feedback data")
+    comments = [c for page in pages for c in page]
+    return {"issue": issue_number, "experiment_id": experiment_id,
+            **feedback_from_comments(comments)}
 
 
 def main(argv=None):
