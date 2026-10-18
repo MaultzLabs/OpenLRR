@@ -9,7 +9,7 @@
 
 namespace MenuPerf {
 
-enum class Metric : unsigned { FlicLock, FlicDecode, FlicUnlock, FlicBlt, ImageBlt, Flip, MovieUpdate, WindowCoordinate, WindowBlt, FullscreenFlip, Count };
+enum class Metric : unsigned { FlicLock, FlicDecode, FlicUnlock, FlicBlt, ImageBlt, Flip, MovieUpdate, WindowCoordinate, WindowBlt, FullscreenFlip, GdiAcquire, GdiStretch, GdiRelease, Count };
 struct Stat { std::uint64_t calls = 0; std::uint64_t ticks = 0; std::uint64_t maxTicks = 0; };
 
 inline bool HasMarker(const char* name) {
@@ -23,6 +23,8 @@ struct State {
     bool optimizeStaticFlic = HasMarker("menuperf.optimize");
     // Optional reversible Windows blit experiment; disabled unless explicitly enabled.
     bool nonblockingWindowBlt = HasMarker("menuperf.nowait");
+    // Alternative 2D window presenter test. Original DirectDraw blit stays the default.
+    bool gdiWindowPresent = HasMarker("menuperf.gdi");
     std::FILE* output = nullptr;
     LARGE_INTEGER frequency = {};
     LARGE_INTEGER intervalStart = {};
@@ -37,7 +39,7 @@ struct State {
         ::QueryPerformanceCounter(&intervalStart);
         output = std::fopen("menuperf.csv", "w");
         if (!output) { enabled = false; return; }
-        std::fprintf(output, "seconds,optimization,nowait,operation,calls,total_ms,max_ms\n");
+        std::fprintf(output, "seconds,optimization,nowait,gdi,operation,calls,total_ms,max_ms\n");
         std::fflush(output);
     }
     ~State() { if (output) std::fclose(output); }
@@ -47,6 +49,7 @@ struct State {
 inline State& Get() { static State state; return state; }
 inline bool OptimizeStaticFlic() { return Get().optimizeStaticFlic; }
 inline bool NonblockingWindowBlt() { return Get().nonblockingWindowBlt; }
+inline bool GdiWindowPresent() { return Get().gdiWindowPresent; }
 
 struct Scope {
     Metric metric;
@@ -79,15 +82,17 @@ inline void FlushIfDue() {
     static const char* names[] = {
         "flic_surface_lock", "flic_decode", "flic_surface_unlock",
         "flic_backbuffer_blt", "image_blt", "frame_flip", "movie_update",
-        "window_coordinate", "window_present_blt", "fullscreen_flip"
+        "window_coordinate", "window_present_blt", "fullscreen_flip",
+        "gdi_surface_getdc", "gdi_stretchblt", "gdi_surface_releasedc"
     };
     const double seconds = static_cast<double>(elapsed) / s.frequency.QuadPart;
     const double factor = 1000.0 / s.frequency.QuadPart;
     for (unsigned i = 0; i < static_cast<unsigned>(Metric::Count); ++i) {
         const Stat& c = s.counters[i];
-        std::fprintf(s.output, "%.3f,%d,%d,%s,%llu,%.4f,%.4f\n",
+        std::fprintf(s.output, "%.3f,%d,%d,%d,%s,%llu,%.4f,%.4f\n",
                      seconds, s.optimizeStaticFlic ? 1 : 0,
-                     s.nonblockingWindowBlt ? 1 : 0, names[i],
+                     s.nonblockingWindowBlt ? 1 : 0,
+                     s.gdiWindowPresent ? 1 : 0, names[i],
                      static_cast<unsigned long long>(c.calls),
                      c.ticks * factor, c.maxTicks * factor);
         s.counters[i] = {};
