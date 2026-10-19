@@ -158,6 +158,25 @@ def check_environment(session: int, *, os_check: bool = True) -> dict:
     }
 
 
+def classify_cpu_profile_failure(stderr: str) -> str:
+    """Store only a fixed diagnostic category, never raw local process output."""
+    if "No live TEST menu telemetry writer found" in stderr:
+        return "unavailable_no_live_test_writer"
+    if "No verified live TEST menu telemetry file" in stderr:
+        return "unavailable_live_telemetry_missing"
+    if "TEST menu telemetry header is invalid" in stderr:
+        return "unavailable_telemetry_identity_invalid"
+    if "Cannot attribute exactly one Wine writer" in stderr:
+        return "unavailable_ambiguous_or_nonwine_test_writer"
+    if "Too many TEST telemetry file owners" in stderr:
+        return "unavailable_ambiguous_test_file_owners"
+    if "Mac CPU sampling failed" in stderr:
+        return "unavailable_mac_sample_permission_or_runtime"
+    if "CPU sampling process lookup or profiling failed" in stderr:
+        return "unavailable_process_lookup_failed"
+    return "unavailable_unclassified_cpu_profile_failure"
+
+
 def mac_snapshot() -> dict:
     # Never return a home path, serial number, raw environment or drive map.
     wine_path = shutil.which("wine")
@@ -412,7 +431,7 @@ def run_session(session: int, *, profile_cpu: bool = True) -> dict:
                             env=env, check=False)
                         profile_result = (
                             "locally_recorded" if capture.returncode == 0
-                            else "unavailable_no_process_or_capture_permission"
+                            else classify_cpu_profile_failure(capture.stderr)
                         )
                     else:
                         profile_result = "unavailable_missing_profiler"
