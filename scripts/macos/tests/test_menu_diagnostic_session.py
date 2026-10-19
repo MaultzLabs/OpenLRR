@@ -114,28 +114,56 @@ class MenuSessionTests(unittest.TestCase):
         def no_handles(argv, **kwargs):
             self.assertEqual(argv[0], "/usr/sbin/lsof")
             return mock.Mock(returncode=1, stdout="", stderr="")
+        def inspected(args, **kwargs):
+            if args[0] == "git":
+                return mock.Mock(returncode=0, stdout="", stderr="")
+            return no_handles(args, **kwargs)
         with mock.patch.object(session, "sys") as fake_sys, \
-             mock.patch.object(session.subprocess, "run", side_effect=no_handles):
+             mock.patch.object(session, "safe_process",
+                               side_effect=lambda cmd, **k: "a" * 40
+                               if cmd[0] == "git" else "PRIVATE"), \
+             mock.patch.object(session.subprocess, "run", side_effect=inspected):
             fake_sys.platform = "darwin"
             data = session.check_environment(1, os_check=True)
         self.assertEqual(data["plan"], ["baseline", "baseline"])
 
     def test_macos_lsof_still_running_process_blocks_preflight(self):
+        def inspected(args, **kwargs):
+            if args[0] == "git":
+                return mock.Mock(returncode=0, stdout="", stderr="")
+            return mock.Mock(returncode=0, stdout="12345\\n", stderr="")
         with mock.patch.object(session, "sys") as fake_sys, \
-             mock.patch.object(session.subprocess, "run",
-                               return_value=mock.Mock(
-                                   returncode=0, stdout="12345\\n", stderr="")):
+             mock.patch.object(session, "safe_process",
+                               side_effect=lambda cmd, **k: "a" * 40
+                               if cmd[0] == "git" else "PRIVATE"), \
+             mock.patch.object(session.subprocess, "run", side_effect=inspected):
             fake_sys.platform = "darwin"
             with self.assertRaisesRegex(RuntimeError, "open file handles"):
                 session.check_environment(1, os_check=True)
 
     def test_macos_lsof_unreliable_output_blocks_preflight(self):
+        def inspected(args, **kwargs):
+            if args[0] == "git":
+                return mock.Mock(returncode=0, stdout="", stderr="")
+            return mock.Mock(returncode=1, stdout="", stderr="unknown error")
         with mock.patch.object(session, "sys") as fake_sys, \
-             mock.patch.object(session.subprocess, "run",
-                               return_value=mock.Mock(
-                                   returncode=1, stdout="", stderr="unknown error")):
+             mock.patch.object(session, "safe_process",
+                               side_effect=lambda cmd, **k: "a" * 40
+                               if cmd[0] == "git" else "PRIVATE"), \
+             mock.patch.object(session.subprocess, "run", side_effect=inspected):
             fake_sys.platform = "darwin"
             with self.assertRaisesRegex(RuntimeError, "unreliable"):
+                session.check_environment(1, os_check=True)
+
+    def test_dirty_lab_checkout_blocks_game_launch(self):
+        with mock.patch.object(session, "sys") as fake_sys, \
+             mock.patch.object(session, "safe_process", return_value="a" * 40), \
+             mock.patch.object(session.subprocess, "run",
+                               return_value=mock.Mock(returncode=0,
+                                                      stdout=" M scripts/macos/lab-supervisor.py",
+                                                      stderr="")):
+            fake_sys.platform = "darwin"
+            with self.assertRaisesRegex(RuntimeError, "modified"):
                 session.check_environment(1, os_check=True)
 
     def test_unreviewed_sessions_are_never_eligible(self):
