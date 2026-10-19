@@ -24,6 +24,17 @@ MAX_PACKET_BYTES = 16000
 REVIEW_STATES = frozenset(("pass", "review"))
 STOP_DIR = experiment_controller.STOP_DIR
 
+CHECKS = {
+    "black_screen": "Inspect the TEST rendering initialization and frame-present path.",
+    "possible_freeze": "Inspect frame pacing, the TEST window event loop and visual stalls.",
+    "possible_flicker": "Inspect buffer transitions and unstable brightness in the TEST window.",
+    "geometry_mismatch": "Re-record matching TEST window dimensions before drawing conclusions.",
+    "frame_count_mismatch": "Re-record equivalent video sampling windows.",
+    "capture_duration_mismatch": "Align clip start and stop times before comparing playback.",
+    "visual_difference": "Inspect the generated local heatmaps for unintended rendering changes.",
+}
+
+
 
 def finite(value, low=0.0, high=100.0):
     if type(value) not in (float, int) or not math.isfinite(value) or not low <= value <= high:
@@ -86,6 +97,10 @@ def evaluate(manifest: Path, runs_dir: Path, captures: Path, visual_report: Path
     pair_index = binding["pair_index"]
     if type(pair_index) is not int or not 0 <= pair_index < benchmark["pairs"]:
         raise ValueError("Visual source is not a declared benchmark pair")
+    manual_checks = [CHECKS[code] for code in dict.fromkeys(
+        item["code"] for item in findings) if code in CHECKS]
+    if not manual_checks:
+        manual_checks = ["Visually inspect TEST menu animation, motion, stutter and input response."]
     packet = {
         "schema_version": 1,
         "kind": "openlrr-visual-review-handoff",
@@ -105,6 +120,7 @@ def evaluate(manifest: Path, runs_dir: Path, captures: Path, visual_report: Path
             "sampled_frames": frames, "compared_pair_index": pair_index,
             "pair_coverage": "1/" + str(benchmark["pairs"]),
             "findings": findings,
+            "manual_inspection_checks": manual_checks[:8],
             "capture_hashes": visual["capture_hashes"],
             "verified_test_run_timing": binding["temporal_consistency_verified"],
             "capture_origin_authenticated": False,
@@ -158,6 +174,9 @@ def review_body(packet: dict, benchmark: dict):
         lines.append("- **Attention: visual differences must be inspected by the reviewer.**")
     for finding in visual["findings"][:8]:
         lines.append("- Visual finding: " + finding["code"] + " (" + finding["severity"] + ")")
+    lines.extend(["", "## Human visual inspection checklist"])
+    for check in visual["manual_inspection_checks"][:8]:
+        lines.append("- " + check)
     lines.extend(["", "## Evidence fingerprint",
                   "- Reference SHA256: " + visual["capture_hashes"]["reference_sha256"],
                   "- Candidate SHA256: " + visual["capture_hashes"]["candidate_sha256"],
