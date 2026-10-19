@@ -61,7 +61,7 @@ def private_repo_only() -> None:
 
 def git_blob_sha(content: bytes) -> str:
     return hashlib.sha1(
-        b"blob " + str(len(content)).encode("ascii") + b"\\x00" + content
+        b"blob " + str(len(content)).encode("ascii") + b"\x00" + content
     ).hexdigest()
 
 
@@ -107,7 +107,7 @@ def checked_ticket(ticket: dict, ticket_id: str) -> None:
     if not isinstance(ticket["reason"], str) or not 10 <= len(ticket["reason"]) <= 600:
         raise ValueError("Ticket reason invalid")
     if not isinstance(ticket["requested_utc_day"], str) or not re.fullmatch(
-        r"\\d{4}-\\d{2}-\\d{2}", ticket["requested_utc_day"]
+        r"\d{4}-\d{2}-\d{2}", ticket["requested_utc_day"]
     ):
         raise ValueError("Unbounded ticket date")
     try:
@@ -232,7 +232,7 @@ def main(argv=None) -> int:
         }, sort_keys=True))
         return 0
     result = get_verified_ticket(args.ticket_id)
-    output = json.dumps(result, indent=2, sort_keys=True) + "\\n"
+    output = json.dumps(result, indent=2, sort_keys=True) + "\n"
     if args.out is not None:
         args.out.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         with args.out.open("x", encoding="utf-8") as stream:
