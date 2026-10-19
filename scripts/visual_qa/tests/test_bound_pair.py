@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import shutil
+from unittest import mock
 from pathlib import Path
 import sys
 import tempfile
@@ -20,6 +22,7 @@ import pipeline
 import experiment_controller
 import visual_capture_binding as gate
 import visual_timeline as vt
+import visual_review_bridge as bridge
 
 LIFECYCLE = "wrapper_wait_exited=yes\ntest_game_handles=none\n"
 
@@ -105,6 +108,34 @@ class VerifiedPairTests(unittest.TestCase):
             }
             vt.write_exclusive(folder / "visual/menu.capture.json", receipt)
 
+    def make_replicated_performance_candidate(self):
+        # Existing first pair is representative of FIVE independently
+        # receipt-verified trials; no real Mac/game content is required.
+        original = self.experiment['pairs'][0]
+        for number in range(1, 5):
+            pair = {}
+            for arm in ('baseline', 'candidate'):
+                old_name = original[arm]
+                new_name = f'autobenchmark-2026-10-18_19-{number+1:02d}-{0 if arm == "baseline" else 1:02d}'
+                shutil.copytree(self.runs / old_name, self.runs / new_name)
+                summary_file = self.runs / new_name / 'summary.json'
+                summary = json.loads(summary_file.read_text())
+                summary['run'] = new_name
+                summary_file.write_text(json.dumps(summary))
+                pair[arm] = new_name
+            self.experiment['pairs'].append(pair)
+        self.manifest.write_text(json.dumps(self.experiment))
+
+    def make_reviewable_capture(self, *, visually_matching=True):
+        self.make_replicated_performance_candidate()
+        if visually_matching:
+            left = self.runs / self.runs_by_arm['baseline'] / 'visual/menu.png'
+            right = self.runs / self.runs_by_arm['candidate'] / 'visual/menu.png'
+            shutil.copyfile(left, right)
+        self.make_timed_receipts()
+        captures = self.register()
+        report = self.analyze()
+        return captures, report
     def register(self):
         return bound_pair.register(self.manifest, self.runs, 0,
                                    "visual/menu.png", "visual/menu.png",
@@ -128,6 +159,11 @@ class VerifiedPairTests(unittest.TestCase):
         self.assertFalse(result['automatic_execution'])
         self.assertTrue((self.home / 'pipeline-result/research-decision.json').is_file())
         self.assertFalse((self.home / 'pipeline-result/read-only-ledger.json').exists())
+        self.assertEqual(result['review_handoff_state'], 'blocked')
+        self.assertFalse(result['review_issue_published'])
+        packet = json.loads((self.home / 'pipeline-result/review-packet.json').read_text())
+        self.assertEqual(packet['state'], 'blocked')
+        self.assertFalse(packet['privacy']['media_uploaded'])
 
     def test_one_command_pipeline_wont_overwrite_existing_evidence(self):
         destination = self.home / 'pipeline-result'
@@ -243,6 +279,141 @@ class VerifiedPairTests(unittest.TestCase):
         self.make_timed_receipts()
         with self.assertRaisesRegex(ValueError, 'not bound'):
             self.coordinate(report, captures)
+    def test_pipeline_generates_ready_packet_without_network_or_issue(self):
+        self.make_replicated_performance_candidate()
+        a = self.runs / self.runs_by_arm['baseline'] / 'visual/menu.png'
+        b = self.runs / self.runs_by_arm['candidate'] / 'visual/menu.png'
+        shutil.copyfile(a, b)
+        self.make_timed_receipts()
+        with mock.patch.object(bridge.review_queue, 'gh', side_effect=AssertionError('network')):
+            result = pipeline.run_once(self.manifest, self.runs, self.home / 'package')
+        self.assertEqual(result['review_handoff_state'], 'ready_for_private_review')
+        self.assertFalse(result['review_issue_published'])
+        doc = json.loads((self.home / 'package/review-packet.json').read_text())
+        self.assertEqual(doc['visual']['pair_coverage'], '1/5')
+        self.assertFalse(doc['privacy']['contains_media_bytes'])
+    def test_review_bridge_accepts_timed_reviewable_candidate_only(self):
+        captures, report = self.make_reviewable_capture()
+        packet, benchmark = bridge.evaluate(
+            self.manifest, self.runs, self.capture_manifest, self.output / 'report.json',
+            switches_dir=self.switches)
+        self.assertEqual(benchmark['status'], 'candidate_for_review')
+        self.assertEqual(packet['state'], 'ready_for_private_review')
+        self.assertEqual(packet['visual']['pair_coverage'], '1/5')
+        self.assertFalse(packet['visual']['capture_origin_authenticated'])
+        self.assertFalse(packet['privacy']['media_uploaded'])
+        body = bridge.review_body(packet, benchmark)
+        self.assertIn('Visual QA', body)
+        self.assertIn('1/5', body)
+        self.assertIn('Human visual inspection checklist', body)
+        self.assertIn('menu animation', body)
+        self.assertIn('/lab continue', body)
+        self.assertNotIn(str(self.runs), body)
+        self.assertNotIn('diff-0000.png', body)
+
+    def test_review_bridge_blocks_visual_regression(self):
+        self.make_reviewable_capture(visually_matching=False)
+        packet, benchmark = bridge.evaluate(
+            self.manifest, self.runs, self.capture_manifest, self.output / 'report.json',
+            switches_dir=self.switches)
+        self.assertEqual(packet['state'], 'blocked')
+        self.assertIn('visual_regression_or_inconclusive', packet['blockers'])
+        self.assertTrue(any('rendering initialization' in check
+                            for check in packet['visual']['manual_inspection_checks']))
+        with self.assertRaisesRegex(ValueError, 'Blocked'):
+            bridge.review_body(packet, benchmark)
+
+    def test_review_bridge_blocks_non_candidate_even_with_good_visuals(self):
+        self.make_timed_receipts()
+        self.register()
+        self.analyze()
+        packet, _ = bridge.evaluate(
+            self.manifest, self.runs, self.capture_manifest, self.output / 'report.json',
+            switches_dir=self.switches)
+        self.assertEqual(packet['state'], 'blocked')
+        self.assertIn('benchmark_not_review_candidate', packet['blockers'])
+
+    def test_review_bridge_blocks_untimed_pair(self):
+        self.make_replicated_performance_candidate()
+        left = self.runs / self.runs_by_arm['baseline'] / 'visual/menu.png'
+        right = self.runs / self.runs_by_arm['candidate'] / 'visual/menu.png'
+        shutil.copyfile(left, right)
+        self.register()
+        self.analyze()
+        packet, _ = bridge.evaluate(
+            self.manifest, self.runs, self.capture_manifest, self.output / 'report.json',
+            switches_dir=self.switches)
+        self.assertEqual(packet['state'], 'blocked')
+        self.assertIn('capture_timing_not_verified', packet['blockers'])
+
+    def test_review_bridge_rechecks_media_before_private_review(self):
+        self.make_reviewable_capture()
+        path = self.runs / self.runs_by_arm['candidate'] / 'visual/menu.png'
+        path.write_bytes(b'changed after scoring')
+        with self.assertRaisesRegex(ValueError, 'Capture bytes changed'):
+            bridge.evaluate(self.manifest, self.runs, self.capture_manifest,
+                            self.output / 'report.json', switches_dir=self.switches)
+
+    def test_bridge_dry_run_never_contacts_github(self):
+        self.make_reviewable_capture()
+        with mock.patch.object(bridge.review_queue, 'gh', side_effect=AssertionError('network')):
+            packet, benchmark = bridge.evaluate(
+                self.manifest, self.runs, self.capture_manifest, self.output / 'report.json',
+                switches_dir=self.switches)
+            self.assertEqual(packet['state'], 'ready_for_private_review')
+            with self.assertRaisesRegex(ValueError, 'confirmation'):
+                bridge.publish(packet, benchmark)
+
+    def test_bridge_refuses_public_repository_before_issue_creation(self):
+        self.make_reviewable_capture()
+        packet, benchmark = bridge.evaluate(
+            self.manifest, self.runs, self.capture_manifest, self.output / 'report.json',
+            switches_dir=self.switches)
+        with mock.patch.object(bridge.review_queue, 'gh', return_value='false\n') as gh:
+            with self.assertRaisesRegex(RuntimeError, 'PRIVATE'):
+                bridge.publish(packet, benchmark, confirm_private_review=True)
+        self.assertEqual(gh.call_count, 1)
+        self.assertEqual(gh.call_args.args[-1], '.private')
+
+    def test_bridge_private_publish_is_explicit_and_metadata_only(self):
+        self.make_reviewable_capture()
+        packet, benchmark = bridge.evaluate(
+            self.manifest, self.runs, self.capture_manifest, self.output / 'report.json',
+            switches_dir=self.switches)
+        expected_url = 'https://github.com/MaultzLabs/OpenLRR-Test-Results/issues/123'
+        def fake_gh(*args):
+            if args[0] == 'api':
+                return 'true\n'
+            self.assertEqual(args[:2], ('issue', 'create'))
+            self.assertIn('--body', args)
+            body = args[args.index('--body') + 1]
+            self.assertIn('Visual QA', body)
+            self.assertNotIn(str(self.runs), body)
+            self.assertNotIn('fake image bytes', body)
+            return expected_url
+        with mock.patch.object(bridge.review_queue, 'gh', side_effect=fake_gh) as gh, mock.patch.object(
+                bridge.review_queue, 'existing_issue', return_value=None):
+            got = bridge.publish(packet, benchmark, confirm_private_review=True)
+        self.assertIn(expected_url, got)
+        self.assertEqual(gh.call_count, 2)
+
+    def test_bridge_existing_issue_is_deduplicated(self):
+        self.make_reviewable_capture()
+        packet, benchmark = bridge.evaluate(
+            self.manifest, self.runs, self.capture_manifest, self.output / 'report.json',
+            switches_dir=self.switches)
+        with mock.patch.object(bridge.review_queue, 'gh', return_value='true'), mock.patch.object(
+                bridge.review_queue, 'existing_issue', return_value='https://github.com/MaultzLabs/OpenLRR-Test-Results/issues/21'):
+            got = bridge.publish(packet, benchmark, confirm_private_review=True)
+        self.assertIn('Existing', got)
+
+    def test_bridge_stop_flag_blocks_review(self):
+        self.make_reviewable_capture()
+        stop = self.switches / 'STOP'
+        stop.touch()
+        with self.assertRaisesRegex(RuntimeError, 'STOP/PAUSE'):
+            bridge.evaluate(self.manifest, self.runs, self.capture_manifest,
+                            self.output / 'report.json', switches_dir=self.switches)
     def test_valid_pair_flags_visual_regression_for_research(self):
         captures = self.register()
         result = self.analyze()

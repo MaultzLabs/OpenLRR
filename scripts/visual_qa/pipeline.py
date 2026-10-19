@@ -19,6 +19,7 @@ for path in (HERE, AGENT):
 
 import bound_pair
 import experiment_controller
+import visual_review_bridge
 
 
 def run_once(experiment: Path, runs_dir: Path, output: Path,
@@ -52,11 +53,19 @@ def run_once(experiment: Path, runs_dir: Path, output: Path,
             decision.get("may_touch_working_game") is not False):
         raise ValueError("Controller did not confirm isolated visual evidence")
     bound_pair.save_new_json(destination / "research-decision.json", decision)
+    # Read-only handoff: prepare a private-review-ready/blocked packet, but
+    # NEVER create an issue without a separate explicit user publish action.
+    packet, _ = visual_review_bridge.evaluate(
+        experiment, runs, captures_path, destination / "analysis/report.json")
+    bound_pair.save_new_json(destination / "review-packet.json", packet)
     return {
         "experiment_id": report["experiment_id"],
         "visual_status": report["status"],
         "visual_score": report["score"],
         "research_next_step": decision["next_step"],
+        "review_handoff_state": packet["state"],
+        "review_packet_path": str(destination / "review-packet.json"),
+        "review_issue_published": False,
         "temporal_consistency_verified": decision["visual_temporal_consistency_verified"],
         "capture_origin_authenticated": False,
         "working_game_modified": False,
