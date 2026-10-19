@@ -74,7 +74,7 @@ class ProfilerSafetyTests(unittest.TestCase):
                                side_effect=AssertionError("process lookup should not run")):
             with self.assertRaisesRegex(RuntimeError, "telemetry file"):
                 profiler.find_test_wine_pid()
-        target.write_text("not real TEST telemetry\n")
+        target.write_text("x" * 96 + "\n")
         with mock.patch.object(profiler, "checked_run",
                                side_effect=AssertionError("process lookup should not run")):
             with self.assertRaisesRegex(RuntimeError, "header"):
