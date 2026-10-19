@@ -75,7 +75,7 @@ class NativeMapComposerTests(unittest.TestCase):
             self.assertIn("PredugMap", snippet)
             self.assertIn("SurfaceMap", snippet)
             self.assertIn("TerrainMap", snippet)
-            self.assertIn("NOT a complete Lego.cfg level", snippet)
+            self.assertIn("not a complete Lego.cfg level", snippet)
             with self.assertRaisesRegex(ValueError, "must never be replaced"):
                 composer.write_pack(dest, draft)
 
