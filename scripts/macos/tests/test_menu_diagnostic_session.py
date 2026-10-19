@@ -260,6 +260,36 @@ class MenuSessionTests(unittest.TestCase):
         self.assertTrue(report["stop_or_crash_requires_human_inspection"])
         self.assertEqual(list(self.output.glob("*/report.json")), [])
 
+    def test_interrupt_requests_stop_and_never_reports_success(self):
+        with mock.patch.object(session, "check_environment",
+                               return_value={"session": 1}), \
+             mock.patch.object(session, "mac_snapshot",
+                               return_value={"snapshot": True}), \
+             mock.patch.object(session.subprocess, "Popen") as launch:
+            launch.return_value.poll.side_effect = KeyboardInterrupt
+            with self.assertRaisesRegex(RuntimeError, "Interrupted; STOP requested"):
+                session.run_session(1, profile_cpu=False)
+        self.assertTrue((self.config / "STOP").exists())
+        states = list(self.output.glob("*/session-state.json"))
+        self.assertEqual(len(states), 1)
+        self.assertEqual(json.loads(states[0].read_text())["state"],
+                         "failed_or_incomplete")
+        self.assertEqual(list(self.output.glob("*/report.json")), [])
+
+    def test_environment_snapshot_never_exposes_registry_contents(self):
+        prefix = self.app / "Contents/SharedSupport/prefix"
+        prefix.mkdir(parents=True, exist_ok=True)
+        (prefix / "user.reg").write_text(
+            "secret-host-directory=/Users/private/client\n"
+            "[Software\\\\Wine\\\\Direct3D]\n"
+        )
+        (self.game / "ddraw.dll").write_bytes(b"wrapped compatibility layer")
+        captured = session.mac_snapshot()
+        self.assertIn("ddraw.dll", captured["local_graphics_compatibility_files"])
+        self.assertTrue(captured["raw_machine_paths_redacted"])
+        self.assertNotIn("/Users/private", json.dumps(captured))
+        self.assertFalse(captured["visible_fps_measured"])
+
     def test_output_idempotent_and_no_overwrites(self):
         dest = self.root / "record.json"
         session.store_new(dest, {"result": "missing_visual"})
