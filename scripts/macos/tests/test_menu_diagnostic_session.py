@@ -332,6 +332,66 @@ class MenuSessionTests(unittest.TestCase):
         self.assertNotIn("/Users/private", json.dumps(captured))
         self.assertFalse(captured["visible_fps_measured"])
 
+    def test_cpu_sample_waits_for_two_complete_stalled_menu_intervals(self):
+        path = self.game / "menuperf.csv"
+        header = "seconds,optimization,nowait,gdi,operation,calls,total_ms,max_ms\n"
+        def block(movie, slow):
+            rows = [
+                ("movie_update", movie),
+                ("frame_flip", 4),
+                ("window_blt_over_1000ms", slow),
+                ("window_blt_slow_low_cpu", 0),
+            ]
+            return "".join(
+                f"1.270,0,0,0,{name},{calls},1.0000,1.0000\n"
+                for name, calls in rows
+            )
+        path.write_text(header + block(10, 1) + block(0, 1))
+        self.assertFalse(session.targeted_stall_window(path))
+        path.write_text(header + block(10, 1) + block(0, 1) + block(0, 1))
+        self.assertTrue(session.targeted_stall_window(path))
+        path.write_text(header + block(0, 1) + block(0, 1) + block(4, 1))
+        self.assertFalse(session.targeted_stall_window(path))
+
+    def test_cpu_sample_rejects_incomplete_rows_and_untrusted_csv(self):
+        path = self.game / "menuperf.csv"
+        header = "seconds,optimization,nowait,gdi,operation,calls,total_ms,max_ms\n"
+        interval = "".join(
+            f"1.270,0,0,0,{name},{count},1.0000,1.0000\n"
+            for name, count in (
+                ("movie_update", 0), ("frame_flip", 4),
+                ("window_blt_over_1000ms", 1),
+                ("window_blt_slow_low_cpu", 0)
+            )
+        )
+        path.write_text(header + interval + interval + "1.0,0,0")
+        self.assertFalse(session.targeted_stall_window(path))
+        path.write_text(header + interval + interval)
+        self.assertTrue(session.targeted_stall_window(path))
+        path.unlink()
+        outside = self.root / "other.csv"
+        outside.write_text(header + interval + interval)
+        path.symlink_to(outside)
+        self.assertFalse(session.targeted_stall_window(path))
+
+    def test_cpu_profiler_failure_reporting_is_bounded_and_redacted(self):
+        samples = {
+            "TEST CPU SAMPLING BLOCKED: No live TEST menu telemetry writer found":
+                "unavailable_no_live_test_writer",
+            "TEST CPU SAMPLING BLOCKED: Cannot attribute exactly one Wine writer of TEST menu telemetry":
+                "unavailable_ambiguous_or_nonwine_test_writer",
+            "TEST CPU SAMPLING BLOCKED: Mac CPU sampling failed":
+                "unavailable_mac_sample_permission_or_runtime",
+            "TEST CPU SAMPLING BLOCKED: TEST menu telemetry header is invalid":
+                "unavailable_telemetry_identity_invalid",
+        }
+        for err, category in samples.items():
+            self.assertEqual(session.classify_cpu_profile_failure(err), category)
+        secret = "/Users/privateuser/Documents/secret client file"
+        category = session.classify_cpu_profile_failure("unexpected error " + secret)
+        self.assertEqual(category, "unavailable_unclassified_cpu_profile_failure")
+        self.assertNotIn(secret, category)
+
     def test_output_idempotent_and_no_overwrites(self):
         dest = self.root / "record.json"
         session.store_new(dest, {"result": "missing_visual"})
