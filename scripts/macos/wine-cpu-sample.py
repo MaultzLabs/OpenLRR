@@ -53,7 +53,13 @@ def checked_run(args: list[str], *, timeout: int) -> str:
         args, capture_output=True, text=True,
         check=False, timeout=timeout,
     )
+    # macOS lsof returns 1 with empty stdout/stderr when no process has
+    # that exact file open. This is an ordinary no-writer condition, not
+    # permission to fall back to a process-name-only search.
     if proc.returncode:
+        if (args[0] == "/usr/sbin/lsof" and proc.returncode == 1
+                and not proc.stdout.strip() and not proc.stderr.strip()):
+            return ""
         raise RuntimeError("CPU sampling process lookup or profiling failed")
     if len(proc.stdout) > 8192:
         raise RuntimeError("Excessive Mac process lookup output")
@@ -63,14 +69,23 @@ def checked_run(args: list[str], *, timeout: int) -> str:
 def find_test_wine_pid() -> str:
     stop_check()
     validate_test_target()
-    # Bind PID candidates to files currently open inside the specifically
-    # installed TEST game. Never discover unrelated Wine sessions by name.
-    raw = checked_run(
-        ["/usr/sbin/lsof", "-nP", "-t", "+D", str(GAME)], timeout=20
-    )
+    # The game's CSV is held open while real TEST menu frames are recorded.
+    # Searching +D over the entire Wine game tree also returns helper Wine
+    # processes and can make the old unique-PID check fail. Bind instead to
+    # the ONE file that the instrumented TEST game's writer holds open.
+    live = GAME / "menuperf.csv"
+    header = "seconds,optimization,nowait,gdi,operation,calls,total_ms,max_ms"
+    if live.is_symlink() or not live.is_file() or live.stat().st_size < len(header):
+        raise RuntimeError("No verified live TEST menu telemetry file")
+    with live.open("r", encoding="utf-8", errors="replace") as stream:
+        if stream.readline().strip() != header:
+            raise RuntimeError("TEST menu telemetry header is invalid")
+    raw = checked_run(["/usr/sbin/lsof", "-nP", "-t", str(live)], timeout=20)
     candidates = set(raw.split())
-    if not candidates or len(candidates) > MAX_DISCOVERED_PIDS:
-        raise RuntimeError("No unique bounded TEST process found")
+    if not candidates:
+        raise RuntimeError("No live TEST menu telemetry writer found")
+    if len(candidates) > MAX_DISCOVERED_PIDS:
+        raise RuntimeError("Too many TEST telemetry file owners for safe sampling")
     if any(not PID.fullmatch(candidate) for candidate in candidates):
         raise RuntimeError("Untrusted TEST process identifier")
     wine_pids = []
@@ -81,7 +96,7 @@ def find_test_wine_pid() -> str:
         if any(marker in description for marker in ("wine", "legorr", "rock raiders")):
             wine_pids.append(candidate)
     if len(wine_pids) != 1:
-        raise RuntimeError("Cannot attribute exactly one running Wine process to TEST")
+        raise RuntimeError("Cannot attribute exactly one Wine writer of TEST menu telemetry")
     return wine_pids[0]
 
 
