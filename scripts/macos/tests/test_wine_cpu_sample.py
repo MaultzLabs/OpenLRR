@@ -151,16 +151,16 @@ class ProfilerSafetyTests(unittest.TestCase):
 
     def test_sample_tree_exclusive_leaf_counts_are_not_nested_double_counts(self):
         text = (
-            "Analysis of sampling Wine\\n"
-            "Call graph:\\n"
-            "  100 Thread_12345 DispatchQueue_1\\n"
-            "  + 100 main (in wine64)\\n"
-            "  +   70 ddraw_dispatch (in ddraw)\\n"
-            "  +   +  60 draw (in wined3d)\\n"
-            "  +   +   50 render (in Metal)\\n"
-            "  +   30 __ulock_wait (in libsystem_kernel)\\n"
-            "Binary Images:\\n"
-            "/Users/confidential/documents/client-path\\n"
+            "Analysis of sampling Wine\n"
+            "Call graph:\n"
+            "  100 Thread_12345 DispatchQueue_1\n"
+            "  + 100 main (in wine64)\n"
+            "  +   70 ddraw_dispatch (in ddraw)\n"
+            "  +   +  60 draw (in wined3d)\n"
+            "  +   +   50 render (in Metal)\n"
+            "  +   30 __ulock_wait (in libsystem_kernel)\n"
+            "Binary Images:\n"
+            "/Users/confidential/documents/client-path\n"
         )
         result = profiler.sample_tree_hotspots(text)
         self.assertEqual(result["status"], "parsed")
@@ -184,7 +184,7 @@ class ProfilerSafetyTests(unittest.TestCase):
         folder = profiler.STATE / "sample_20261019T000000Z_205"
         folder.mkdir(parents=True)
         raw = folder / "raw-local-only.sample"
-        raw.write_text("Call graph:\\n  2 Thread_205\\n  + 2 Metal\\n")
+        raw.write_text("Call graph:\n  2 Thread_205\n  + 2 Metal\n")
         with mock.patch.object(profiler.subprocess, "run",
                                side_effect=AssertionError("no process inspection")):
             report = profiler.summarize_latest_local_trace()

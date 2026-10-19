@@ -334,7 +334,7 @@ class MenuSessionTests(unittest.TestCase):
 
     def test_cpu_sample_waits_for_two_complete_stalled_menu_intervals(self):
         path = self.game / "menuperf.csv"
-        header = "seconds,optimization,nowait,gdi,operation,calls,total_ms,max_ms\\n"
+        header = "seconds,optimization,nowait,gdi,operation,calls,total_ms,max_ms\n"
         def block(movie, slow):
             rows = [
                 ("movie_update", movie),
@@ -343,7 +343,7 @@ class MenuSessionTests(unittest.TestCase):
                 ("window_blt_slow_low_cpu", 0),
             ]
             return "".join(
-                f"1.270,0,0,0,{name},{calls},1.0000,1.0000\\n"
+                f"1.270,0,0,0,{name},{calls},1.0000,1.0000\n"
                 for name, calls in rows
             )
         path.write_text(header + block(10, 1) + block(0, 1))
@@ -355,9 +355,9 @@ class MenuSessionTests(unittest.TestCase):
 
     def test_cpu_sample_rejects_incomplete_rows_and_untrusted_csv(self):
         path = self.game / "menuperf.csv"
-        header = "seconds,optimization,nowait,gdi,operation,calls,total_ms,max_ms\\n"
+        header = "seconds,optimization,nowait,gdi,operation,calls,total_ms,max_ms\n"
         interval = "".join(
-            f"1.270,0,0,0,{name},{count},1.0000,1.0000\\n"
+            f"1.270,0,0,0,{name},{count},1.0000,1.0000\n"
             for name, count in (
                 ("movie_update", 0), ("frame_flip", 4),
                 ("window_blt_over_1000ms", 1),

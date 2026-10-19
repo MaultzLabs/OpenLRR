@@ -107,7 +107,7 @@ SAMPLE_CATEGORIES = (
     "coreanimation", "quartz", "kernel_wait", "libsystem_kernel",
     "pthread", "other",
 )
-SAMPLE_FRAME = re.compile(r"^([ \\t+|:!]*)([0-9]{1,9})[ \\t]+(.+)$")
+SAMPLE_FRAME = re.compile(r"^([ \t+|:!]*)([0-9]{1,9})[ \t]+(.+)$")
 
 
 def _frame_category(symbol: str) -> str:
@@ -115,16 +115,16 @@ def _frame_category(symbol: str) -> str:
     # Order matters: metal framework, DirectDraw and WineD3D may all occur
     # in one call chain. We classify only the sampled leaf's own frame.
     for label, pattern in (
-        ("wined3d", r"\\bwined3d\\b"),
-        ("ddraw", r"\\bddraw\\b"),
-        ("win32u", r"\\bwin32u\\b"),
-        ("coreanimation", r"\\bcoreanimation\\b"),
-        ("metal", r"\\bmetal\\b|\\bmtl(?:command|device|blit)"),
-        ("quartz", r"\\bquartz\\b"),
-        ("kernel_wait", r"\\b(?:semaphore_wait_trap|__ulock_wait|mach_msg_trap|__psynch_cvwait)\\b"),
-        ("libsystem_kernel", r"\\blibsystem_kernel\\b"),
-        ("pthread", r"\\bpthread\\b"),
-        ("wine_other", r"\\bwine(?:64)?\\b"),
+        ("wined3d", r"\bwined3d\b"),
+        ("ddraw", r"\bddraw\b"),
+        ("win32u", r"\bwin32u\b"),
+        ("coreanimation", r"\bcoreanimation\b"),
+        ("metal", r"\bmetal\b|\bmtl(?:command|device|blit)"),
+        ("quartz", r"\bquartz\b"),
+        ("kernel_wait", r"\b(?:semaphore_wait_trap|__ulock_wait|mach_msg_trap|__psynch_cvwait)\b"),
+        ("libsystem_kernel", r"\blibsystem_kernel\b"),
+        ("pthread", r"\bpthread\b"),
+        ("wine_other", r"\bwine(?:64)?\b"),
     ):
         if re.search(pattern, lower):
             return label
@@ -167,7 +167,7 @@ def sample_tree_hotspots(data: str) -> dict:
             parents.pop()
         # Reject malformed nesting instead of attributing a thread-root's
         # inclusive sample count to a guessed module.
-        is_thread = bool(re.search(r"\\bThread_[0-9]+\\b", symbol))
+        is_thread = bool(re.search(r"\bThread_[0-9]+\b", symbol))
         if not parents and not is_thread:
             continue
         if is_thread:
