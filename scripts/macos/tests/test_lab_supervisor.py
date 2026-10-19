@@ -248,6 +248,58 @@ class SupervisorSafetyTests(unittest.TestCase):
                                side_effect=AssertionError("launched on pause")):
             self.assertFalse(lab.wait_unpaused(1))
 
+    def test_profiler_requires_explicit_supervised_run(self):
+        with self.assertRaises(SystemExit):
+            lab.main(["--approved-sha", "a" * 64, "--profile-wine-cpu"])
+
+    def test_profiled_run_only_launches_local_sampler_after_game_started(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            dll = root / "openlrr.dll"
+            dll.write_bytes(b"MZapproved")
+            sha = lab.fingerprint(dll)
+            helper = root / "wine-cpu-sample.py"
+            helper.write_text("# local read-only sampler")
+            python = root / "venv/bin/python"
+            python.parent.mkdir(parents=True)
+            python.write_text("# fixed python")
+            run_id = "autobenchmark-2026-10-18_22-48-35"
+            game_child = mock.Mock()
+            game_child.poll.side_effect = [None, 0, 0]
+            game_child.returncode = 0
+            profile_child = mock.Mock()
+            profile_child.wait.return_value = 0
+            launches = []
+            def spawn(argv, **kwargs):
+                launches.append((argv, kwargs))
+                return game_child if len(launches) == 1 else profile_child
+            with mock.patch.object(lab, "DLL", dll), \
+                 mock.patch.object(lab, "WINE_CPU_PROFILE", helper), \
+                 mock.patch.object(lab, "VENV_PYTHON", python), \
+                 mock.patch.object(lab, "switches", return_value="ready"), \
+                 mock.patch.object(lab, "known_runs", side_effect=[set(), {run_id}]), \
+                 mock.patch.object(lab, "verify_result", return_value=root / "menuperf.csv"), \
+                 mock.patch.object(lab, "audit") as events, \
+                 mock.patch.object(lab.time, "monotonic", side_effect=[100, 121, 122]), \
+                 mock.patch.object(lab.time, "sleep"), \
+                 mock.patch.object(lab.subprocess, "Popen", side_effect=spawn), \
+                 mock.patch.dict(lab.os.environ, {
+                     "OPENAI_API_KEY": "secret", "GITHUB_TOKEN": "token",
+                     "GH_TOKEN": "token"
+                 }):
+                measured, _ = lab.run_one("baseline", sha, 60, None,
+                                          profile_wine_cpu=True)
+            self.assertEqual(measured, run_id)
+            self.assertEqual(len(launches), 2)
+            self.assertEqual(launches[1][0],
+                             [str(python), str(helper), "--capture"])
+            self.assertNotIn("OPENAI_API_KEY", launches[1][1]["env"])
+            self.assertNotIn("GH_TOKEN", launches[1][1]["env"])
+            self.assertTrue(any(
+                call.args[0] == "wine_cpu_profile_local_only"
+                for call in events.call_args_list
+            ))
+
     def test_game_runner_does_not_inherit_model_credentials(self):
         with tempfile.TemporaryDirectory() as tmp:
             dll = Path(tmp) / "openlrr.dll"
