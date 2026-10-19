@@ -2,7 +2,7 @@ name: OpenLRR Menu Diagnostics Win32
 
 on:
   push:
-    branches: [lab-private-research-outbox-v1, lab-paired-research-ticket-v1, lab-research-handoff-v1, lab-supervisor-handoff-v1, lab-blit-cpu-probe-v1, menu-perf-build, automated-benchmark-harness, benchmark-loop-v2, agent-loop-v1, lab-render-diagnostics-v1]
+    branches: [lab-wine-isolation-audit-v1, lab-private-research-outbox-v1, lab-paired-research-ticket-v1, lab-research-handoff-v1, lab-supervisor-handoff-v1, lab-blit-cpu-probe-v1, menu-perf-build, automated-benchmark-harness, benchmark-loop-v2, agent-loop-v1, lab-render-diagnostics-v1]
   workflow_dispatch:
 
 permissions:
