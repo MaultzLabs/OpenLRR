@@ -13,7 +13,7 @@ enum class Metric : unsigned { FlicLock, FlicDecode, FlicUnlock, FlicBlt, ImageB
     FrameStartGap, FrameOutsideFlip, WindowBltSlow100ms, WindowBltSlow1000ms,
     OutsideFlipSlow100ms, OutsideFlipSlow1000ms,
     WindowBltThreadCpu, WindowBltSlowThreadCpu, WindowBltCpuUnavailable,
-    WindowBltSlowLowCpu, Count };
+    WindowBltSlowLowCpu, WindowBltCpuInconsistent, Count };
 struct Stat { std::uint64_t calls = 0; std::uint64_t ticks = 0; std::uint64_t maxTicks = 0; };
 
 inline bool HasMarker(const char* name) {
@@ -162,7 +162,13 @@ struct WindowBltCpuScope {
         const double wallMs = static_cast<double>(end.QuadPart - begin.QuadPart) *
                               1000.0 / s.frequency.QuadPart;
         const double cpuMs = static_cast<double>(lastCpu100ns - firstCpu100ns) / 10000.0;
-        if (cpuMs > wallMs * 1.5 + 5.0) {
+        // A single thread cannot consume more CPU seconds than real
+        // elapsed seconds. Wine's QPC and GetThreadTimes can disagree
+        // because of accounting granularity or emulation. Treat any sample
+        // exceeding wall by >4ms as UNTRUSTWORTHY, not as proof of a busy
+        // driver. The dedicated counter lets the analyzer expose this.
+        if (cpuMs > wallMs + 4.0) {
+            RecordTickSample(Metric::WindowBltCpuInconsistent, 0);
             RecordTickSample(Metric::WindowBltCpuUnavailable, 0);
             return;
         }
@@ -231,7 +237,8 @@ inline void FlushIfDue() {
         "frame_start_gap", "frame_outside_flip", "window_blt_over_100ms",
         "window_blt_over_1000ms", "frame_outside_over_100ms", "frame_outside_over_1000ms",
         "window_blt_thread_cpu", "window_blt_slow_thread_cpu",
-        "window_blt_cpu_unavailable", "window_blt_slow_low_cpu"
+        "window_blt_cpu_unavailable", "window_blt_slow_low_cpu",
+        "window_blt_cpu_inconsistent"
     };
     const double seconds = static_cast<double>(elapsed) / s.frequency.QuadPart;
     const double factor = 1000.0 / s.frequency.QuadPart;
