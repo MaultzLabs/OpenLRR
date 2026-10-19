@@ -8,9 +8,13 @@ on:
   workflow_dispatch:
     inputs:
       ticket_id:
-        description: 'Exact verified private research ticket ID'
-        required: true
+        description: 'Optional exact private research ticket ID; leave blank to select next queued ticket'
+        required: false
         type: string
+  schedule:
+    # Dormant until the workflow exists on the default branch AND the
+    # independently named explicit paid-research variable is enabled.
+    - cron: '37 11 * * *'
 
 permissions:
   contents: read
@@ -36,7 +40,7 @@ jobs:
           python -m unittest discover -s scripts/agent/tests -p 'test_budgeted_research_dispatch.py' -v
 
   research:
-    if: github.event_name == 'workflow_dispatch' && vars.OPENLRR_RESEARCH_EXECUTION_ENABLED == 'true'
+    if: (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && vars.OPENLRR_RESEARCH_EXECUTION_ENABLED == 'true'
     needs: offline-safety
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -47,20 +51,44 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Discover one unclaimed private research ticket (read only)
+        env:
+          GH_TOKEN: ${{ secrets.OPENLRR_RESULTS_WRITE_TOKEN }}
+          MANUAL_TICKET: ${{ inputs.ticket_id }}
+        run: |
+          test -n "$GH_TOKEN" || { echo 'Private results credential missing'; exit 2; }
+          python - <<'PY'
+          import os, sys
+          sys.path.insert(0, 'scripts/agent')
+          import private_research_queue as queue
+          specified = os.environ.get("MANUAL_TICKET", "").strip()
+          if specified:
+              if not queue.inbox.TICKET_ID.fullmatch(specified):
+                  raise SystemExit("Invalid manually requested ticket")
+              chosen = specified
+          else:
+              chosen = queue.select_one()["pending_ticket_id"] or ""
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as out:
+              out.write("SELECTED_TICKET=" + chosen + "\n")
+          print("One research ticket selected" if chosen else "No unclaimed private research work")
+          PY
       - name: Install pinned tool-free model client
+        if: env.SELECTED_TICKET != ''
         run: python -m pip install 'openai-agents==0.24.0'
       - name: Independently reverify private evidence then reserve one model call
+        if: env.SELECTED_TICKET != ''
         env:
           GH_TOKEN: ${{ secrets.OPENLRR_RESULTS_WRITE_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENLRR_AI_LAB_KEY }}
           OPENLRR_RESEARCH_EXECUTION_ENABLED: ${{ vars.OPENLRR_RESEARCH_EXECUTION_ENABLED }}
-          TICKET_ID: ${{ inputs.ticket_id }}
+          TICKET_ID: ${{ env.SELECTED_TICKET }}
         run: |
           test -n "$GH_TOKEN" || { echo 'Dedicated private results write token not configured'; exit 2; }
           test -n "$OPENAI_API_KEY" || { echo 'AI laboratory key not configured'; exit 2; }
           python scripts/agent/budgeted_research_dispatch.py \
             --ticket-id "$TICKET_ID" --run-model --out research-output/proposed-plan.json
       - name: Preserve non-executable research plan for human review
+        if: env.SELECTED_TICKET != ''
         uses: actions/upload-artifact@v4
         with:
           name: OpenLRR-One-Call-Research-Plan-REVIEW-REQUIRED
