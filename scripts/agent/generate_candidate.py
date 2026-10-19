@@ -46,7 +46,7 @@ def validate_research_evidence(path: Path) -> dict:
         "repeated_baselines", "same_binary_and_graphics_mode",
         "mean_present_ms", "long_directdraw_blits_per_run",
         "long_outside_flip_periods_per_run", "present_wall_fraction",
-        "prior_negative_tests", "interpretation", "important_limits"
+        "prior_negative_tests", "interpretation", "important_limits", "cpu_probe"
     }
     if type(doc) is not dict or set(doc) != expected:
         raise ValueError("Unexpected aggregate fields")
@@ -83,6 +83,47 @@ def validate_research_evidence(path: Path) -> dict:
         "A repeated baseline is not an A/B improvement. The original nonblocking experiment was inconclusive. Do not assume a driver root cause or invent speedups."
     ):
         raise ValueError("Aggregate limits are not reviewed")
+    cpu = doc["cpu_probe"]
+    required_cpu = {
+        "kind", "run_ids", "dll_sha256", "window_blt_calls",
+        "cpu_sample_successes", "cpu_sample_failures", "long_blt_calls",
+        "valid_long_cpu_samples", "low_cpu_long_calls",
+        "average_slow_blt_thread_cpu_ms", "present_worst_wall_ms",
+        "interpretation"
+    }
+    if type(cpu) is not dict or set(cpu) != required_cpu:
+        raise ValueError("Unreviewed CPU probe schema")
+    if cpu["kind"] != "reviewed_private_receipt_aggregate" or cpu["run_ids"] != [
+        "autobenchmark-2026-10-18_22-47-08",
+        "autobenchmark-2026-10-18_22-48-35"
+    ] or cpu["dll_sha256"] != (
+        "1179323074e03caf22f89ecbf05b9234f8ef5e18f2c1d6b8d797c2cf31c5b4ff"
+    ):
+        raise ValueError("CPU probe has unreviewed run provenance")
+    measurements = {
+        "window_blt_calls": [229, 258],
+        "cpu_sample_successes": [217, 244],
+        "cpu_sample_failures": [12, 14],
+        "long_blt_calls": [31, 31],
+        "valid_long_cpu_samples": [31, 31],
+        "low_cpu_long_calls": [0, 1],
+        "average_slow_blt_thread_cpu_ms": [1267.0968, 1224.8387],
+        "present_worst_wall_ms": [1260.8062, 1260.821]
+    }
+    if any(cpu.get(key) != value for key, value in measurements.items()):
+        raise ValueError("CPU probe data differ from verified private Mac receipts")
+    if any(
+        cpu["cpu_sample_successes"][i] + cpu["cpu_sample_failures"][i]
+        != cpu["window_blt_calls"][i]
+        or cpu["valid_long_cpu_samples"][i] > cpu["long_blt_calls"][i]
+        or cpu["low_cpu_long_calls"][i] > cpu["valid_long_cpu_samples"][i]
+        for i in range(2)
+    ):
+        raise ValueError("CPU probe counts inconsistent")
+    if cpu["interpretation"] != (
+        "In two approved Mac TEST runs, virtually all sampled >1000ms DirectDraw Blt calls consumed substantial reported calling-thread CPU time; an idle wait alone is not supported. The thread CPU sample and Blt wall timing scopes differ slightly; the CPU probe is diagnostic, not attribution to Wine, GPU, or driver, and does not establish displayed FPS."
+    ):
+        raise ValueError("CPU interpretation does not match reviewed limitation")
     return doc
 
 
@@ -166,6 +207,13 @@ def generate(source: str, model: str, evidence: dict | None = None) -> dict:
         "over a second. The cause INSIDE Wine or DirectDraw is NOT established. "
         "Do not interpret baseline repeats as a performance improvement. "
         "Avoid re-running GDI or nowait without a new mechanism. "
+        "New verified CPU probes on two further 63-second Mac tests showed 31 "
+        "long blits per run; 31/31 had CPU samples each run, and only 0 and 1 "
+        "were low-CPU. Calling-thread CPU time was substantial during the "
+        "long stalls. An idle-wait-only explanation is therefore not supported, "
+        "but the measurement cannot distinguish Wine translation from driver "
+        "or CPU spin, and CPU/wall timing scopes are not identical. "
+        "Do not invent precise CPU attribution. "
         "The supported scope is narrow; no pre-existing fix is proven. "
         "If no specific, measurable and defensible change fits this scope, "
         "return the original block UNCHANGED. This is an accepted ABSTENTION, "

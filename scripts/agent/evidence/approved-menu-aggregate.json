@@ -5,11 +5,67 @@
   "workload": "isolated_mac_wine_menu",
   "repeated_baselines": 2,
   "same_binary_and_graphics_mode": true,
-  "mean_present_ms": [247.516, 248.031],
-  "long_directdraw_blits_per_run": [31, 31],
-  "long_outside_flip_periods_per_run": [0, 0],
-  "present_wall_fraction": [0.7995, 0.8068],
-  "prior_negative_tests": ["gdi_slower_in_single_pair", "nowait_inconclusive"],
+  "mean_present_ms": [
+    247.516,
+    248.031
+  ],
+  "long_directdraw_blits_per_run": [
+    31,
+    31
+  ],
+  "long_outside_flip_periods_per_run": [
+    0,
+    0
+  ],
+  "present_wall_fraction": [
+    0.7995,
+    0.8068
+  ],
+  "prior_negative_tests": [
+    "gdi_slower_in_single_pair",
+    "nowait_inconclusive"
+  ],
   "interpretation": "Each of two ~63-second baseline runs showed 31 individual >1000ms Windows DirectDraw Blt calls while none of the periods outside DirectDraw_Flip were >1000ms. API-side durations do not prove visible frame rate or isolate the cause inside Wine.",
-  "important_limits": "A repeated baseline is not an A/B improvement. The original nonblocking experiment was inconclusive. Do not assume a driver root cause or invent speedups."
+  "important_limits": "A repeated baseline is not an A/B improvement. The original nonblocking experiment was inconclusive. Do not assume a driver root cause or invent speedups.",
+  "cpu_probe": {
+    "kind": "reviewed_private_receipt_aggregate",
+    "run_ids": [
+      "autobenchmark-2026-10-18_22-47-08",
+      "autobenchmark-2026-10-18_22-48-35"
+    ],
+    "dll_sha256": "1179323074e03caf22f89ecbf05b9234f8ef5e18f2c1d6b8d797c2cf31c5b4ff",
+    "window_blt_calls": [
+      229,
+      258
+    ],
+    "cpu_sample_successes": [
+      217,
+      244
+    ],
+    "cpu_sample_failures": [
+      12,
+      14
+    ],
+    "long_blt_calls": [
+      31,
+      31
+    ],
+    "valid_long_cpu_samples": [
+      31,
+      31
+    ],
+    "low_cpu_long_calls": [
+      0,
+      1
+    ],
+    "average_slow_blt_thread_cpu_ms": [
+      1267.0968,
+      1224.8387
+    ],
+    "present_worst_wall_ms": [
+      1260.8062,
+      1260.821
+    ],
+    "interpretation": "In two approved Mac TEST runs, virtually all sampled >1000ms DirectDraw Blt calls consumed substantial reported calling-thread CPU time; an idle wait alone is not supported. The thread CPU sample and Blt wall timing scopes differ slightly; the CPU probe is diagnostic, not attribution to Wine, GPU, or driver, and does not establish displayed FPS."
+  }
 }
