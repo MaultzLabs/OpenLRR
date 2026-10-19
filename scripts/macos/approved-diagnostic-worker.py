@@ -226,6 +226,9 @@ def replace_history(data: dict) -> None:
 
 def work(*, execute: bool = False, now: datetime | None = None) -> dict:
     now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    # The STOP/PAUSE check is independent from code/source attestation; never
+    # rely on preflight's nested check as the only execution interlock.
+    switches()
     authorization = validate_enrollment(now=now)
     past = history()
     day = now.date().isoformat()
@@ -250,6 +253,8 @@ def work(*, execute: bool = False, now: datetime | None = None) -> dict:
     try:
         replace_history({"schema_version": 1, "attempts": [*past["attempts"], new_event]})
         attempted = True
+        if (CONFIG / "STOP").exists() or (CONFIG / "PAUSE").exists():
+            raise RuntimeError("STOP/PAUSE before launching approved diagnostic")
         env = {k: v for k, v in os.environ.items()
                if not k.startswith("OPENAI_") and k not in (
                    "GH_TOKEN", "GITHUB_TOKEN", "GIT_ASKPASS", "SSH_ASKPASS")}
