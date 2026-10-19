@@ -10,6 +10,16 @@ if [ "$#" -ne 2 ]; then
 fi
 run_id="$1"
 commit_sha="$2"
+# Optional, trusted session orchestration. Default is unchanged.
+plan="${OPENLRR_DIAGNOSTIC_PLAN:-baseline,baseline}"
+case "$plan" in
+  baseline,baseline|baseline,nowait,baseline,nowait|baseline,gdi,baseline,gdi) ;;
+  *) fail "Unsupported graphics experiment plan; refusing arbitrary modes" ;;
+esac
+reviewed_sha="${OPENLRR_DIAGNOSTIC_REVIEWED_SHA256:-}"
+if [ -n "$reviewed_sha" ]; then
+  [[ "$reviewed_sha" =~ ^[a-f0-9]{64}$ ]] || fail "Invalid owner-reviewed DLL SHA256"
+fi
 [[ "$run_id" =~ ^[0-9]{8,14}$ ]] || fail "Invalid workflow run ID"
 [[ "$commit_sha" =~ ^[a-f0-9]{40}$ ]] || fail "Expected lowercase, full 40-character commit SHA"
 
@@ -70,6 +80,9 @@ expected="$(tr -d '\r\n[:space:]' < "$tmp/artifact/SHA256.txt" | tr '[:upper:]' 
 [[ "$expected" =~ ^[a-f0-9]{64}$ ]] || fail "Invalid published SHA256 format"
 actual="$(shasum -a 256 "$tmp/artifact/openlrr.dll" | awk '{print $1}')"
 [ "$actual" = "$expected" ] || fail "DLL SHA256 did not match CI artifact"
+if [ -n "$reviewed_sha" ]; then
+  [ "$actual" = "$reviewed_sha" ] || fail "Cloud DLL differs from owner-reviewed TEST binary"
+fi
 
 mkdir -p "$downloads"
 for f in openlrr.dll run-autobenchmark.sh publish-benchmark.sh analyze-benchmark.py; do
@@ -81,7 +94,7 @@ for f in openlrr.dll run-autobenchmark.sh publish-benchmark.sh analyze-benchmark
 done
 printf 'Verified diagnostic DLL SHA256: %s\n' "$actual"
 printf 'Target: isolated OpenLRR Menu Test.app only\n'
-printf 'Plan: two baseline runs, 60 seconds each; STOP/PAUSE respected\n'
-"$python" "$supervisor" --approved-sha "$actual" --plan baseline,baseline --seconds 60 --run
-printf 'Both diagnostic runs verified and uploaded to the private results repo.\n'
+printf 'Plan: %s, 60 seconds each; STOP/PAUSE respected\n' "$plan"
+"$python" "$supervisor" --approved-sha "$actual" --plan "$plan" --seconds 60 --run
+printf 'All supervised diagnostic runs verified and uploaded to the private results repo.\n'
 printf 'No AI-authored DLL has been executed. Local download files restored on exit.\n'
