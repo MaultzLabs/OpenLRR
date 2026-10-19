@@ -110,6 +110,34 @@ class MenuSessionTests(unittest.TestCase):
         self.assertEqual(detail["screenshots_available"], "unverified")
         self.assertFalse(self.output.exists())
 
+    def test_macos_lsof_one_without_handles_is_clean_preflight(self):
+        def no_handles(argv, **kwargs):
+            self.assertEqual(argv[0], "/usr/sbin/lsof")
+            return mock.Mock(returncode=1, stdout="", stderr="")
+        with mock.patch.object(session, "sys") as fake_sys, \
+             mock.patch.object(session.subprocess, "run", side_effect=no_handles):
+            fake_sys.platform = "darwin"
+            data = session.check_environment(1, os_check=True)
+        self.assertEqual(data["plan"], ["baseline", "baseline"])
+
+    def test_macos_lsof_still_running_process_blocks_preflight(self):
+        with mock.patch.object(session, "sys") as fake_sys, \
+             mock.patch.object(session.subprocess, "run",
+                               return_value=mock.Mock(
+                                   returncode=0, stdout="12345\\n", stderr="")):
+            fake_sys.platform = "darwin"
+            with self.assertRaisesRegex(RuntimeError, "open file handles"):
+                session.check_environment(1, os_check=True)
+
+    def test_macos_lsof_unreliable_output_blocks_preflight(self):
+        with mock.patch.object(session, "sys") as fake_sys, \
+             mock.patch.object(session.subprocess, "run",
+                               return_value=mock.Mock(
+                                   returncode=1, stdout="", stderr="unknown error")):
+            fake_sys.platform = "darwin"
+            with self.assertRaisesRegex(RuntimeError, "unreliable"):
+                session.check_environment(1, os_check=True)
+
     def test_unreviewed_sessions_are_never_eligible(self):
         for value in (0, 3, 4, 5, 6, 99):
             with self.subTest(session=value), self.assertRaises(ValueError):
