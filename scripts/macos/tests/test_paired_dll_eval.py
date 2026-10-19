@@ -257,6 +257,63 @@ class PairedDllTests(unittest.TestCase):
         self.assertEqual(len(commands), 2)
         self.assertFalse(lab.LOCK.exists())
 
+    def test_eligible_research_ticket_published_only_after_private_evidence(self):
+        builder = self.root / "OpenLRR-Agent/scripts/agent/research_ticket.py"
+        builder.write_text("# trusted ticket builder")
+        uploader = self.root / "OpenLRR-Agent/scripts/agent/publish_research_ticket.py"
+        uploader.write_text("# trusted ticket uploader")
+        events = []
+        count = []
+
+        def fake_supervisor(sha, seconds, *, run):
+            count.append(sha)
+            return f"autobenchmark-2026-10-18_17-00-{len(count):02d}"
+
+        def fake_run(command, **kwargs):
+            self.assertNotIn("OPENAI_API_KEY", kwargs["env"])
+            self.assertNotIn("GH_TOKEN", kwargs["env"])
+            if str(self.controller) in command:
+                name = json.loads(Path(command[command.index("--manifest") + 1]).read_text())["experiment_id"]
+                Path(command[command.index("--output") + 1]).write_text(json.dumps({
+                    "experiment_id": name,
+                    "manifest_verified": True, "ledger_committed": True,
+                    "may_install_or_run_candidate": False,
+                    "disposition": "ready_for_new_research",
+                    "next_step": "new_hypothesis",
+                }))
+                events.append("decision")
+            elif str(builder) in command:
+                name = json.loads(Path(command[command.index("--decision") + 1]).read_text())["experiment_id"]
+                Path(command[command.index("--out") + 1]).write_text(json.dumps({
+                    "experiment_id": name, "ticket_id": "research_" + "a" * 24,
+                    "approved_to_invoke_model": False, "approved_to_execute_game": False,
+                }))
+                events.append("ticket")
+            elif str(self.publisher) in command:
+                self.assertIn("--publish", command)
+                events.append("experiment_uploaded")
+            elif str(uploader) in command:
+                self.assertIn("--publish", command)
+                self.assertIn("--ticket", command)
+                events.append("ticket_uploaded")
+            else:
+                raise AssertionError("Unrecognized external action")
+            return mock.Mock(returncode=0)
+
+        with mock.patch.object(lab, "RESEARCH_TICKET", builder), \
+             mock.patch.object(lab, "TICKET_PUBLISHER", uploader), \
+             mock.patch.object(lab, "candidate_source", return_value=self.candidate), \
+             mock.patch.object(lab, "invoke_supervisor", side_effect=fake_supervisor), \
+             mock.patch.dict(lab.os.environ, {"OPENAI_API_KEY": "never-inherit",
+                                               "GH_TOKEN": "never-inherit"}):
+            result = lab.execute(self.base_sha, self.cand_sha, "39169390987",
+                                 1, 60, run=fake_run, publish_evidence=True)
+        self.assertEqual(events, ["decision", "ticket", "experiment_uploaded",
+                                  "ticket_uploaded"])
+        self.assertTrue(result["private_experiment_published"])
+        self.assertFalse(result["game_changes_promoted"])
+        self.assertFalse(lab.LOCK.exists())
+
     def test_publish_requires_explicit_run(self):
         with self.assertRaises(SystemExit):
             lab.main([

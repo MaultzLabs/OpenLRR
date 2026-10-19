@@ -34,6 +34,7 @@ LOCK = STATE / "paired-eval.lock"
 SUPERVISOR = HOME / "OpenLRR-Agent/scripts/macos/lab-supervisor.py"
 CONTROLLER = HOME / "OpenLRR-Agent/scripts/agent/experiment_controller.py"
 PUBLISHER = HOME / "OpenLRR-Agent/scripts/agent/publish_experiment.py"
+TICKET_PUBLISHER = HOME / "OpenLRR-Agent/scripts/agent/publish_research_ticket.py"
 RESEARCH_TICKET = HOME / "OpenLRR-Agent/scripts/agent/research_ticket.py"
 PYTHON = STATE / "venv/bin/python"
 HELPERS = ("run-autobenchmark.sh", "publish-benchmark.sh", "analyze-benchmark.py")
@@ -307,6 +308,19 @@ def execute(base_sha: str, cand_sha: str, run_id: str,
                     "Private manifest publication failed; safely completed local results "
                     "remain available for an idempotent retry")
             uploaded = True
+            if ticket_path is not None:
+                if not TICKET_PUBLISHER.is_file():
+                    raise RuntimeError("Private research-ticket uploader missing; local results preserved")
+                request = [
+                    str(PYTHON), str(TICKET_PUBLISHER), "--ticket", str(ticket_path),
+                    "--decision", str(output), "--ledger",
+                    str(STATE / "research-controller.json"),
+                    "--manifest", str(manifest), "--runs-dir", str(RESULTS),
+                    "--publish",
+                ]
+                posted = run(request, env=environment, timeout=240, check=False)
+                if posted.returncode != 0:
+                    raise RuntimeError("Private research ticket publication failed; local results preserved")
         return {
             "experiment_id": experiment_id, "manifest": str(manifest),
             "private_experiment_published": uploaded,
