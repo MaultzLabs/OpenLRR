@@ -24,6 +24,14 @@ and reports visual trial coverage as 1/N. It does not claim that all benchmark
 runs were visually checked. A perfect pixel score does not certify rendered
 FPS, gameplay correctness, or provenance from a trusted recording process.
 
+## Automatic offline linkage to QA pipeline
+
+The existing one-shot scripts/visual_qa/pipeline.py now writes
+`review-packet.json` next to `research-decision.json` and the verified visual
+report. The packet is metadata-only. A blocked packet explains absent/unsafe
+evidence; a reviewable packet includes visual scores, coverage and a concrete
+human inspection checklist based on the validated finding codes. This happens
+locally without any GitHub issue creation or network traffic.
 ## Build a read-only local packet
 
 After collecting *real* verified TEST evidence, and only after the
