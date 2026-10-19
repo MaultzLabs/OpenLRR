@@ -34,6 +34,7 @@ LOCK = STATE / "paired-eval.lock"
 SUPERVISOR = HOME / "OpenLRR-Agent/scripts/macos/lab-supervisor.py"
 CONTROLLER = HOME / "OpenLRR-Agent/scripts/agent/experiment_controller.py"
 PUBLISHER = HOME / "OpenLRR-Agent/scripts/agent/publish_experiment.py"
+RESEARCH_TICKET = HOME / "OpenLRR-Agent/scripts/agent/research_ticket.py"
 PYTHON = STATE / "venv/bin/python"
 HELPERS = ("run-autobenchmark.sh", "publish-benchmark.sh", "analyze-benchmark.py")
 SCRIPT_DIR = SUPERVISOR.parent
@@ -270,6 +271,29 @@ def execute(base_sha: str, cand_sha: str, run_id: str,
         if classification.get("manifest_verified") is not True or (
                 classification.get("may_install_or_run_candidate") is not False):
             raise RuntimeError("Policy output failed closed")
+        # The actual candidate A/B path must feed failed/inconclusive results
+        # back to the same research-ticket queue as the simple supervisor.
+        # The ticket has NO authority to call a model or execute another DLL.
+        ticket_path = None
+        if (classification.get("disposition") == "ready_for_new_research" and
+                classification.get("ledger_committed") is True):
+            if not RESEARCH_TICKET.is_file():
+                raise RuntimeError("Trusted research ticket builder unavailable")
+            ticket_path = root / (experiment_id + "-research-ticket.json")
+            request = [
+                str(PYTHON), str(RESEARCH_TICKET),
+                "--decision", str(output),
+                "--ledger", str(STATE / "research-controller.json"),
+                "--out", str(ticket_path)
+            ]
+            submitted = run(request, env=environment, timeout=30, check=False)
+            if submitted.returncode != 0 or not ticket_path.is_file():
+                raise RuntimeError("Research ticket queue failed; no new model job authorized")
+            queued = json.loads(ticket_path.read_text(encoding="utf-8"))
+            if (queued.get("experiment_id") != experiment_id or
+                    queued.get("approved_to_invoke_model") is not False or
+                    queued.get("approved_to_execute_game") is not False):
+                raise RuntimeError("Research ticket failed safety boundary")
         # A private publishing outage is NOT a game-process failure.
         # The local validated trial remains complete and recoverable.
         completed_safely = True
@@ -289,6 +313,7 @@ def execute(base_sha: str, cand_sha: str, run_id: str,
             "classification": classification.get("disposition"),
             "next_step": classification.get("next_step"),
             "pairs": len(recorded), "game_changes_promoted": False,
+            "research_ticket_queued": ticket_path is not None,
         }
     finally:
         # The trusted supervisor exits only after verifying isolated game
