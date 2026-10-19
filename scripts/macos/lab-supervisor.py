@@ -258,6 +258,29 @@ def handoff_verified_pair(runs: list[str], plan: list[str], approved_sha: str) -
         decision.get("manifest_verified") is not True or
         decision.get("may_install_or_run_candidate") is not False):
         raise RuntimeError("Policy handoff did not establish safe boundaries")
+    if (decision.get("disposition") == "ready_for_new_research" and
+            decision.get("ledger_committed") is True):
+        # Queue data, never execute a model or launch a cloud workflow here.
+        ticket_builder = checkout / "scripts" / "agent" / "research_ticket.py"
+        if not ticket_builder.is_file():
+            raise RuntimeError("Research ticket builder missing after recorded policy decision")
+        ticket_path = experiments / (experiment_id + "-research-ticket.json")
+        request = [
+            str(python), str(ticket_builder),
+            "--decision", str(decision_path),
+            "--ledger", str(STATE / "research-controller.json"),
+            "--out", str(ticket_path),
+        ]
+        queued = subprocess.run(request, env=env, timeout=30, check=False)
+        if queued.returncode != 0 or not ticket_path.is_file():
+            raise RuntimeError("Research ticket creation failed; do not invoke AI automatically")
+        ticket = json.loads(ticket_path.read_text(encoding="utf-8"))
+        if (ticket.get("experiment_id") != experiment_id or
+                ticket.get("approved_to_invoke_model") is not False or
+                ticket.get("approved_to_execute_game") is not False):
+            raise RuntimeError("Research ticket did not preserve authority boundary")
+        audit("research_ticket_queued", experiment_id=experiment_id,
+              ticket_id=ticket.get("ticket_id"))
     audit("policy_handoff_completed", experiment_id=experiment_id,
           next_step=decision.get("next_step"))
     return decision_path
