@@ -332,6 +332,24 @@ class MenuSessionTests(unittest.TestCase):
         self.assertNotIn("/Users/private", json.dumps(captured))
         self.assertFalse(captured["visible_fps_measured"])
 
+    def test_cpu_profiler_failure_reporting_is_bounded_and_redacted(self):
+        samples = {
+            "TEST CPU SAMPLING BLOCKED: No live TEST menu telemetry writer found":
+                "unavailable_no_live_test_writer",
+            "TEST CPU SAMPLING BLOCKED: Cannot attribute exactly one Wine writer of TEST menu telemetry":
+                "unavailable_ambiguous_or_nonwine_test_writer",
+            "TEST CPU SAMPLING BLOCKED: Mac CPU sampling failed":
+                "unavailable_mac_sample_permission_or_runtime",
+            "TEST CPU SAMPLING BLOCKED: TEST menu telemetry header is invalid":
+                "unavailable_telemetry_identity_invalid",
+        }
+        for err, category in samples.items():
+            self.assertEqual(session.classify_cpu_profile_failure(err), category)
+        secret = "/Users/privateuser/Documents/secret client file"
+        category = session.classify_cpu_profile_failure("unexpected error " + secret)
+        self.assertEqual(category, "unavailable_unclassified_cpu_profile_failure")
+        self.assertNotIn(secret, category)
+
     def test_output_idempotent_and_no_overwrites(self):
         dest = self.root / "record.json"
         session.store_new(dest, {"result": "missing_visual"})
