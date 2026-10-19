@@ -1,0 +1,47 @@
+name: OpenLRR Menu Session Package Offline Proof
+
+on:
+  push:
+    branches: [lab-menu-session-package-v1]
+    paths:
+      - 'scripts/macos/menu-diagnostic-session.py'
+      - 'scripts/macos/diagnostic-one-shot.sh'
+      - 'scripts/macos/tests/test_menu_diagnostic_session.py'
+      - '.github/workflows/lab-menu-session-package.yml'
+      - 'docs/MENU-SESSION-PACKAGE.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  no-mac-safety-suite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile diagnostics Python, run no-Wine fixture tests
+        run: |
+          python3 -m compileall -q scripts/macos/menu-diagnostic-session.py
+          python3 -m unittest discover -s scripts/macos/tests -p 'test_menu_diagnostic_session.py' -v
+      - name: Validate one-shot shell syntax and exactly bounded plans
+        run: |
+          bash -n scripts/macos/diagnostic-one-shot.sh
+          python3 - <<'PY'
+          from pathlib import Path
+          source=Path('scripts/macos/diagnostic-one-shot.sh').read_text()
+          assert 'OPENLRR_DIAGNOSTIC_REVIEWED_SHA256' in source
+          assert 'baseline,baseline|baseline,nowait,baseline,nowait|baseline,gdi,baseline,gdi' in source
+          assert 'Unknown graphics mode' not in source
+          assert '"$supervisor" --approved-sha "$actual" --plan "$plan" --seconds 60 --run' in source
+          print('Approved-only graphics plans and reviewed SHA guard present')
+          PY
+      - name: Baseline analyzer and supervisor existing regressions
+        run: |
+          python3 -m unittest discover -s scripts/macos/tests -p 'test_analyze_benchmark.py' -v
+          python3 -m unittest discover -s scripts/macos/tests -p 'test_lab_supervisor.py' -v
