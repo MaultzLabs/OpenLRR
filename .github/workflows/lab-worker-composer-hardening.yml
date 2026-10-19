@@ -1,0 +1,35 @@
+name: OpenLRR Worker and Composer Safety Hardening
+
+on:
+  push:
+    branches: [lab-worker-composer-hardening-v1]
+    paths:
+      - 'scripts/composer/**'
+      - 'scripts/macos/install-approved-diagnostic-worker.sh'
+      - '.github/workflows/lab-worker-composer-hardening.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sandbox-regressions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Test all native and AI mission composer safety rules
+        run: |
+          python -m compileall -q scripts/composer
+          python -m unittest discover -s scripts/composer/tests -p 'test_*.py' -v
+      - name: Check opt-in macOS installer shell syntax and launchd PATH safety
+        run: |
+          bash -n scripts/macos/install-approved-diagnostic-worker.sh
+          grep -Fq '/opt/homebrew/bin:/usr/local/bin:/usr/bin' scripts/macos/install-approved-diagnostic-worker.sh
+          grep -Fq '"RunAtLoad": False' scripts/macos/install-approved-diagnostic-worker.sh
+          grep -Fq '"StartInterval": 86400' scripts/macos/install-approved-diagnostic-worker.sh
