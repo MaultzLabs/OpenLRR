@@ -72,13 +72,15 @@ class PrefixIsolationTests(unittest.TestCase):
         (self.dos / "c:").unlink()
         report = audit.inspect(self.app)
         self.assertTrue(report["observed_host_mapping_risk"])
-        self.assertIn("Wine c: mapping does not point exactly", report["issues"])
+        self.assertTrue(any("Wine c: mapping does not point exactly" in issue
+                            for issue in report["issues"]))
 
     def test_scan_cap_never_returns_clean_audit(self):
         with mock.patch.object(audit, "MAX_SCANNED_ENTRIES", 1):
             result = audit.inspect(self.app)
         self.assertTrue(result["observed_host_mapping_risk"])
-        self.assertIn("Prefix filesystem scan cap exceeded", result["issues"])
+        self.assertTrue(any("Prefix filesystem scan cap exceeded" in issue
+                            for issue in result["issues"]))
 
     def test_nonexistent_test_app_fails_without_creating_files(self):
         other = self.root / "other"
