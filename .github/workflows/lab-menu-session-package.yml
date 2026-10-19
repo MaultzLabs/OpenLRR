@@ -45,3 +45,30 @@ jobs:
         run: |
           python3 -m unittest discover -s scripts/macos/tests -p 'test_analyze_benchmark.py' -v
           python3 -m unittest discover -s scripts/macos/tests -p 'test_lab_supervisor.py' -v
+
+  existing-visual-qa-regressions:
+    # Validate visual branch independently WITHOUT merging or invoking captures.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: 40c5f92d66b7e19ea4b11691b77ceb6ca063eff8
+          path: visual-qa-review
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install image-only fixture test dependencies
+        run: python -m pip install --disable-pip-version-check --no-input 'numpy==2.2.6' 'Pillow==11.3.0'
+      - name: Run existing visual regression and TEST capture safety checks
+        working-directory: visual-qa-review
+        run: |
+          python -m unittest discover -s scripts/visual_qa/tests -p 'test_*.py' -v
+          python -m unittest discover -s scripts/macos/tests -p 'test_capture_test_window.py' -v
+          python -m unittest discover -s scripts/macos/tests -p 'test_visual_timeline.py' -v
+      - name: Verify visual tests did not use a real app
+        working-directory: visual-qa-review
+        run: |
+          git diff --exit-code
+          echo 'Visual QA fixture tests passed; live screen capture and visible FPS remain unverified.'
