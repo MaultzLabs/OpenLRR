@@ -167,11 +167,12 @@ def verified_capture_binding(experiment: dict, runs_dir: Path,
 
 def verify_bound_report(experiment: dict, runs_dir: Path,
                         capture_manifest: dict, report: dict,
-                        *, recheck_pixels: bool = True) -> dict:
+                        *, recheck_pixels: bool = True,
+                        require_timing: bool = False) -> dict:
     if type(report) is not dict or report.get("tool") != "openlrr-visual-qa":
         raise ValueError("Not a recognized visual QA report")
     binding, baseline, candidate = verified_capture_binding(
-        experiment, runs_dir, capture_manifest)
+        experiment, runs_dir, capture_manifest, require_timing=require_timing)
     if report.get("capture_binding") != binding:
         raise ValueError("Visual report is not bound to these verified TEST runs")
     if report.get("experiment_id") != binding["experiment_id"] or report.get("scene") != binding["scene"]:
