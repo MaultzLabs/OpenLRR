@@ -225,8 +225,26 @@ def safe_output(root: Path) -> None:
         raise ValueError("Output folder name must be an approved level ID")
 
 
-def write_pack(root: Path, blueprint: dict) -> dict:
+def write_pack(root: Path, blueprint: dict, *, mission_brief: dict | None = None) -> dict:
     info = validate_blueprint(blueprint)
+    if mission_brief is not None:
+        if type(mission_brief) is not dict or set(mission_brief) != {
+            "schema_version", "title", "synopsis", "difficulty",
+            "crystal_goal", "native_install_authorized",
+        }:
+            raise ValueError("Unvalidated mission brief")
+        if (mission_brief["schema_version"] != 1
+                or mission_brief["native_install_authorized"] is not False
+                or mission_brief["crystal_goal"] != blueprint["crystal_goal"]
+                or mission_brief["difficulty"] not in ("easy", "medium", "hard")
+                or type(mission_brief["title"]) is not str
+                or not 8 <= len(mission_brief["title"]) <= 80
+                or type(mission_brief["synopsis"]) is not str
+                or not 20 <= len(mission_brief["synopsis"]) <= 450
+                or any(ord(v) < 32 for v in (
+                    mission_brief["title"] + mission_brief["synopsis"]
+                ))):
+            raise ValueError("Unsafe or inconsistent mission brief")
     safe_output(root)
     root.mkdir(parents=True, mode=0o700)
     contents: dict[str, bytes] = {}
@@ -239,6 +257,10 @@ def write_pack(root: Path, blueprint: dict) -> dict:
     contents["blueprint.json"] = (
         json.dumps(blueprint, indent=2, sort_keys=True) + "\n"
     ).encode("utf-8")
+    if mission_brief is not None:
+        contents["mission-brief.json"] = (
+            json.dumps(mission_brief, indent=2, sort_keys=True) + "\n"
+        ).encode("utf-8")
     contents["LEVEL-CONFIG-SNIPPET.txt"] = (
         "; REVIEW-ONLY: not a complete Lego.cfg level. Do not install automatically.\n" +
         "".join(
