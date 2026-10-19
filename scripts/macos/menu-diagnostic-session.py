@@ -335,7 +335,18 @@ def run_session(session: int, *, profile_cpu: bool = True) -> dict:
                     raise RuntimeError("Diagnostic watchdog timed out; STOP set, do not retry")
                 if (CONFIG / "STOP").exists():
                     raise RuntimeError("STOP was requested; do not run another test")
-                if profile_cpu and not attempted and elapsed >= 35:
+                # A wall-clock delay after GitHub download is not proof that
+                # Wine is rendering. Profile only when a NEW supervised run
+                # exists and fresh TEST menu telemetry has appeared.
+                live = GAME / "menuperf.csv"
+                observed_new_run = bool(known_runs() - before)
+                fresh_frame_data = (
+                    live.is_file() and not live.is_symlink()
+                    and live.stat().st_size > 120
+                    and live.stat().st_mtime >= start.timestamp()
+                )
+                if (profile_cpu and not attempted and elapsed >= 20
+                        and observed_new_run and fresh_frame_data):
                     attempted = True
                     if PROFILE.is_file() and no_symlink_ancestors(PROFILE):
                         capture = subprocess.run(
@@ -356,6 +367,8 @@ def run_session(session: int, *, profile_cpu: bool = True) -> dict:
         if len(new) != len(MODES[session]):
             raise RuntimeError("Wrong number of new benchmark directories; no result accepted")
         verified = verify_completed(new, MODES[session])
+        if profile_cpu and not attempted:
+            profile_result = "unavailable_no_fresh_live_menu_telemetry"
         result = {
             **verified, "session": session,
             "source_artifact_run": RUN_ID, "source_revision": SOURCE_SHA,
