@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+import json
 from pathlib import Path
 import struct
 import subprocess
@@ -158,6 +159,48 @@ class TestWindowCapture(unittest.TestCase):
                                        confirm_test_only=True)
         self.assertEqual(target.read_bytes(), b"preserve")
 
+    def test_timed_window_capture_writes_only_run_local_receipt(self):
+        picture = self.run / 'visual/menu.png'
+        clock_boot = 'e' * 64
+        def clock(sec):
+            return {'wall_ns': 1_800_000_000_000_000_000 + sec * 1_000_000_000,
+                    'mono_ns': 40_000_000_000 + sec * 1_000_000_000,
+                    'boot_sha256': clock_boot}
+        start = {'schema_version': 1, 'run': self.run_id,
+                 'dll_sha256': self.approved, 'mode': 'baseline', 'start': clock(1)}
+        def fake_capture(args, **kwargs):
+            self.assertEqual(args[:4], ['screencapture', '-x', '-o', '-l'])
+            picture.write_bytes(collector.PNG + b'\0\0\0\x0dIHDR' +
+                                struct.pack('>II', 800, 600) + b'synthetic')
+            return subprocess.CompletedProcess(args, 0, '', '')
+        with mock.patch.object(collector.sys, 'platform', 'darwin'), mock.patch.object(
+                collector, 'test_install_preflight', return_value=self.run), mock.patch.object(
+                collector, 'window_info', return_value=[window()]), mock.patch.object(
+                collector, 'process_uses_test_game', return_value=True), mock.patch.object(
+                collector, 'stop_check', return_value=None), mock.patch.object(
+                collector, 'GAME', self.root / 'fake-test-prefix'), mock.patch.object(
+                collector, 'digest', return_value=self.approved), mock.patch.object(
+                collector.vt, 'read_bounded', return_value=start), mock.patch.object(
+                collector.vt, 'sample_clock', side_effect=[clock(2), clock(3), clock(4)]), mock.patch.object(
+                collector.subprocess, 'run', side_effect=fake_capture):
+            result = collector.capture_once(self.approved, self.run_id, 301,
+                                            confirm_test_only=True, record_timing=True)
+        self.assertEqual(result['capture_started'], clock(3))
+        self.assertEqual(result['capture_finished'], clock(4))
+        receipt = self.run / 'visual/menu.capture.json'
+        self.assertTrue(receipt.is_file())
+        self.assertFalse(json.loads(receipt.read_text())['capture_origin_authenticated'])
+        self.assertEqual(json.loads(receipt.read_text())['sha256'], self.approved)
+
+    def test_refuses_timed_capture_when_start_receipt_missing(self):
+        with mock.patch.object(collector.sys, 'platform', 'darwin'), mock.patch.object(
+                collector, 'test_install_preflight', return_value=self.run), mock.patch.object(
+                collector, 'window_info', return_value=[window()]), mock.patch.object(
+                collector, 'process_uses_test_game', return_value=True):
+            with self.assertRaisesRegex(ValueError, 'Missing/oversize'):
+                collector.capture_once(self.approved, self.run_id, 301,
+                                       confirm_test_only=True, record_timing=True)
+        self.assertFalse((self.run / 'visual/menu.png').exists())
     def test_changed_window_owner_prevents_capture(self):
         with mock.patch.object(collector.sys, "platform", "darwin"), mock.patch.object(
                 collector, "test_install_preflight", return_value=self.run), mock.patch.object(
