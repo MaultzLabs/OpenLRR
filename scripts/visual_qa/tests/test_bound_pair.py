@@ -305,6 +305,8 @@ class VerifiedPairTests(unittest.TestCase):
         body = bridge.review_body(packet, benchmark)
         self.assertIn('Visual QA', body)
         self.assertIn('1/5', body)
+        self.assertIn('Human visual inspection checklist', body)
+        self.assertIn('menu animation', body)
         self.assertIn('/lab continue', body)
         self.assertNotIn(str(self.runs), body)
         self.assertNotIn('diff-0000.png', body)
@@ -316,6 +318,8 @@ class VerifiedPairTests(unittest.TestCase):
             switches_dir=self.switches)
         self.assertEqual(packet['state'], 'blocked')
         self.assertIn('visual_regression_or_inconclusive', packet['blockers'])
+        self.assertTrue(any('rendering initialization' in check
+                            for check in packet['visual']['manual_inspection_checks']))
         with self.assertRaisesRegex(ValueError, 'Blocked'):
             bridge.review_body(packet, benchmark)
 
