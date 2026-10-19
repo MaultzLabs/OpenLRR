@@ -15,6 +15,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 
@@ -97,10 +98,7 @@ def preflight() -> dict:
     if not SCRIPT.is_file():
         raise RuntimeError("Pinned diagnostic runner unavailable")
     for cmd in ("gh", "shasum", "lsof"):
-        check = subprocess.run(
-            ["/bin/sh", "-c", "command -v " + cmd],
-            capture_output=True, text=True, timeout=10, check=False)
-        if check.returncode:
+        if shutil.which(cmd) is None:
             raise RuntimeError("Missing required command: " + cmd)
     return current_source()
 
@@ -248,7 +246,6 @@ def work(*, execute: bool = False, now: datetime | None = None) -> dict:
     # automatic retry. Any failure retains a lock requiring human inspection.
     attempted = False
     try:
-        switches() if False else None  # locked by this worker; no reentrant preflight
         replace_history({"schema_version": 1, "attempts": [*past["attempts"], new_event]})
         attempted = True
         env = {k: v for k, v in os.environ.items()
