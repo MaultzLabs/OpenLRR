@@ -22,6 +22,7 @@ APP = HOME / "Applications/Sikarugir/OpenLRR Menu Test.app"
 GAME = APP / "Contents/SharedSupport/prefix/drive_c/Program Files/Rock Raiders OpenLRR"
 CONFIG = HOME / ".config/openlrr-benchmark"
 STATE = HOME / ".local/share/openlrr-agent/wine-cpu-profiles"
+SAMPLE_BINARY = Path("/usr/bin/sample")
 SYMBOLS = (
     "ddraw", "wined3d", "win32u", "wine", "quartz",
     "coreanimation", "metal", "libsystem_kernel", "pthread",
@@ -114,10 +115,14 @@ def sanitized_summary(data: str, pid: str) -> dict:
 
 def capture(*, now: datetime | None = None) -> dict:
     stop_check()
-    if not Path("/usr/bin/sample").is_file():
+    if not SAMPLE_BINARY.is_file():
         raise RuntimeError("macOS sample tool unavailable")
     target = find_test_wine_pid()
     stop_check()
+    # Recheck the same TEST-only PID immediately before attachment; avoid
+    # targeting a process that disappeared or changed during preflight.
+    if find_test_wine_pid() != target:
+        raise RuntimeError("TEST process identity changed during profiler preflight")
     now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     folder = STATE / ("sample_" + now.strftime("%Y%m%dT%H%M%SZ") + "_" + target)
     if STATE.is_symlink() or folder.exists() or folder.is_symlink():
@@ -127,7 +132,7 @@ def capture(*, now: datetime | None = None) -> dict:
     # sample is a macOS system profiler. It attaches to one already-running
     # TEST Wine process. It does not create or authorize a new game process.
     completed = subprocess.run(
-        ["/usr/bin/sample", target, str(SECONDS), str(SAMPLE_INTERVAL_MS),
+        [str(SAMPLE_BINARY), target, str(SECONDS), str(SAMPLE_INTERVAL_MS),
          "-file", str(raw)],
         capture_output=True, text=True,
         check=False, timeout=SECONDS + 20,
