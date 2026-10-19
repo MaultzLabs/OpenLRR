@@ -201,15 +201,15 @@ class SupervisorSafetyTests(unittest.TestCase):
                 output.write_text(json.dumps(result))
                 return mock.Mock(returncode=0)
 
-            with mock.patch.object(lab, "HOME", home), \\
-                 mock.patch.object(lab, "STATE", state), \\
-                 mock.patch.object(lab, "RESULTS", results), \\
-                 mock.patch.object(lab, "switches", return_value="ready"), \\
-                 mock.patch.object(lab, "verify_result", return_value=results / "a.csv"), \\
-                 mock.patch.object(lab, "audit") as audit, \\
-                 mock.patch.object(lab.subprocess, "run", side_effect=fake_script), \\
+            with mock.patch.object(lab, "HOME", home), \
+                 mock.patch.object(lab, "STATE", state), \
+                 mock.patch.object(lab, "RESULTS", results), \
+                 mock.patch.object(lab, "switches", return_value="ready"), \
+                 mock.patch.object(lab, "verify_result", return_value=results / "a.csv"), \
+                 mock.patch.object(lab, "audit") as audit, \
+                 mock.patch.object(lab.subprocess, "run", side_effect=fake_script), \
                  mock.patch.object(lab.subprocess, "Popen",
-                                   side_effect=AssertionError("No game launch")), \\
+                                   side_effect=AssertionError("No game launch")), \
                  mock.patch.dict(lab.os.environ, {"OPENAI_API_KEY": "secret",
                                                    "GITHUB_TOKEN": "secret"}):
                 lab.handoff_verified_pair(runs, ["baseline", "nowait"], "a" * 64)
