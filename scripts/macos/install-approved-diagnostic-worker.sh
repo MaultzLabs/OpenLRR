@@ -50,6 +50,12 @@ entry = {
     ],
     "RunAtLoad": False,
     "StartInterval": 86400,
+    "WorkingDirectory": str(Path.home()),
+    # launchd user agents do not necessarily inherit the interactive zsh
+    # Homebrew PATH; omitting it makes 'gh' unavailable on Apple Silicon.
+    "EnvironmentVariables": {
+        "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    },
     "StandardOutPath": str(Path(os.environ["OPENLRR_LOGS"]) / "approved-diagnostic.log"),
     "StandardErrorPath": str(Path(os.environ["OPENLRR_LOGS"]) / "approved-diagnostic-errors.log"),
 }

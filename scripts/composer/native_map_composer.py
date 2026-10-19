@@ -209,15 +209,25 @@ def decode_map(blob: bytes) -> dict:
 
 
 def safe_output(root: Path) -> None:
-    full = root.expanduser().absolute()
+    untrusted = root.expanduser().absolute()
+    # Lexical ancestry alone is not sufficient: Downloads/../Applications
+    # could bypass an ~/Applications exclusion if '..' isn't normalized.
+    if ".." in untrusted.parts:
+        raise ValueError("Composer path traversal rejected")
     if root.exists() or root.is_symlink():
         raise ValueError("Existing output must never be replaced")
-    if any(parent.is_symlink() for parent in full.parents):
+    if any(parent.is_symlink() for parent in untrusted.parents):
         raise ValueError("Output path traverses a symlink")
+    full = untrusted.resolve(strict=False)
     home = Path.home().resolve()
     forbidden = (
         home / "Applications",
         home / "OpenLRR-Agent",
+        Path("/Applications"),
+        Path("/System"),
+        Path("/Library"),
+        Path("/usr"),
+        Path("/etc"),
     )
     if any(full == path or path in full.parents for path in forbidden):
         raise ValueError("Composer may not write to an installed game or source checkout")
