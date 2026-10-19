@@ -1,0 +1,32 @@
+name: OpenLRR Menu Phase Forensics Offline Proof
+
+on:
+  push:
+    branches: [lab-menu-phase-forensics-v1]
+    paths:
+      - 'scripts/macos/menu-phase-forensics.py'
+      - 'scripts/macos/tests/test_menu_phase_forensics.py'
+      - 'docs/MENU-PHASE-FORENSICS.md'
+      - '.github/workflows/lab-menu-phase-forensics.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  read-only-analysis-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile and test exact telemetry interval and transition analysis
+        run: |
+          python3 -m py_compile scripts/macos/menu-phase-forensics.py
+          python3 -m unittest discover -s scripts/macos/tests -p 'test_menu_phase_forensics.py' -v
+      - name: Check no file changes
+        run: git diff --exit-code
