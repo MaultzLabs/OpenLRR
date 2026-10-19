@@ -158,6 +158,66 @@ class SupervisorSafetyTests(unittest.TestCase):
                              "menu_boot_autotest_v1")
             self.assertEqual(audit.call_args.args[0], "policy_handoff_completed")
 
+    def test_research_ticket_queued_only_after_verified_research_decision(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            script = home / "OpenLRR-Agent/scripts/agent/experiment_controller.py"
+            script.parent.mkdir(parents=True)
+            script.write_text("# trusted controller")
+            builder = script.with_name("research_ticket.py")
+            builder.write_text("# trusted ticket builder")
+            python = home / ".local/share/openlrr-agent/venv/bin/python"
+            python.parent.mkdir(parents=True)
+            python.write_text("# python")
+            results = home / "results"
+            results.mkdir()
+            state = home / "agent-state"
+            runs = ["autobenchmark-2026-10-18_16-10-47",
+                    "autobenchmark-2026-10-18_16-12-12"]
+            invocations = []
+
+            def fake_script(command, **kwargs):
+                self.assertNotIn("OPENAI_API_KEY", kwargs["env"])
+                self.assertNotIn("GITHUB_TOKEN", kwargs["env"])
+                invocations.append(command)
+                output = Path(command[command.index("--output") + 1]
+                              if "--output" in command else command[command.index("--out") + 1])
+                if "--manifest" in command:
+                    manifest = json.loads(Path(command[command.index("--manifest") + 1]).read_text())
+                    result = {
+                        "experiment_id": manifest["experiment_id"],
+                        "manifest_verified": True, "ledger_committed": True,
+                        "disposition": "ready_for_new_research",
+                        "may_install_or_run_candidate": False,
+                        "next_step": "new_hypothesis",
+                    }
+                else:
+                    result = {
+                        "experiment_id": json.loads(Path(command[command.index("--decision") + 1]).read_text())["experiment_id"],
+                        "ticket_id": "research_" + "a" * 24,
+                        "approved_to_invoke_model": False,
+                        "approved_to_execute_game": False,
+                    }
+                output.write_text(json.dumps(result))
+                return mock.Mock(returncode=0)
+
+            with mock.patch.object(lab, "HOME", home), \\
+                 mock.patch.object(lab, "STATE", state), \\
+                 mock.patch.object(lab, "RESULTS", results), \\
+                 mock.patch.object(lab, "switches", return_value="ready"), \\
+                 mock.patch.object(lab, "verify_result", return_value=results / "a.csv"), \\
+                 mock.patch.object(lab, "audit") as audit, \\
+                 mock.patch.object(lab.subprocess, "run", side_effect=fake_script), \\
+                 mock.patch.object(lab.subprocess, "Popen",
+                                   side_effect=AssertionError("No game launch")), \\
+                 mock.patch.dict(lab.os.environ, {"OPENAI_API_KEY": "secret",
+                                                   "GITHUB_TOKEN": "secret"}):
+                lab.handoff_verified_pair(runs, ["baseline", "nowait"], "a" * 64)
+            self.assertEqual(len(invocations), 2)
+            self.assertIn("--ledger", invocations[1])
+            self.assertTrue((state / "experiments").exists())
+            self.assertTrue(any(x.args[0] == "research_ticket_queued" for x in audit.call_args_list))
+
     def test_policy_handoff_rejects_unpaired_or_unverified_runs(self):
         with mock.patch.object(lab, "verify_result",
                                side_effect=AssertionError("Should refuse early")), \
