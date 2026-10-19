@@ -93,7 +93,9 @@ def preflight() -> dict:
         raise RuntimeError("Expected TEST game binary layout missing")
     if not isolated.resolve().is_relative_to(APP.resolve()):
         raise RuntimeError("TEST game folder escapes isolated application")
-    if VENV.is_symlink() or not VENV.is_file():
+    # Python venv launchers commonly are symlinks to the installed
+    # interpreter; rejecting them would block a legitimate macOS venv.
+    if not VENV.is_file():
         raise RuntimeError("Dedicated Python interpreter unavailable")
     if not SCRIPT.is_file():
         raise RuntimeError("Pinned diagnostic runner unavailable")
