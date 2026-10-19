@@ -159,6 +159,11 @@ class VerifiedPairTests(unittest.TestCase):
         self.assertFalse(result['automatic_execution'])
         self.assertTrue((self.home / 'pipeline-result/research-decision.json').is_file())
         self.assertFalse((self.home / 'pipeline-result/read-only-ledger.json').exists())
+        self.assertEqual(result['review_handoff_state'], 'blocked')
+        self.assertFalse(result['review_issue_published'])
+        packet = json.loads((self.home / 'pipeline-result/review-packet.json').read_text())
+        self.assertEqual(packet['state'], 'blocked')
+        self.assertFalse(packet['privacy']['media_uploaded'])
 
     def test_one_command_pipeline_wont_overwrite_existing_evidence(self):
         destination = self.home / 'pipeline-result'
@@ -274,6 +279,19 @@ class VerifiedPairTests(unittest.TestCase):
         self.make_timed_receipts()
         with self.assertRaisesRegex(ValueError, 'not bound'):
             self.coordinate(report, captures)
+    def test_pipeline_generates_ready_packet_without_network_or_issue(self):
+        self.make_replicated_performance_candidate()
+        a = self.runs / self.runs_by_arm['baseline'] / 'visual/menu.png'
+        b = self.runs / self.runs_by_arm['candidate'] / 'visual/menu.png'
+        shutil.copyfile(a, b)
+        self.make_timed_receipts()
+        with mock.patch.object(bridge.review_queue, 'gh', side_effect=AssertionError('network')):
+            result = pipeline.run_once(self.manifest, self.runs, self.home / 'package')
+        self.assertEqual(result['review_handoff_state'], 'ready_for_private_review')
+        self.assertFalse(result['review_issue_published'])
+        doc = json.loads((self.home / 'package/review-packet.json').read_text())
+        self.assertEqual(doc['visual']['pair_coverage'], '1/5')
+        self.assertFalse(doc['privacy']['contains_media_bytes'])
     def test_review_bridge_accepts_timed_reviewable_candidate_only(self):
         captures, report = self.make_reviewable_capture()
         packet, benchmark = bridge.evaluate(
