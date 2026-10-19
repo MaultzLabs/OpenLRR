@@ -1,0 +1,69 @@
+name: OpenLRR One-Call Budgeted Research (explicit opt-in)
+
+on:
+  push:
+    branches: [lab-budgeted-research-dispatch-v1]
+    paths:
+      - '.github/workflows/lab-budgeted-research.yml'
+  workflow_dispatch:
+    inputs:
+      ticket_id:
+        description: 'Exact verified private research ticket ID'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: openlrr-one-research-reservation-per-day
+  cancel-in-progress: false
+
+jobs:
+  offline-safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Offline safety tests, no network or model
+        run: |
+          python -m compileall -q scripts/agent
+          python -m unittest discover -s scripts/agent/tests -p 'test_budgeted_research_dispatch.py' -v
+
+  research:
+    if: github.event_name == 'workflow_dispatch' && vars.OPENLRR_RESEARCH_EXECUTION_ENABLED == 'true'
+    needs: offline-safety
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pinned tool-free model client
+        run: python -m pip install 'openai-agents==0.24.0'
+      - name: Independently reverify private evidence then reserve one model call
+        env:
+          GH_TOKEN: ${{ secrets.OPENLRR_RESULTS_WRITE_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENLRR_AI_LAB_KEY }}
+          OPENLRR_RESEARCH_EXECUTION_ENABLED: ${{ vars.OPENLRR_RESEARCH_EXECUTION_ENABLED }}
+          TICKET_ID: ${{ inputs.ticket_id }}
+        run: |
+          test -n "$GH_TOKEN" || { echo 'Dedicated private results write token not configured'; exit 2; }
+          test -n "$OPENAI_API_KEY" || { echo 'AI laboratory key not configured'; exit 2; }
+          python scripts/agent/budgeted_research_dispatch.py \
+            --ticket-id "$TICKET_ID" --run-model --out research-output/proposed-plan.json
+      - name: Preserve non-executable research plan for human review
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenLRR-One-Call-Research-Plan-REVIEW-REQUIRED
+          path: research-output/proposed-plan.json
+          if-no-files-found: error
+          retention-days: 14
