@@ -172,9 +172,30 @@ def mac_snapshot() -> dict:
         "menuperf.enable", "menuperf.nowait", "menuperf.gdi",
         "menuperf.optimize"
     ) if (GAME / x).exists())
+    graphics_files = {}
+    for name in ("ddraw.dll", "d3d8.dll", "d3d9.dll",
+                 "dgVoodoo.conf", "dxvk.conf"):
+        item = GAME / name
+        # Only report fixed filenames and file digests; no user paths or
+        # potentially identifying raw configuration contents are uploaded.
+        if item.is_file() and not item.is_symlink() and item.stat().st_size <= 10_000_000:
+            graphics_files[name] = {"present": True,
+                                    "sha256": sha256_file(item)}
+    wine_registry_graphics = "unavailable"
+    registry = prefix / "user.reg"
+    if registry.is_file() and not registry.is_symlink() and registry.stat().st_size <= 4_000_000:
+        # Presence alone is useful to reproduce a wrapper's choice. Avoid
+        # collecting raw registry values, users, host paths or license keys.
+        source = registry.read_text(encoding="utf-8", errors="replace")
+        wine_registry_graphics = (
+            "direct3d_section_present" if "[Software\\\\Wine\\\\Direct3D]" in source
+            else "no_direct3d_section_observed"
+        )
     sw = safe_process(["sw_vers", "-productVersion"])
     return {
         "schema_version": 1,
+        "local_graphics_compatibility_files": graphics_files,
+        "wine_direct3d_registry_section": wine_registry_graphics,
         "architecture": platform.machine(),
         "macos_version": sw or "unavailable",
         "wine_version": safe_process([wine_path, "--version"]) if wine_path else "unavailable_in_PATH",
@@ -408,6 +429,15 @@ def run_session(session: int, *, profile_cpu: bool = True) -> dict:
         store_new(directory / "report.json", result)
         status = "completed_with_unverified_visual_input_audio"
         return {"status": status, "report_directory": str(directory), **result}
+    except KeyboardInterrupt as interrupt:
+        # The game runner already polls STOP for graceful shutdown.
+        # Do not force-kill Wine or delete any safety lock after SIGINT.
+        CONFIG.mkdir(parents=True, exist_ok=True, mode=0o700)
+        (CONFIG / "STOP").touch(exist_ok=True)
+        raise RuntimeError(
+            "Interrupted; STOP requested and session left incomplete. "
+            "Inspect TEST game exit before any new run."
+        ) from interrupt
     finally:
         store_new(directory / "session-state.json", {
             "state": status, "game_process_clean_exit_independently_proven":
