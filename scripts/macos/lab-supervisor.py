@@ -30,6 +30,8 @@ STOP = CONFIG / "STOP"
 PAUSE = CONFIG / "PAUSE"
 LOCK = CONFIG / "supervisor.lock"
 AUDIT = STATE / "supervisor-events.jsonl"
+WINE_CPU_PROFILE = HOME / "OpenLRR-Agent/scripts/macos/wine-cpu-sample.py"
+VENV_PYTHON = STATE / "venv/bin/python"
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 RUN_RE = re.compile(r"^autobenchmark-\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}$")
 REPO = "MaultzLabs/OpenLRR-Test-Results"
@@ -135,7 +137,20 @@ def verify_result(run_name: str, mode: str, expected_sha: str) -> Path:
     return run / "menuperf.csv"
 
 
-def run_one(mode: str, approved_sha: str, seconds: int, baseline: Path | None) -> tuple[str, Path]:
+def start_wine_cpu_profile(sanitized_env: dict[str, str]) -> subprocess.Popen:
+    """Attach a short, LOCAL-ONLY profiler; never starts or replaces the game."""
+    if switches() != "ready":
+        raise RuntimeError("STOP/PAUSE prevents CPU sampling")
+    if (WINE_CPU_PROFILE.is_symlink() or not WINE_CPU_PROFILE.is_file()
+            or WINE_CPU_PROFILE.stat().st_size > 250_000
+            or not VENV_PYTHON.is_file()):
+        raise RuntimeError("Trusted local Mac profiler not installed")
+    argv = [str(VENV_PYTHON), str(WINE_CPU_PROFILE), "--capture"]
+    return subprocess.Popen(argv, env=sanitized_env)
+
+
+def run_one(mode: str, approved_sha: str, seconds: int, baseline: Path | None,
+            *, profile_wine_cpu: bool = False) -> tuple[str, Path]:
     if switches() != "ready":
         raise RuntimeError("PAUSE or STOP active before game launch")
     if fingerprint(DLL) != approved_sha:
@@ -154,8 +169,18 @@ def run_one(mode: str, approved_sha: str, seconds: int, baseline: Path | None) -
     child = subprocess.Popen(command, env=env)
     started = time.monotonic()
     deadline = seconds + 430
+    profile_attempted = False
+    profile_child = None
     try:
         while child.poll() is None:
+            if (profile_wine_cpu and not profile_attempted
+                    and time.monotonic() - started >= 20
+                    and switches() == "ready"):
+                # The sampler attaches to a unique TEST Wine process discovered
+                # from open handles; no model, helper or test DLL is executed.
+                profile_attempted = True
+                profile_child = start_wine_cpu_profile(env)
+                audit("wine_cpu_profile_started", raw_upload_allowed=False)
             if time.monotonic() - started > deadline:
                 STOP.touch(exist_ok=True)
                 audit("timeout_stop_requested", mode=mode)
@@ -187,6 +212,18 @@ def run_one(mode: str, approved_sha: str, seconds: int, baseline: Path | None) -
         audit("run_verified", mode=mode, run=run_name)
         return run_name, csv
     finally:
+        if profile_child is not None:
+            try:
+                profile_exit = profile_child.wait(timeout=15)
+            except subprocess.TimeoutExpired:
+                profile_child.terminate()  # Only the sampling helper, NEVER Wine/game.
+                try:
+                    profile_child.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    pass
+                profile_exit = None
+            audit("wine_cpu_profile_local_only",
+                  exit_code=profile_exit, raw_upload_allowed=False)
         if child.poll() is None:
             audit("runner_still_active", mode=mode)
 
@@ -319,8 +356,16 @@ def main(argv=None) -> int:
     parser.add_argument("--model", default="gpt-6-luna")
     parser.add_argument("--coordinate", action="store_true",
                         help="After two verified A/B runs, record one policy decision; no AI or extra game execution")
+    parser.add_argument("--profile-wine-cpu", action="store_true",
+                        help="Explicit LOCAL-ONLY macOS Wine CPU sample during an approved TEST run")
     args = parser.parse_args(argv)
     plan = parse_plan(args.plan)
+    if args.profile_wine_cpu and not args.run:
+        parser.error("--profile-wine-cpu requires explicit --run")
+    if args.profile_wine_cpu and (
+        WINE_CPU_PROFILE.is_symlink() or not WINE_CPU_PROFILE.is_file()
+    ):
+        parser.error("--profile-wine-cpu requires the checked-out local profile helper")
     if args.coordinate and (not args.run or len(plan) != 2 or plan[1] == "baseline"):
         parser.error("--coordinate requires --run and exactly baseline,nowait or baseline,gdi")
     if args.analyze and not args.run:
@@ -346,7 +391,9 @@ def main(argv=None) -> int:
             if not wait_unpaused():
                 audit("supervisor_stopped")
                 return 2
-            run_name, csv = run_one(mode, args.approved_sha, args.seconds, baseline)
+            extra = {"profile_wine_cpu": True} if args.profile_wine_cpu else {}
+            run_name, csv = run_one(mode, args.approved_sha, args.seconds,
+                                    baseline, **extra)
             completed.append(run_name)
             if mode == "baseline":
                 baseline = csv
