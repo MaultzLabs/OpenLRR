@@ -20,6 +20,8 @@ import struct
 import subprocess
 import sys
 
+import visual_timeline as vt
+
 HOME = Path.home()
 APP = HOME / "Applications/Sikarugir/OpenLRR Menu Test.app"
 GAME = APP / "Contents/SharedSupport/prefix/drive_c/Program Files/Rock Raiders OpenLRR"
@@ -169,7 +171,8 @@ def inspect_png(path: Path, window: dict) -> tuple[int, int]:
 
 
 def capture_once(approved_sha: str, run_id: str, window_id: int,
-                 *, confirm_test_only: bool = False) -> dict:
+                 *, confirm_test_only: bool = False,
+                 record_timing: bool = False) -> dict:
     if not confirm_test_only:
         raise ValueError("Explicit --confirm-test-only required to capture")
     if sys.platform != "darwin":
@@ -182,7 +185,18 @@ def capture_once(approved_sha: str, run_id: str, window_id: int,
     no_links(visual)
     visual.mkdir(exist_ok=True, mode=0o700)
     target = visual / "menu.png"
+    receipt_file = visual / "menu.capture.json"
     no_links(target)
+    no_links(receipt_file)
+    if receipt_file.exists():
+        raise FileExistsError("Existing TEST capture timing receipt must never be overwritten")
+    start_receipt = None
+    if record_timing:
+        start_receipt = vt.read_bounded(run / "run-timing.start.json")
+        start_clock = vt.validate_start(start_receipt, run_id, approved_sha)
+        vt.same_boot(start_clock, vt.sample_clock())
+        if (run / "run-timing.end.json").exists():
+            raise ValueError("TEST run has already ended; cannot timestamp capture")
     if target.exists() or target.is_symlink():
         raise FileExistsError("Existing TEST capture must never be overwritten")
     # Reserve the pathname exclusively: screencapture is never allowed to
@@ -195,10 +209,12 @@ def capture_once(approved_sha: str, run_id: str, window_id: int,
         second = eligible_window(window_id, window_info())
         if second["pid"] != first["pid"]:
             raise RuntimeError("TEST window owner changed during capture preflight")
+        capture_started = vt.sample_clock() if record_timing else None
         proc = subprocess.run(["screencapture", "-x", "-o", "-l", str(window_id), str(target)],
                               capture_output=True, text=True, timeout=30, check=False)
         if proc.returncode:
             raise RuntimeError("Window-only screencapture failed; no full-screen fallback")
+        capture_finished = vt.sample_clock() if record_timing else None
         dimensions = inspect_png(target, second)
         stop_check()
         third = eligible_window(window_id, window_info())
@@ -206,8 +222,7 @@ def capture_once(approved_sha: str, run_id: str, window_id: int,
             raise RuntimeError("Window owner changed during TEST screenshot")
         if digest(GAME / "openlrr.dll") != approved_sha:
             raise RuntimeError("Approved TEST binary changed during capture")
-        success = True
-        return {
+        result = {
             "schema_version": 1,
             "run": run_id,
             "window_id": window_id,
@@ -220,6 +235,20 @@ def capture_once(approved_sha: str, run_id: str, window_id: int,
             "may_touch_working_game": False,
             "may_deploy_automatically": False,
         }
+        if record_timing:
+            vt.same_boot(start_clock, capture_started, capture_finished)
+            if not (start_clock["mono_ns"] <= capture_started["mono_ns"] < capture_finished["mono_ns"]):
+                raise ValueError("Capture is not inside active TEST run clock")
+            if (run / "run-timing.end.json").exists():
+                raise ValueError("TEST run ended during capture")
+            result.update({
+                "approved_dll_sha256": approved_sha,
+                "capture_started": capture_started,
+                "capture_finished": capture_finished,
+            })
+            vt.write_exclusive(receipt_file, result)
+        success = True
+        return result
     finally:
         if not success:
             # Only remove our own reserved file inside the dedicated RUN folder;
@@ -237,11 +266,13 @@ def main(argv=None) -> int:
     parser.add_argument("--capture", action="store_true",
                         help="Actually invoke window-ID-only screenshot command")
     parser.add_argument("--confirm-test-only", action="store_true")
+    parser.add_argument("--record-timing", action="store_true",
+                        help="Record immutable screenshot interval during opted-in supervised TEST run")
     opts = parser.parse_args(argv)
     try:
         test_install_preflight(opts.approved_sha, opts.run_id)
         if opts.list_eligible:
-            if opts.capture or opts.window_id is not None:
+            if opts.capture or opts.window_id is not None or opts.record_timing:
                 raise ValueError("Window listing is separate from capture")
             print(json.dumps({"test_only": True, "will_capture": False,
                               "eligible_windows": list_eligible_windows(window_info())}, indent=2))
@@ -254,7 +285,8 @@ def main(argv=None) -> int:
                               "will_capture": False, "test_only": True}, indent=2))
             return 0
         result = capture_once(opts.approved_sha, opts.run_id, opts.window_id,
-                              confirm_test_only=opts.confirm_test_only)
+                              confirm_test_only=opts.confirm_test_only,
+                              record_timing=opts.record_timing)
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
     except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as exc:

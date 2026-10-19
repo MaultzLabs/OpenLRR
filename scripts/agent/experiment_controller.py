@@ -225,7 +225,8 @@ def append_ledger(path: Path, ledger: dict, decision: dict):
 
 def coordinate(manifest: Path, runs_dir: Path, ledger_file: Path, *,
                feedback: dict | None = None, visual_report: dict | None = None,
-               visual_captures: dict | None = None, commit: bool = False,
+               visual_captures: dict | None = None,
+               require_timing: bool = False, commit: bool = False,
                switches_dir: Path = STOP_DIR, now: datetime | None = None) -> dict:
     if (switches_dir / "STOP").exists() or (switches_dir / "PAUSE").exists():
         raise RuntimeError("Lab STOP or PAUSE is active")
@@ -235,10 +236,15 @@ def coordinate(manifest: Path, runs_dir: Path, ledger_file: Path, *,
     report = evidence_gate.decision(manifest_data, runs_dir)
     if (visual_report is None) != (visual_captures is None):
         raise ValueError("Visual report requires the paired capture manifest")
+    if require_timing and visual_report is None:
+        raise ValueError("Strict timing requires visual report and captures")
     visual_binding_verified = False
+    temporal_consistency = False
     if visual_report is not None:
         from visual_capture_binding import verify_bound_report
-        verify_bound_report(manifest_data, runs_dir, visual_captures, visual_report)
+        binding = verify_bound_report(manifest_data, runs_dir, visual_captures, visual_report,
+                                      require_timing=require_timing)
+        temporal_consistency = binding["temporal_consistency_verified"]
         visual_binding_verified = True
     ledger = read_ledger(ledger_file)
     result = decision_for(report, ledger, feedback=feedback,
@@ -246,6 +252,8 @@ def coordinate(manifest: Path, runs_dir: Path, ledger_file: Path, *,
                           visual_binding_verified=visual_binding_verified,
                           now=now)
     result["manifest_verified"] = True
+    result["visual_temporal_consistency_verified"] = temporal_consistency
+    result["visual_capture_origin_authenticated"] = False
     result["ledger_committed"] = False
     if commit and result["disposition"] not in (
         "already_processed", "daily_research_budget_exhausted"
@@ -269,6 +277,8 @@ def main(argv=None):
                         help="Bound screenshot/video QA report (never execution authority)")
     parser.add_argument("--visual-captures", type=Path,
                         help="Capture manifest binding report hashes to verified local runs")
+    parser.add_argument("--require-timing", action="store_true",
+                        help="Fail closed if capture or run time-window receipts are absent")
     parser.add_argument("--commit", action="store_true",
                         help="Write one safe decision to the ledger (still no execution)")
     parser.add_argument("--output", type=Path)
@@ -281,7 +291,9 @@ def main(argv=None):
     visual_captures = bounded_json(args.visual_captures) if args.visual_captures else None
     answer = coordinate(args.manifest, args.runs_dir, args.ledger,
                         feedback=feedback, visual_report=visual_report,
-                        visual_captures=visual_captures, commit=args.commit)
+                        visual_captures=visual_captures,
+                        require_timing=args.require_timing,
+                        commit=args.commit)
     result = json.dumps(answer, indent=2, sort_keys=True) + "\n"
     if args.output:
         args.output.write_text(result, encoding="utf-8")

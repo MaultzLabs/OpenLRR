@@ -8,6 +8,18 @@ ZIP="${OPENLRR_BENCH_ZIP:-$HOME/Downloads/OpenLRR-autobenchmark-x86.zip}"
 SECONDS_TO_RUN="${OPENLRR_BENCH_SECONDS:-210}"
 BENCH_MODE="${OPENLRR_BENCH_MODE:-baseline}"
 SUPERVISED="${OPENLRR_SUPERVISED:-0}"
+VISUAL_TIMELINE="${OPENLRR_VISUAL_TIMELINE:-0}"
+if [[ "$VISUAL_TIMELINE" != "0" && "$VISUAL_TIMELINE" != "1" ]]; then
+  echo "ERROR: Invalid visual-timing switch." >&2; exit 2
+fi
+if [[ "$VISUAL_TIMELINE" == "1" ]]; then
+  if [[ "$SUPERVISED" != "1" || ! -f "$SCRIPT_DIR/visual_timeline.py" ]]; then
+    echo "ERROR: Visual timing requires supervised TEST runner and helper." >&2; exit 2
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "ERROR: Python 3 required for TEST timing markers." >&2; exit 2
+  fi
+fi
 SWITCH_DIR="$HOME/.config/openlrr-benchmark"
 if [[ "$SUPERVISED" != "0" && "$SUPERVISED" != "1" ]]; then
   echo "ERROR: Invalid supervision flag." >&2; exit 2
@@ -110,6 +122,14 @@ printf '%s\n' "$SECONDS_TO_RUN" > "$GAME/menuperf.autotest"
 touch "$GAME/menuperf.enable"
 if [[ -n "$MODE_MARKER" ]]; then touch "$GAME/$MODE_MARKER"; fi
 
+# Explicit opt-in only. Record start immediately before the dedicated TEST
+# app launch. Never start the game when timing provenance cannot be written.
+if [[ "$VISUAL_TIMELINE" == "1" ]]; then
+  visual_approved_sha="$(shasum -a 256 "$RUN/benchmark-openlrr.dll" | awk '{print $1}')"
+  python3 "$SCRIPT_DIR/visual_timeline.py" start \
+    --run "$RUN" --dll-sha "$visual_approved_sha" --mode "$BENCH_MODE"
+fi
+
 echo "Running OpenLRR Menu Test.app with automatic mode selection and shutdown."
 echo "Graphics experiment: $BENCH_MODE"
 echo "Benchmark duration: $SECONDS_TO_RUN seconds after first rendered frame."
@@ -178,6 +198,9 @@ if [[ "$SUPERVISED" == "1" ]]; then
   fi
   restore_safe=1
   printf 'wrapper_wait_exited=yes\ntest_game_handles=none\n' > "$RUN/lifecycle.verified"
+  if [[ "$VISUAL_TIMELINE" == "1" ]]; then
+    python3 "$SCRIPT_DIR/visual_timeline.py" finish --run "$RUN"
+  fi
   if (( stop_requested )); then
     echo "STOP completed gracefully. Test intentionally not scored or uploaded."
     exit 130

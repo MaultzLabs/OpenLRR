@@ -25,7 +25,7 @@ def run_once(experiment: Path, runs_dir: Path, output: Path,
              *, pair_index: int = 0,
              baseline_file: str = "visual/menu.png",
              candidate_file: str = "visual/menu.png",
-             fps: int = 2) -> dict:
+             fps: int = 2, require_timing: bool = False) -> dict:
     bound_pair.require_lab_active()
     destination = output.absolute()
     runs = runs_dir.resolve(strict=True)
@@ -36,15 +36,16 @@ def run_once(experiment: Path, runs_dir: Path, output: Path,
     captures_path = destination / "captures.json"
     media = bound_pair.register(experiment, runs, pair_index,
                                 baseline_file, candidate_file,
-                                captures_path)
+                                captures_path, require_timing=require_timing)
     report = bound_pair.analyze(experiment, runs, captures_path,
-                                destination / "analysis", fps=fps)
+                                destination / "analysis", fps=fps,
+                                require_timing=require_timing)
     # Controller rechecks receipts, hashes and score independently. This
     # deliberately does not write a research ledger or dispatch an experiment.
     decision = experiment_controller.coordinate(
         experiment, runs, destination / "read-only-ledger.json",
         visual_report=report, visual_captures=media,
-        commit=False,
+        require_timing=require_timing, commit=False,
     )
     if decision.get("visual_capture_binding_verified") is not True or (
             decision.get("may_deploy_automatically") is not False or
@@ -56,6 +57,7 @@ def run_once(experiment: Path, runs_dir: Path, output: Path,
         "visual_status": report["status"],
         "visual_score": report["score"],
         "research_next_step": decision["next_step"],
+        "temporal_consistency_verified": decision["visual_temporal_consistency_verified"],
         "capture_origin_authenticated": False,
         "working_game_modified": False,
         "automatic_execution": False,
@@ -73,12 +75,15 @@ def main(argv=None) -> int:
     parser.add_argument("--baseline-file", default="visual/menu.png")
     parser.add_argument("--candidate-file", default="visual/menu.png")
     parser.add_argument("--fps", type=int, default=2)
+    parser.add_argument("--require-timing", action="store_true",
+                        help="Refuse un-timestamped capture pairs")
     args = parser.parse_args(argv)
     try:
         result = run_once(args.experiment, args.runs_dir, args.out,
                           pair_index=args.pair_index,
                           baseline_file=args.baseline_file,
-                          candidate_file=args.candidate_file, fps=args.fps)
+                          candidate_file=args.candidate_file, fps=args.fps,
+                          require_timing=args.require_timing)
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
     except (ValueError, OSError, RuntimeError, TypeError, json.JSONDecodeError) as exc:

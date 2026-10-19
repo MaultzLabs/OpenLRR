@@ -58,7 +58,8 @@ def bounded_json(path: Path) -> dict:
 
 
 def verified_capture_binding(experiment: dict, runs_dir: Path,
-                             manifest: dict) -> tuple[dict, Path, Path]:
+                             manifest: dict, *,
+                             require_timing: bool = False) -> tuple[dict, Path, Path]:
     if type(experiment) is not dict or experiment.get("schema_version") != 1:
         raise ValueError("Invalid existing benchmark manifest")
     if type(manifest) is not dict or set(manifest) != {
@@ -86,6 +87,7 @@ def verified_capture_binding(experiment: dict, runs_dir: Path,
         raise ValueError("Capture manifest requires baseline and candidate")
     paths = {}
     identities = {}
+    timeline_seen = []
     root = runs_dir.resolve(strict=True)
     for arm in ("baseline", "candidate"):
         rec = captures[arm]
@@ -115,6 +117,13 @@ def verified_capture_binding(experiment: dict, runs_dir: Path,
         if sha256_file(capture) != rec["sha256"]:
             raise ValueError("Capture bytes changed since registration")
         paths[arm] = capture
+        receipt_path = capture.with_suffix(".capture.json")
+        timeline_parts = (run_path / "run-timing.start.json",
+                          run_path / "run-timing.end.json", receipt_path)
+        present = [part.exists() or part.is_symlink() for part in timeline_parts]
+        if any(present) and not all(present):
+            raise ValueError("Incomplete TEST run/capture timing evidence")
+        timeline_seen.append(all(present))
         identities[arm] = {
             "run": run_name,
             "file": filename,
@@ -126,6 +135,18 @@ def verified_capture_binding(experiment: dict, runs_dir: Path,
         }
     if paths["baseline"] == paths["candidate"]:
         raise ValueError("Capture files cannot be identical paths")
+    if any(timeline_seen) and not all(timeline_seen):
+        raise ValueError("Only one arm has timestamped TEST capture evidence")
+    if require_timing and not all(timeline_seen):
+        raise ValueError("Both arms require timestamped TEST capture evidence")
+    if all(timeline_seen):
+        from visual_timeline_gate import read_timed_capture
+        for arm in ("baseline", "candidate"):
+            rec = captures[arm]
+            identities[arm]["timing"] = read_timed_capture(
+                root / rec["run"], run_id=rec["run"], filename=rec["file"],
+                image_sha=rec["sha256"], dll_sha=identities[arm]["dll_sha256"],
+                graphics_mode=identities[arm]["graphics_mode"])
     binding = {
         "schema_version": 1,
         "experiment_id": experiment["experiment_id"],
@@ -136,6 +157,7 @@ def verified_capture_binding(experiment: dict, runs_dir: Path,
         "baseline": identities["baseline"],
         "candidate": identities["candidate"],
         "verified_local_receipts": True,
+        "temporal_consistency_verified": all(timeline_seen),
         "capture_origin_authenticated": False,
         "may_touch_working_game": False,
         "may_deploy_automatically": False,
@@ -145,11 +167,12 @@ def verified_capture_binding(experiment: dict, runs_dir: Path,
 
 def verify_bound_report(experiment: dict, runs_dir: Path,
                         capture_manifest: dict, report: dict,
-                        *, recheck_pixels: bool = True) -> dict:
+                        *, recheck_pixels: bool = True,
+                        require_timing: bool = False) -> dict:
     if type(report) is not dict or report.get("tool") != "openlrr-visual-qa":
         raise ValueError("Not a recognized visual QA report")
     binding, baseline, candidate = verified_capture_binding(
-        experiment, runs_dir, capture_manifest)
+        experiment, runs_dir, capture_manifest, require_timing=require_timing)
     if report.get("capture_binding") != binding:
         raise ValueError("Visual report is not bound to these verified TEST runs")
     if report.get("experiment_id") != binding["experiment_id"] or report.get("scene") != binding["scene"]:

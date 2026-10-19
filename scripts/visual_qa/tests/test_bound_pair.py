@@ -13,11 +13,13 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT.parent / "agent"))
+sys.path.insert(0, str(ROOT.parent / "macos"))
 
 import bound_pair
 import pipeline
 import experiment_controller
 import visual_capture_binding as gate
+import visual_timeline as vt
 
 LIFECYCLE = "wrapper_wait_exited=yes\ntest_game_handles=none\n"
 
@@ -71,6 +73,38 @@ class VerifiedPairTests(unittest.TestCase):
         }
         self.manifest.write_text(json.dumps(self.experiment))
 
+    def make_timed_receipts(self, *, arm: str | None = None) -> None:
+        targets = (arm,) if arm is not None else ("baseline", "candidate")
+        for name in targets:
+            run_name = self.runs_by_arm[name]
+            folder = self.runs / run_name
+            dll_sha = ("a" if name == "baseline" else "b") * 64
+            mode = "baseline"
+            base_wall = 1_800_000_000_000_000_000
+            base_mono = 20_000_000_000
+            boot = "c" * 64
+            def at(seconds):
+                ns = seconds * 1_000_000_000
+                return {"wall_ns": base_wall + ns, "mono_ns": base_mono + ns,
+                        "boot_sha256": boot}
+            vt.begin(folder, dll_sha, mode, clock=at(1))
+            vt.finish(folder, clock=at(15))
+            capture_path = folder / "visual/menu.png"
+            receipt = {
+                "schema_version": 1, "run": run_name,
+                "window_id": 301, "owner_pid": 4501,
+                "size": {"width": 140, "height": 90},
+                "sha256": gate.sha256_file(capture_path),
+                "relative_file": "visual/menu.png",
+                "window_owner_checked": True,
+                "capture_origin_authenticated": False,
+                "may_touch_working_game": False,
+                "may_deploy_automatically": False,
+                "approved_dll_sha256": dll_sha,
+                "capture_started": at(4), "capture_finished": at(5),
+            }
+            vt.write_exclusive(folder / "visual/menu.capture.json", receipt)
+
     def register(self):
         return bound_pair.register(self.manifest, self.runs, 0,
                                    "visual/menu.png", "visual/menu.png",
@@ -114,6 +148,101 @@ class VerifiedPairTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'absent'):
             pipeline.run_once(self.manifest, self.runs, self.home / 'pipeline-result')
 
+    def test_opted_in_timing_is_independently_verified(self):
+        self.make_timed_receipts()
+        captures = self.register()
+        report = self.analyze()
+        self.assertTrue(report['capture_binding']['temporal_consistency_verified'])
+        decision = experiment_controller.coordinate(
+            self.manifest, self.runs, self.ledger,
+            visual_report=report, visual_captures=captures,
+            require_timing=True, switches_dir=self.switches)
+        self.assertTrue(decision['visual_temporal_consistency_verified'])
+        self.assertFalse(decision['visual_capture_origin_authenticated'])
+        self.assertEqual(decision['next_step'], 'isolate_regression')
+
+    def test_strict_timing_blocks_untimed_legacy_captures(self):
+        with self.assertRaisesRegex(ValueError, 'require timestamped'):
+            bound_pair.register(self.manifest, self.runs, 0, 'visual/menu.png',
+                                'visual/menu.png', self.capture_manifest,
+                                require_timing=True)
+
+    def test_strict_pipeline_end_to_end(self):
+        self.make_timed_receipts()
+        result = pipeline.run_once(self.manifest, self.runs,
+                                   self.home / 'strict-output', require_timing=True)
+        self.assertTrue(result['temporal_consistency_verified'])
+        self.assertFalse(result['automatic_execution'])
+
+    def test_only_one_run_timed_refuses_pair(self):
+        self.make_timed_receipts(arm='baseline')
+        with self.assertRaisesRegex(ValueError, 'Only one arm'):
+            self.register()
+
+    def test_incomplete_timestamp_group_fails_closed(self):
+        run = self.runs / self.runs_by_arm['baseline']
+        vt.begin(run, 'a' * 64, 'baseline', clock={
+            'wall_ns': 1_800_000_001_000_000_000,
+            'mono_ns': 21_000_000_000, 'boot_sha256': 'c' * 64})
+        with self.assertRaisesRegex(ValueError, 'Incomplete TEST'):
+            self.register()
+
+    def test_capture_outside_run_window_rejected(self):
+        self.make_timed_receipts()
+        file = self.runs / self.runs_by_arm['candidate'] / 'visual/menu.capture.json'
+        rec = json.loads(file.read_text())
+        rec['capture_started']['mono_ns'] += 30_000_000_000
+        rec['capture_finished']['mono_ns'] += 30_000_000_000
+        rec['capture_started']['wall_ns'] += 30_000_000_000
+        rec['capture_finished']['wall_ns'] += 30_000_000_000
+        file.write_text(json.dumps(rec))
+        with self.assertRaisesRegex(ValueError, 'outside supervised TEST'):
+            self.register()
+
+    def test_forged_capture_sha_rejected(self):
+        self.make_timed_receipts()
+        file = self.runs / self.runs_by_arm['candidate'] / 'visual/menu.capture.json'
+        rec = json.loads(file.read_text())
+        rec['sha256'] = 'd' * 64
+        file.write_text(json.dumps(rec))
+        with self.assertRaisesRegex(ValueError, 'does not match'):
+            self.register()
+
+    def test_changed_host_boot_rejected(self):
+        self.make_timed_receipts()
+        file = self.runs / self.runs_by_arm['candidate'] / 'visual/menu.capture.json'
+        rec = json.loads(file.read_text())
+        rec['capture_started']['boot_sha256'] = 'd' * 64
+        rec['capture_finished']['boot_sha256'] = 'd' * 64
+        file.write_text(json.dumps(rec))
+        with self.assertRaisesRegex(ValueError, 'different host boots'):
+            self.register()
+
+    def test_clock_step_rejected(self):
+        self.make_timed_receipts()
+        file = self.runs / self.runs_by_arm['baseline'] / 'visual/menu.capture.json'
+        rec = json.loads(file.read_text())
+        rec['capture_started']['wall_ns'] += 20_000_000_000
+        rec['capture_finished']['wall_ns'] += 20_000_000_000
+        file.write_text(json.dumps(rec))
+        with self.assertRaisesRegex(ValueError, 'clock stepped'):
+            self.register()
+
+    def test_timing_end_hash_tamper_rejected(self):
+        self.make_timed_receipts()
+        file = self.runs / self.runs_by_arm['candidate'] / 'run-timing.end.json'
+        rec = json.loads(file.read_text())
+        rec['start_sha256'] = 'f' * 64
+        file.write_text(json.dumps(rec))
+        with self.assertRaisesRegex(ValueError, 'has changed'):
+            self.register()
+
+    def test_cannot_add_timing_after_report_without_reverification(self):
+        captures = self.register()
+        report = self.analyze()
+        self.make_timed_receipts()
+        with self.assertRaisesRegex(ValueError, 'not bound'):
+            self.coordinate(report, captures)
     def test_valid_pair_flags_visual_regression_for_research(self):
         captures = self.register()
         result = self.analyze()

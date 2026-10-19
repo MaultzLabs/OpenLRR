@@ -54,7 +54,8 @@ def save_new_json(out: Path, doc: dict) -> None:
 
 
 def register(experiment: Path, runs_dir: Path, pair_index: int,
-             baseline_file: str, candidate_file: str, out: Path) -> dict:
+             baseline_file: str, candidate_file: str, out: Path,
+             *, require_timing: bool = False) -> dict:
     require_lab_active()
     bundle = validate_experiment(experiment, runs_dir)
     if type(pair_index) is not int or not 0 <= pair_index < len(bundle["pairs"]):
@@ -85,25 +86,28 @@ def register(experiment: Path, runs_dir: Path, pair_index: int,
         "scene": bundle["controlled_scene"],
         "captures": captures,
     }
-    verified_capture_binding(bundle, runs_dir, manifest)
+    verified_capture_binding(bundle, runs_dir, manifest,
+                             require_timing=require_timing)
     save_new_json(out, manifest)
     return manifest
 
 
 def analyze(experiment: Path, runs_dir: Path, captures: Path, out: Path,
-            fps: int = 2, tolerance: int = 12, min_score: float = 94) -> dict:
+            fps: int = 2, tolerance: int = 12, min_score: float = 94,
+            *, require_timing: bool = False) -> dict:
     require_lab_active()
     bundle = validate_experiment(experiment, runs_dir)
     media_manifest = bounded_json(captures)
     binding, reference, candidate = verified_capture_binding(
-        bundle, runs_dir, media_manifest)
+        bundle, runs_dir, media_manifest, require_timing=require_timing)
     result = report_for(reference, candidate, out, bundle["experiment_id"],
                         bundle["controlled_scene"], fps=fps,
                         tolerance=tolerance, min_score=min_score)
     # File hashing is repeated AFTER processing to catch changed inputs. A
     # later controller call rechecks all hashes independently.
     result["capture_binding"] = binding
-    verify_bound_report(bundle, runs_dir, media_manifest, result, recheck_pixels=False)
+    verify_bound_report(bundle, runs_dir, media_manifest, result,
+                        recheck_pixels=False, require_timing=require_timing)
     destination = out / "report.json"
     temp = out / "report-bound.tmp"
     fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -126,6 +130,8 @@ def main(argv=None) -> int:
         sub.add_argument("--experiment", type=Path, required=True)
         sub.add_argument("--runs-dir", type=Path, required=True)
         sub.add_argument("--out", type=Path, required=True)
+        sub.add_argument("--require-timing", action="store_true",
+                         help="Refuse captures without both TEST run timing receipts")
         if mode == "register":
             sub.add_argument("--pair-index", type=int, default=0)
             sub.add_argument("--baseline-file", required=True)
@@ -139,14 +145,16 @@ def main(argv=None) -> int:
     try:
         if opts.command == "register":
             record = register(opts.experiment, opts.runs_dir, opts.pair_index,
-                              opts.baseline_file, opts.candidate_file, opts.out)
+                              opts.baseline_file, opts.candidate_file, opts.out,
+                              require_timing=opts.require_timing)
             print(json.dumps({"registered": record["experiment_id"],
                               "pair_index": record["pair_index"],
                               "automatic_deployment": False}))
         else:
             report = analyze(opts.experiment, opts.runs_dir, opts.captures,
                              opts.out, fps=opts.fps, tolerance=opts.tolerance,
-                             min_score=opts.min_score)
+                             min_score=opts.min_score,
+                             require_timing=opts.require_timing)
             print(json.dumps({"status": report["status"], "score": report["score"],
                               "report": str(opts.out / "report.json"),
                               "capture_origin_authenticated": False}))
