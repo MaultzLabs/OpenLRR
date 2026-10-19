@@ -6,11 +6,13 @@ import importlib.util
 from pathlib import Path
 import struct
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest import mock
 
 MODULE = Path(__file__).resolve().parents[1] / "capture-test-window.py"
+sys.path.insert(0, str(MODULE.parent))
 SPEC = importlib.util.spec_from_file_location("openlrr_test_capture", MODULE)
 collector = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(collector)
