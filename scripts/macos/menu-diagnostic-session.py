@@ -76,6 +76,11 @@ def check_environment(session: int, *, os_check: bool = True) -> dict:
         raise ValueError("Only diagnostic sessions 1 and 2 are currently authorized")
     if os_check and sys.platform != "darwin":
         raise RuntimeError("This execution package is macOS-only")
+    if os_check:
+        # Under Rosetta, Python may identify itself as x86_64 even though
+        # the physical host is Apple Silicon. Query hardware independently.
+        if safe_process(["/usr/sbin/sysctl", "-n", "hw.optional.arm64"]) != "1":
+            raise RuntimeError("Apple Silicon hardware could not be verified")
     if (CONFIG / "STOP").exists() or (CONFIG / "PAUSE").exists():
         raise RuntimeError("STOP or PAUSE active, no game launch permitted")
     for lock in (CONFIG / "supervisor.lock",
@@ -197,6 +202,11 @@ def mac_snapshot() -> dict:
         "local_graphics_compatibility_files": graphics_files,
         "wine_direct3d_registry_section": wine_registry_graphics,
         "architecture": platform.machine(),
+        "python_process_architecture": platform.machine(),
+        "hardware_apple_silicon": (
+            True if safe_process(["/usr/sbin/sysctl", "-n", "hw.optional.arm64"]) == "1"
+            else "not_verified"
+        ),
         "macos_version": sw or "unavailable",
         "wine_version": safe_process([wine_path, "--version"]) if wine_path else "unavailable_in_PATH",
         "wine_version_source": "PATH" if wine_path else "not_resolved_from_embedded_wrapper",
