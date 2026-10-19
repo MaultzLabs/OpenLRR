@@ -210,6 +210,53 @@ class PairedDllTests(unittest.TestCase):
         self.assertFalse(lab.BACKUP.exists())
         self.assertFalse(lab.LOCK.exists())
 
+    def test_real_candidate_ab_result_queues_only_data_ticket(self):
+        helper = self.root / "OpenLRR-Agent/scripts/agent/research_ticket.py"
+        helper.write_text("# trusted ticket builder")
+        observations = []
+        commands = []
+
+        def fake_supervisor(sha, seconds, *, run):
+            observations.append(sha)
+            return f"autobenchmark-2026-10-18_17-00-{len(observations):02d}"
+
+        def fake_run(argv, **kwargs):
+            commands.append(argv)
+            self.assertNotIn("OPENAI_API_KEY", kwargs["env"])
+            self.assertNotIn("GITHUB_TOKEN", kwargs["env"])
+            if str(self.controller) in argv:
+                manifest = json.loads(Path(argv[argv.index("--manifest") + 1]).read_text())
+                Path(argv[argv.index("--output") + 1]).write_text(json.dumps({
+                    "experiment_id": manifest["experiment_id"],
+                    "manifest_verified": True,
+                    "ledger_committed": True,
+                    "may_install_or_run_candidate": False,
+                    "disposition": "ready_for_new_research",
+                    "next_step": "new_hypothesis",
+                }))
+            else:
+                self.assertIn(str(helper), argv)
+                decision = json.loads(Path(argv[argv.index("--decision") + 1]).read_text())
+                Path(argv[argv.index("--out") + 1]).write_text(json.dumps({
+                    "experiment_id": decision["experiment_id"],
+                    "approved_to_invoke_model": False,
+                    "approved_to_execute_game": False,
+                }))
+            return mock.Mock(returncode=0)
+
+        with mock.patch.object(lab, "RESEARCH_TICKET", helper), \
+             mock.patch.object(lab, "candidate_source", return_value=self.candidate), \
+             mock.patch.object(lab, "invoke_supervisor", side_effect=fake_supervisor), \
+             mock.patch.dict(lab.os.environ, {
+                 "OPENAI_API_KEY": "test-secret", "GITHUB_TOKEN": "test-secret",
+             }):
+            done = lab.execute(self.base_sha, self.cand_sha, "39169390987",
+                               1, 60, run=fake_run)
+        self.assertTrue(done["research_ticket_queued"])
+        self.assertFalse(done["game_changes_promoted"])
+        self.assertEqual(len(commands), 2)
+        self.assertFalse(lab.LOCK.exists())
+
     def test_publish_requires_explicit_run(self):
         with self.assertRaises(SystemExit):
             lab.main([
