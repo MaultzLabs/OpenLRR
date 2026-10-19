@@ -2,9 +2,11 @@ name: OpenLRR One-Call Budgeted Research (explicit opt-in)
 
 on:
   push:
-    branches: [lab-budgeted-research-dispatch-v1]
+    branches: [lab-research-queue-discovery-v1]
     paths:
       - '.github/workflows/lab-budgeted-research.yml'
+      - 'scripts/agent/private_research_queue.py'
+      - 'scripts/agent/tests/test_private_research_queue.py'
   workflow_dispatch:
     inputs:
       ticket_id:
@@ -38,6 +40,7 @@ jobs:
         run: |
           python -m compileall -q scripts/agent
           python -m unittest discover -s scripts/agent/tests -p 'test_budgeted_research_dispatch.py' -v
+          python -m unittest discover -s scripts/agent/tests -p 'test_private_research_queue.py' -v
 
   research:
     if: (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && vars.OPENLRR_RESEARCH_EXECUTION_ENABLED == 'true'
