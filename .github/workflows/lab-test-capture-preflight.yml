@@ -2,15 +2,25 @@ name: OpenLRR TEST Window Capture Safety Proof
 
 on:
   push:
-    branches: [lab-test-window-capture-v1]
+    branches: [lab-test-window-capture-v1, lab-visual-temporal-provenance-v1]
     paths:
       - 'scripts/macos/capture-test-window.py'
       - 'scripts/macos/tests/test_capture_test_window.py'
+      - 'scripts/macos/visual_timeline.py'
+      - 'scripts/macos/tests/test_visual_timeline.py'
+      - 'scripts/macos/run-autobenchmark.sh'
+      - 'scripts/macos/lab-supervisor.py'
+      - 'scripts/agent/visual_timeline_gate.py'
       - '.github/workflows/lab-test-capture-preflight.yml'
   pull_request:
     paths:
       - 'scripts/macos/capture-test-window.py'
       - 'scripts/macos/tests/test_capture_test_window.py'
+      - 'scripts/macos/visual_timeline.py'
+      - 'scripts/macos/tests/test_visual_timeline.py'
+      - 'scripts/macos/run-autobenchmark.sh'
+      - 'scripts/macos/lab-supervisor.py'
+      - 'scripts/agent/visual_timeline_gate.py'
   workflow_dispatch:
 
 permissions:
@@ -33,6 +43,8 @@ jobs:
       - name: Run synthetic window identity and command safety tests
         run: |
           python -m unittest discover -s scripts/macos/tests -p 'test_capture_test_window.py' -v
+          python -m unittest discover -s scripts/macos/tests -p 'test_visual_timeline.py' -v
+          bash -n scripts/macos/run-autobenchmark.sh
       - name: Confirm working game folders and binaries were not touched
         run: |
           git diff --exit-code
