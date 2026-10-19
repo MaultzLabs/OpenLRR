@@ -371,6 +371,9 @@ void __cdecl Gods98::DirectDraw_Flip(void)
 	log_firstcall();
 
 	Draw_AssertUnlocked("DirectDraw_Flip");
+	// Diagnostic only: measure elapsed time outside this function separately
+	// from the synchronous presentation call. No drawing behavior changes.
+	MenuPerf::FrameBoundary frameBoundary;
 	MenuPerf::Scope timer(MenuPerf::Metric::Flip);
 	if (directDrawGlobs.fullScreen) {
 		MenuPerf::Scope presentation(MenuPerf::Metric::FullscreenFlip);
@@ -475,6 +478,7 @@ void __cdecl Gods98::DirectDraw_BlitBuffers(void)
 	// GDI presents the existing back buffer; the Direct3D renderer stays unchanged.
 	// Enabled only by menuperf.gdi and falls back to original DirectDraw Blt on failure.
 	if (MenuPerf::GdiWindowPresent()) {
+		MenuPerf::Scope gdiPresentation(MenuPerf::Metric::GdiWindowAttempt);
 		HDC srcDC = nullptr;
 		HRESULT getDCResult = DDERR_GENERIC;
 		{
@@ -501,8 +505,12 @@ void __cdecl Gods98::DirectDraw_BlitBuffers(void)
 				MenuPerf::Scope release(MenuPerf::Metric::GdiRelease);
 				DirectDraw_bSurf()->ReleaseDC(srcDC);
 			}
-			if (success) return;
+			if (success) {
+				MenuPerf::RecordGdiWindowOutcome(true);
+				return;
+			}
 		}
+		MenuPerf::RecordGdiWindowOutcome(false);
 	}
 
 	// In diagnostic mode keep the original blocking blit unchanged.
@@ -510,6 +518,8 @@ void __cdecl Gods98::DirectDraw_BlitBuffers(void)
 	// DDERR_WASSTILLDRAWING is permitted in that experiment: a frame may be skipped.
 	const DWORD flags = MenuPerf::NonblockingWindowBlt() ? 0 : DDBLT_WAIT;
 	{
+		// Diagnostic-only CPU-versus-wall probe; leaves Blt flags and rendering untouched.
+		MenuPerf::WindowBltCpuScope cpuProbe;
 		MenuPerf::Scope presentation(MenuPerf::Metric::WindowBlt);
 		HRESULT r = DirectDraw_fSurf()->Blt(&dest, DirectDraw_bSurf(), &src, flags, nullptr);
 		MenuPerf::RecordWindowPresentOutcome(r == DD_OK, r == DDERR_WASSTILLDRAWING);

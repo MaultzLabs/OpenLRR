@@ -7,6 +7,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ZIP="${OPENLRR_BENCH_ZIP:-$HOME/Downloads/OpenLRR-autobenchmark-x86.zip}"
 SECONDS_TO_RUN="${OPENLRR_BENCH_SECONDS:-210}"
 BENCH_MODE="${OPENLRR_BENCH_MODE:-baseline}"
+SUPERVISED="${OPENLRR_SUPERVISED:-0}"
+SWITCH_DIR="$HOME/.config/openlrr-benchmark"
+if [[ "$SUPERVISED" != "0" && "$SUPERVISED" != "1" ]]; then
+  echo "ERROR: Invalid supervision flag." >&2; exit 2
+fi
 # Only one graphics variable may change in a run. Keep all variants opt-in.
 # The nonblocking DirectDraw flag can skip presentation; frame counts alone
 # cannot prove that every frame reached the display.
@@ -36,7 +41,18 @@ if [[ ! "$SECONDS_TO_RUN" =~ ^[0-9]+$ ]] || (( SECONDS_TO_RUN < 15 || SECONDS_TO
   echo "ERROR: Benchmark duration must be 15..600 seconds." >&2
   exit 1
 fi
-for name in menuperf.gdi menuperf.nowait menuperf.optimize menuperf.autotest; do
+if [[ "$SUPERVISED" == "1" ]]; then
+  if [[ -e "$SWITCH_DIR/STOP" || -e "$SWITCH_DIR/PAUSE" ]]; then
+    echo "ERROR: Controller is stopped or paused." >&2; exit 2
+  fi
+  if ! command -v lsof >/dev/null 2>&1; then
+    echo "ERROR: lsof required for supervised lifecycle checks." >&2; exit 2
+  fi
+  if [[ -n "$(lsof -nP -t +D "$GAME" 2>/dev/null || true)" ]]; then
+    echo "ERROR: TEST game has open file handles; refuse to overwrite its DLL." >&2; exit 2
+  fi
+fi
+for name in menuperf.gdi menuperf.nowait menuperf.optimize menuperf.autotest menuperf.stop; do
   if [[ -e "$GAME/$name" ]]; then
     echo "ERROR: $name is already active. Stop that experiment first." >&2
     exit 1
@@ -66,10 +82,20 @@ if [[ -f "$GAME/menuperf.csv" ]]; then
 fi
 had_enable=0
 if [[ -e "$GAME/menuperf.enable" ]]; then had_enable=1; fi
+restore_safe=0
+launched=0
+launcher_pid=""
+stop_requested=0
 
 cleanup() {
   set +e
-  rm -f "$GAME/menuperf.autotest" "$GAME/menuperf.finished" "$GAME/menuperf.enable"
+  if [[ "$SUPERVISED" == "1" && "$launched" == "1" && "$restore_safe" != "1" ]]; then
+    echo "SAFETY HOLD: TEST process exit not verified. Backup kept in $RUN." >&2
+    echo "No DLL restoration attempted while Wine may still be running." >&2
+    echo "Close ONLY OpenLRR Menu Test.app, verify Wine is gone, then request manual recovery." >&2
+    return
+  fi
+  rm -f "$GAME/menuperf.autotest" "$GAME/menuperf.finished" "$GAME/menuperf.enable" "$GAME/menuperf.stop"
   if [[ -n "$MODE_MARKER" ]]; then rm -f "$GAME/$MODE_MARKER"; fi
   if (( had_enable )); then touch "$GAME/menuperf.enable"; fi
   if [[ -f "$RUN/previous-openlrr.dll" ]]; then
@@ -88,13 +114,27 @@ echo "Running OpenLRR Menu Test.app with automatic mode selection and shutdown."
 echo "Graphics experiment: $BENCH_MODE"
 echo "Benchmark duration: $SECONDS_TO_RUN seconds after first rendered frame."
 echo "Logs: $RUN"
-open "$APP"
+if [[ "$SUPERVISED" == "1" ]]; then
+  launched=1
+  open -W "$APP" &
+  launcher_pid=$!
+else
+  open "$APP"
+fi
 
 started_at=$(date +%s)
 deadline=$(( started_at + SECONDS_TO_RUN + 300 ))
 last_status=0
 finished=0
 while (( $(date +%s) < deadline )); do
+  if [[ "$SUPERVISED" == "1" && -e "$SWITCH_DIR/STOP" ]]; then
+    if (( ! stop_requested )); then
+      stop_requested=1
+      echo "STOP received: requesting graceful shutdown of the TEST game."
+      touch "$GAME/menuperf.stop"
+      deadline=$(( $(date +%s) + 40 ))
+    fi
+  fi
   if [[ -f "$GAME/menuperf.finished" ]]; then
     finished=1
     break
@@ -112,6 +152,37 @@ while (( $(date +%s) < deadline )); do
   sleep 2
 done
 sleep 3
+if [[ "$SUPERVISED" == "1" ]]; then
+  if (( ! finished )); then
+    echo "ERROR: No close-request receipt from TEST game; fail closed." >&2
+    exit 2
+  fi
+  # 'open -W' is an application lifecycle signal. It must exit, and no
+  # file handles may remain inside the isolated TEST game directory.
+  wait_deadline=$(( $(date +%s) + 45 ))
+  while kill -0 "$launcher_pid" 2>/dev/null; do
+    if (( $(date +%s) >= wait_deadline )); then
+      echo "ERROR: macOS wrapper did not exit in time." >&2
+      exit 2
+    fi
+    sleep 1
+  done
+  if ! wait "$launcher_pid"; then
+    echo "ERROR: macOS wrapper returned a launch/exit failure." >&2
+    exit 2
+  fi
+  sleep 2
+  if [[ -n "$(lsof -nP -t +D "$GAME" 2>/dev/null || true)" ]]; then
+    echo "ERROR: TEST prefix still has open file handles." >&2
+    exit 2
+  fi
+  restore_safe=1
+  printf 'wrapper_wait_exited=yes\ntest_game_handles=none\n' > "$RUN/lifecycle.verified"
+  if (( stop_requested )); then
+    echo "STOP completed gracefully. Test intentionally not scored or uploaded."
+    exit 130
+  fi
+fi
 if [[ -f "$GAME/menuperf.csv" ]]; then cp -p "$GAME/menuperf.csv" "$RUN/menuperf.csv"; fi
 if [[ -f "$GAME/menuperf.finished" ]]; then cp -p "$GAME/menuperf.finished" "$RUN/menuperf.finished"; fi
 
@@ -155,7 +226,9 @@ if [[ -n "${OPENLRR_REPORT_REPO:-}" ]]; then
   fi
 fi
 
-if [[ -f "$RUN/menuperf.csv" ]]; then open -R "$RUN/menuperf.csv"; else open "$RUN"; fi
+if [[ "$SUPERVISED" != "1" ]]; then
+  if [[ -f "$RUN/menuperf.csv" ]]; then open -R "$RUN/menuperf.csv"; else open "$RUN"; fi
+fi
 if (( ! finished )); then
   echo "Benchmark timeout: close the TEST game manually if still running." >&2
   echo "No process was forcibly killed." >&2

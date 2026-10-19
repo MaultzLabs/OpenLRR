@@ -1,0 +1,60 @@
+name: OpenLRR Game Composer Native MAP Proof
+
+on:
+  push:
+    branches: [lab-game-map-composer-v1]
+    paths:
+      - 'scripts/composer/**'
+      - '.github/workflows/lab-game-composer-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  composer-native-map-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Native MAP binary roundtrip, safety, and deterministic generation
+        run: |
+          python -m compileall -q scripts/composer
+          python -m unittest discover -s scripts/composer/tests -p 'test_*.py' -v
+      - name: Produce and independently inspect a native draft level
+        run: |
+          python scripts/composer/native_map_composer.py --name CrystalFrontier \
+            --width 24 --height 20 --seed 1989 --crystal-goal 12 \
+            --out composer-artifact/CrystalFrontier --compose
+          python - <<'PY'
+          import importlib.util
+          from pathlib import Path
+          import hashlib, json
+          src = Path('scripts/composer/native_map_composer.py')
+          spec = importlib.util.spec_from_file_location('composer', src)
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          root = Path('composer-artifact/CrystalFrontier')
+          blueprint = json.loads((root / 'blueprint.json').read_text())
+          module.validate_blueprint(blueprint)
+          dig = module.decode_map((root / 'dugg.map').read_bytes())
+          terrain = module.decode_map((root / 'surf.map').read_bytes())
+          crystal = module.decode_map((root / 'cror.map').read_bytes())
+          assert dig['width'] == 24 and dig['height'] == 20
+          assert len(crystal['cells']) == 25*21
+          assert crystal['cells'].count(1) == 12
+          assert 10 in terrain['cells']
+          assert not (root / 'LegoRR.exe').exists()
+          print('Verified five native MAP binary drafts and bounded resource goal')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OpenLRR-Composer-Native-MAP-DRAFT-NOT-INSTALLED
+          path: composer-artifact/CrystalFrontier/
+          retention-days: 14
+          if-no-files-found: error

@@ -1,0 +1,31 @@
+name: OpenLRR Mac TEST Wine CPU Sampling Safety
+
+on:
+  push:
+    branches: [lab-wine-cpu-profiler-v1]
+    paths:
+      - 'scripts/macos/wine-cpu-sample.py'
+      - 'scripts/macos/tests/test_wine_cpu_sample.py'
+      - '.github/workflows/lab-wine-cpu-profiler-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-sampling-safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Mac sampler static check and mocked process tests
+        run: |
+          python -m compileall -q scripts/macos/wine-cpu-sample.py
+          python -m unittest discover -s scripts/macos/tests -p 'test_wine_cpu_sample.py' -v
+      - name: Prove default mode has zero Mac/game execution
+        run: python scripts/macos/wine-cpu-sample.py

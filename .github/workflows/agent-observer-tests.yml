@@ -1,0 +1,26 @@
+name: OpenLRR Agent Observer Safety Tests
+
+on:
+  push:
+    branches: [lab-cpu-evidence-20261018-v1, lab-research-queue-discovery-v1, lab-budgeted-research-dispatch-v1, lab-private-research-intake-v1, lab-private-research-outbox-v1, lab-research-handoff-v1, lab-controller-v1, lab-blit-cpu-probe-v1, agent-loop-v1, lab-evidence-planner-v1]
+    paths:
+      - 'scripts/agent/**'
+      - '.github/workflows/agent-observer-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  observer-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile agent Python modules
+        run: python -m compileall -q scripts/agent
+      - name: Validate safety and comparison isolation
+        run: python -m unittest discover -s scripts/agent/tests -p 'test_*.py' -v

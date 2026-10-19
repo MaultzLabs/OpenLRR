@@ -1,0 +1,29 @@
+name: OpenLRR Candidate Quarantine Safety Tests
+
+on:
+  push:
+    branches: [lab-candidate-inbox-v1]
+    paths:
+      - 'scripts/macos/candidate-inbox.py'
+      - 'scripts/macos/tests/test_candidate_inbox.py'
+      - '.github/workflows/lab-candidate-inbox-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quarantine-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile and unit-test candidate quarantine
+        run: |
+          python -m py_compile scripts/macos/candidate-inbox.py
+          python -m unittest discover -s scripts/macos/tests -p 'test_candidate_inbox.py' -v

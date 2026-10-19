@@ -1,0 +1,29 @@
+name: OpenLRR Private A/B Evidence CI
+
+on:
+  push:
+    branches: [lab-private-evidence-gate-v1]
+    paths:
+      - 'scripts/agent/remote_evidence_gate.py'
+      - 'scripts/agent/tests/test_remote_evidence_gate.py'
+      - '.github/workflows/lab-private-evidence-gate-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  remote-evidence-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate all controller tests and the remote evidence gate
+        run: |
+          python -m py_compile scripts/agent/remote_evidence_gate.py
+          python -m unittest discover -s scripts/agent/tests -p 'test_*.py' -v

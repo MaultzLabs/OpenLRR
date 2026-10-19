@@ -1,0 +1,393 @@
+"""Synthetic-only safety tests: actual OpenLRR or Wine are never executed."""
+import hashlib
+import importlib.util
+import json
+from pathlib import Path
+import tempfile
+import unittest
+from unittest import mock
+
+SCRIPT = Path(__file__).resolve().parents[1] / "paired-dll-eval.py"
+SPEC = importlib.util.spec_from_file_location("openlrr_paired_dll_eval", SCRIPT)
+lab = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(lab)
+
+
+def pe_stub(path: Path, character: int):
+    header = bytearray(512)
+    header[:2] = b"MZ"
+    header[0x3c:0x40] = (128).to_bytes(4, "little")
+    header[128:132] = b"PE\0\0"
+    header[132:134] = (0x14c).to_bytes(2, "little")
+    header[200] = character
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(header)
+    return hashlib.sha256(header).hexdigest()
+
+
+class PairedDllTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.state = self.root / "state"
+        self.state.mkdir()
+        self.config = self.root / "config"
+        self.config.mkdir()
+        self.results = self.root / "results"
+        self.results.mkdir()
+        self.download = self.root / "Downloads/openlrr.dll"
+        self.download.parent.mkdir()
+        self.baseline = self.state / "approved-baselines/openlrr.dll"
+        self.candidate = self.root / "quarantine/run-39169390987/openlrr.dll"
+        self.base_sha = pe_stub(self.baseline, 42)
+        (self.baseline.parent / "provenance.json").write_text(json.dumps({
+            "dll_sha256": self.base_sha,
+            "reviewed_source_workflow": "OpenLRR Menu Diagnostics Win32",
+            "source_run": "39170729410", "head_sha": "a" * 40,
+            "approved_for_automatic_execution": False,
+            "tested_in_game": False,
+        }))
+        self.cand_sha = pe_stub(self.candidate, 43)
+        (self.candidate.parent / "SHA256.txt").write_text(self.cand_sha + "\n")
+        (self.candidate.parent / "proposal.patch").write_text(
+            "--- a/src/openlrr/engine/drawing/DirectDraw.cpp\n"
+            "+++ b/src/openlrr/engine/drawing/DirectDraw.cpp\n"
+            "@@ -1 +1 @@\n-old\n+new\n")
+        (self.candidate.parent / "proposal.json").write_text(json.dumps({
+            "source_file": "src/openlrr/engine/drawing/DirectDraw.cpp",
+            "status": "patch_ready", "review_required": True,
+            "host_execution_authorized": False,
+        }))
+        (self.candidate.parent / "REVIEW-REQUIRED.txt").write_text(
+            "Manual execution approval required")
+        (self.candidate.parent / "provenance.json").write_text(json.dumps({
+            "run_id": "39169390987", "candidate_sha256": self.cand_sha,
+            "automatic_execution": False,
+        }))
+        self.supervisor = self.root / "OpenLRR-Agent/scripts/macos/lab-supervisor.py"
+        self.controller = self.root / "OpenLRR-Agent/scripts/agent/experiment_controller.py"
+        self.publisher = self.root / "OpenLRR-Agent/scripts/agent/publish_experiment.py"
+        self.python = self.state / "venv/bin/python"
+        for p in (self.supervisor, self.controller, self.publisher, self.python):
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text("fixture")
+        for name in lab.HELPERS:
+            (self.supervisor.parent / name).write_text("trusted helper: " + name)
+        for key, value in {
+            "STATE": self.state, "CONFIG": self.config, "RESULTS": self.results,
+            "DOWNLOAD_DLL": self.download,
+            "BACKUP": self.download.parent / ".openlrr-paired-eval-original.dll",
+            "TEMP": self.download.parent / ".openlrr-paired-eval-pending.dll",
+            "BASELINE": self.baseline,
+            "INBOX": self.root / "quarantine",
+            "LOCK": self.state / "paired-eval.lock",
+            "SUPERVISOR": self.supervisor,
+            "SCRIPT_DIR": self.supervisor.parent,
+            "CONTROLLER": self.controller,
+            "PUBLISHER": self.publisher,
+            "PYTHON": self.python,
+        }.items():
+            patcher = mock.patch.object(lab, key, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def test_dry_run_does_not_modify_a_file_or_invoke_game(self):
+        with mock.patch.object(lab, "candidate_source", return_value=self.candidate), \
+             mock.patch.object(lab.subprocess, "run",
+                               side_effect=AssertionError("No game or API permitted")), \
+             mock.patch.object(lab, "stage_source",
+                               side_effect=AssertionError("Cannot stage DLL")):
+            self.assertEqual(lab.main([
+                "--baseline-sha", self.base_sha,
+                "--candidate-sha", self.cand_sha,
+                "--candidate-run-id", "39169390987",
+            ]), 0)
+        self.assertFalse(self.download.exists())
+        self.assertFalse(lab.LOCK.exists())
+
+    def test_mismatched_or_identical_hashes_and_stop_rejected(self):
+        with mock.patch.object(lab, "candidate_source", return_value=self.candidate):
+            with self.assertRaisesRegex(ValueError, "two distinct"):
+                lab.preflight(self.base_sha, self.base_sha, "39169390987", 1, 60)
+            with self.assertRaisesRegex(ValueError, "hash disagrees"):
+                lab.preflight(self.base_sha, "a" * 64, "39169390987", 1, 60)
+            with self.assertRaisesRegex(ValueError, "Limited"):
+                lab.preflight(self.base_sha, self.cand_sha, "39169390987", 6, 60)
+            (self.config / "STOP").touch()
+            with self.assertRaisesRegex(RuntimeError, "STOP or PAUSE"):
+                lab.preflight(self.base_sha, self.cand_sha, "39169390987", 1, 60)
+
+    def test_unrecovered_original_backup_blocks_new_trial(self):
+        lab.BACKUP.write_bytes(b"original")
+        with mock.patch.object(lab, "candidate_source", return_value=self.candidate):
+            with self.assertRaisesRegex(RuntimeError, "backup"):
+                lab.preflight(self.base_sha, self.cand_sha, "39169390987", 1, 60)
+        self.assertEqual(lab.BACKUP.read_bytes(), b"original")
+
+    def test_requires_candidate_manifest_and_distinct_source(self):
+        self.assertEqual(
+            lab.candidate_source("39169390987", self.cand_sha), self.candidate)
+        valid = lab.preflight(self.base_sha, self.cand_sha, "39169390987", 1, 60)
+        self.assertEqual(valid["max_game_runs"], 2)
+        self.assertFalse(valid["working_game_modified"])
+        metadata = self.candidate.parent / "provenance.json"
+        metadata.write_text(json.dumps({
+            "run_id": "39169390987", "candidate_sha256": "a" * 64,
+            "automatic_execution": False,
+        }))
+        with self.assertRaisesRegex(ValueError, "provenance"):
+            lab.candidate_source("39169390987", self.cand_sha)
+
+    def test_supervisor_must_confirm_exit_and_correct_hash(self):
+        name = "autobenchmark-2026-10-18_17-25-28"
+        run = self.results / name
+        run.mkdir()
+        (run / "lifecycle.verified").write_text(
+            "wrapper_wait_exited=yes\ntest_game_handles=none\n")
+        (run / "summary.json").write_text(json.dumps({
+            "dll_sha256": self.base_sha, "run": name, "close_requested": True,
+            "metrics": {"mode": {"optimization": 0, "nowait": 0, "gdi": 0}},
+        }))
+        def fake_run(*args, **kwargs):
+            self.assertNotIn("GITHUB_TOKEN", kwargs["env"])
+            self.assertNotIn("OPENAI_API_KEY", kwargs["env"])
+            return mock.Mock(returncode=0)
+        with mock.patch.object(lab, "names", side_effect=[set(), {name}]), \
+             mock.patch.dict(lab.os.environ, {
+                 "GITHUB_TOKEN": "secret", "OPENAI_API_KEY": "secret",
+             }):
+            self.assertEqual(lab.invoke_supervisor(
+                self.base_sha, 60, run=fake_run), name)
+        (run / "lifecycle.verified").unlink()
+        with mock.patch.object(lab, "names", side_effect=[set(), {name}]), \
+             self.assertRaisesRegex(RuntimeError, "exit receipt"):
+            lab.invoke_supervisor(self.base_sha, 60, run=fake_run)
+
+    def test_two_approved_binaries_restore_original_downloads_and_hold_for_review(self):
+        original = b"MY EXISTING DOWNLOADS DLL"
+        self.download.write_bytes(original)
+        helper_originals = {}
+        for name in lab.HELPERS:
+            old = ("user's previous " + name).encode()
+            (self.download.parent / name).write_bytes(old)
+            helper_originals[name] = old
+        order = []
+        def fake_supervisor(sha, seconds, *, run):
+            self.assertEqual(lab.digest(self.download), sha)
+            order.append(sha)
+            return f"autobenchmark-2026-10-18_17-00-{len(order):02d}"
+        def fake_controller(argv, **kwargs):
+            self.assertNotIn("GITHUB_TOKEN", kwargs["env"])
+            self.assertNotIn("OPENAI_API_KEY", kwargs["env"])
+            doc = json.loads(Path(argv[argv.index("--manifest") + 1]).read_text())
+            self.assertEqual(doc["pairs"][0], {
+                "baseline": "autobenchmark-2026-10-18_17-00-01",
+                "candidate": "autobenchmark-2026-10-18_17-00-02",
+            })
+            outfile = Path(argv[argv.index("--output") + 1])
+            outfile.write_text(json.dumps({
+                "manifest_verified": True, "may_install_or_run_candidate": False,
+                "disposition": "requires_safe_worker_or_human",
+                "next_step": "complete_paired_measurement",
+            }))
+            return mock.Mock(returncode=0)
+
+        with mock.patch.object(lab, "candidate_source", return_value=self.candidate), \
+             mock.patch.object(lab, "invoke_supervisor", side_effect=fake_supervisor), \
+             mock.patch.dict(lab.os.environ, {
+                 "GITHUB_TOKEN": "private", "OPENAI_API_KEY": "private",
+             }):
+            info = lab.execute(self.base_sha, self.cand_sha, "39169390987",
+                               1, 60, run=fake_controller)
+        self.assertEqual(order, [self.base_sha, self.cand_sha])
+        self.assertEqual(info["pairs"], 1)
+        self.assertEqual(self.download.read_bytes(), original)
+        for name in lab.HELPERS:
+            self.assertEqual((self.download.parent / name).read_bytes(),
+                             helper_originals[name])
+            self.assertFalse((self.download.parent / (".openlrr-paired-previous-" + name)).exists())
+        self.assertFalse(lab.BACKUP.exists())
+        self.assertFalse(lab.LOCK.exists())
+
+    def test_real_candidate_ab_result_queues_only_data_ticket(self):
+        helper = self.root / "OpenLRR-Agent/scripts/agent/research_ticket.py"
+        helper.write_text("# trusted ticket builder")
+        observations = []
+        commands = []
+
+        def fake_supervisor(sha, seconds, *, run):
+            observations.append(sha)
+            return f"autobenchmark-2026-10-18_17-00-{len(observations):02d}"
+
+        def fake_run(argv, **kwargs):
+            commands.append(argv)
+            self.assertNotIn("OPENAI_API_KEY", kwargs["env"])
+            self.assertNotIn("GITHUB_TOKEN", kwargs["env"])
+            if str(self.controller) in argv:
+                manifest = json.loads(Path(argv[argv.index("--manifest") + 1]).read_text())
+                Path(argv[argv.index("--output") + 1]).write_text(json.dumps({
+                    "experiment_id": manifest["experiment_id"],
+                    "manifest_verified": True,
+                    "ledger_committed": True,
+                    "may_install_or_run_candidate": False,
+                    "disposition": "ready_for_new_research",
+                    "next_step": "new_hypothesis",
+                }))
+            else:
+                self.assertIn(str(helper), argv)
+                decision = json.loads(Path(argv[argv.index("--decision") + 1]).read_text())
+                Path(argv[argv.index("--out") + 1]).write_text(json.dumps({
+                    "experiment_id": decision["experiment_id"],
+                    "approved_to_invoke_model": False,
+                    "approved_to_execute_game": False,
+                }))
+            return mock.Mock(returncode=0)
+
+        with mock.patch.object(lab, "RESEARCH_TICKET", helper), \
+             mock.patch.object(lab, "candidate_source", return_value=self.candidate), \
+             mock.patch.object(lab, "invoke_supervisor", side_effect=fake_supervisor), \
+             mock.patch.dict(lab.os.environ, {
+                 "OPENAI_API_KEY": "test-secret", "GITHUB_TOKEN": "test-secret",
+             }):
+            done = lab.execute(self.base_sha, self.cand_sha, "39169390987",
+                               1, 60, run=fake_run)
+        self.assertTrue(done["research_ticket_queued"])
+        self.assertFalse(done["game_changes_promoted"])
+        self.assertEqual(len(commands), 2)
+        self.assertFalse(lab.LOCK.exists())
+
+    def test_eligible_research_ticket_published_only_after_private_evidence(self):
+        builder = self.root / "OpenLRR-Agent/scripts/agent/research_ticket.py"
+        builder.write_text("# trusted ticket builder")
+        uploader = self.root / "OpenLRR-Agent/scripts/agent/publish_research_ticket.py"
+        uploader.write_text("# trusted ticket uploader")
+        events = []
+        count = []
+
+        def fake_supervisor(sha, seconds, *, run):
+            count.append(sha)
+            return f"autobenchmark-2026-10-18_17-00-{len(count):02d}"
+
+        def fake_run(command, **kwargs):
+            self.assertNotIn("OPENAI_API_KEY", kwargs["env"])
+            self.assertNotIn("GH_TOKEN", kwargs["env"])
+            if str(self.controller) in command:
+                name = json.loads(Path(command[command.index("--manifest") + 1]).read_text())["experiment_id"]
+                Path(command[command.index("--output") + 1]).write_text(json.dumps({
+                    "experiment_id": name,
+                    "manifest_verified": True, "ledger_committed": True,
+                    "may_install_or_run_candidate": False,
+                    "disposition": "ready_for_new_research",
+                    "next_step": "new_hypothesis",
+                }))
+                events.append("decision")
+            elif str(builder) in command:
+                name = json.loads(Path(command[command.index("--decision") + 1]).read_text())["experiment_id"]
+                Path(command[command.index("--out") + 1]).write_text(json.dumps({
+                    "experiment_id": name, "ticket_id": "research_" + "a" * 24,
+                    "approved_to_invoke_model": False, "approved_to_execute_game": False,
+                }))
+                events.append("ticket")
+            elif str(self.publisher) in command:
+                self.assertIn("--publish", command)
+                events.append("experiment_uploaded")
+            elif str(uploader) in command:
+                self.assertIn("--publish", command)
+                self.assertIn("--ticket", command)
+                events.append("ticket_uploaded")
+            else:
+                raise AssertionError("Unrecognized external action")
+            return mock.Mock(returncode=0)
+
+        with mock.patch.object(lab, "RESEARCH_TICKET", builder), \
+             mock.patch.object(lab, "TICKET_PUBLISHER", uploader), \
+             mock.patch.object(lab, "candidate_source", return_value=self.candidate), \
+             mock.patch.object(lab, "invoke_supervisor", side_effect=fake_supervisor), \
+             mock.patch.dict(lab.os.environ, {"OPENAI_API_KEY": "never-inherit",
+                                               "GH_TOKEN": "never-inherit"}):
+            result = lab.execute(self.base_sha, self.cand_sha, "39169390987",
+                                 1, 60, run=fake_run, publish_evidence=True)
+        self.assertEqual(events, ["decision", "ticket", "experiment_uploaded",
+                                  "ticket_uploaded"])
+        self.assertTrue(result["private_experiment_published"])
+        self.assertFalse(result["game_changes_promoted"])
+        self.assertFalse(lab.LOCK.exists())
+
+    def test_publish_requires_explicit_run(self):
+        with self.assertRaises(SystemExit):
+            lab.main([
+                "--baseline-sha", self.base_sha,
+                "--candidate-sha", self.cand_sha,
+                "--candidate-run-id", "39169390987",
+                "--publish-evidence",
+            ])
+        self.assertFalse(lab.LOCK.exists())
+
+    def test_private_publication_is_separate_from_game_completion(self):
+        observed = []
+        def fake_supervisor(sha, seconds, *, run):
+            observed.append(sha)
+            return f"autobenchmark-2026-10-18_17-00-{len(observed):02d}"
+
+        def fake_run(argv, **kwargs):
+            self.assertNotIn("OPENAI_API_KEY", kwargs["env"])
+            if str(self.controller) in argv:
+                manifest = Path(argv[argv.index("--manifest") + 1])
+                metadata = json.loads(manifest.read_text())
+                Path(argv[argv.index("--output") + 1]).write_text(json.dumps({
+                    "experiment_id": metadata["experiment_id"],
+                    "manifest_verified": True,
+                    "may_install_or_run_candidate": False,
+                    "disposition": "requires_safe_worker_or_human",
+                    "next_step": "complete_paired_measurement",
+                }))
+                return mock.Mock(returncode=0)
+            self.assertIn(str(self.publisher), argv)
+            self.assertIn("--publish", argv)
+            self.assertIn("--runs-dir", argv)
+            return mock.Mock(returncode=2)  # network outage, not a game failure
+
+        with mock.patch.object(lab, "candidate_source", return_value=self.candidate), \
+             mock.patch.object(lab, "invoke_supervisor", side_effect=fake_supervisor), \
+             mock.patch.dict(lab.os.environ, {"OPENAI_API_KEY": "secret"}):
+            with self.assertRaisesRegex(RuntimeError, "safely completed local results"):
+                lab.execute(self.base_sha, self.cand_sha, "39169390987",
+                            1, 60, run=fake_run, publish_evidence=True)
+        self.assertEqual(observed, [self.base_sha, self.cand_sha])
+        self.assertFalse(lab.LOCK.exists(), "An upload outage must not pretend Wine still runs")
+
+    def test_failed_supervisor_holds_lock_but_restores_downloads(self):
+        original = b"ORIGINAL FILE"
+        self.download.write_bytes(original)
+        helper = self.download.parent / lab.HELPERS[0]
+        helper.write_bytes(b"ORIGINAL SCRIPT")
+        with mock.patch.object(lab, "candidate_source", return_value=self.candidate), \
+             mock.patch.object(lab, "invoke_supervisor",
+                               side_effect=RuntimeError("wine failed")):
+            with self.assertRaisesRegex(RuntimeError, "wine failed"):
+                lab.execute(self.base_sha, self.cand_sha, "39169390987",
+                            1, 60)
+        self.assertTrue(lab.LOCK.exists())
+        self.assertEqual(self.download.read_bytes(), original)
+        self.assertEqual(helper.read_bytes(), b"ORIGINAL SCRIPT")
+        self.assertFalse(lab.BACKUP.exists())
+
+    def test_unrecovered_helper_backup_blocks_all_game_launches(self):
+        backup = self.download.parent / (".openlrr-paired-previous-" + lab.HELPERS[0])
+        backup.write_bytes(b"ORIGINAL")
+        with mock.patch.object(lab, "invoke_supervisor",
+                               side_effect=AssertionError("Should never launch")):
+            with self.assertRaisesRegex(RuntimeError, "Unrecovered benchmark helper backup"):
+                lab.execute(self.base_sha, self.cand_sha, "39169390987", 1, 60)
+
+    def test_missing_trusted_helper_refused_before_launch(self):
+        (lab.SCRIPT_DIR / lab.HELPERS[1]).unlink()
+        with mock.patch.object(lab, "invoke_supervisor",
+                               side_effect=AssertionError("Should never launch")):
+            with self.assertRaisesRegex(ValueError, "Trusted benchmark helper"):
+                lab.execute(self.base_sha, self.cand_sha, "39169390987", 1, 60)
+
+
+if __name__ == "__main__":
+    unittest.main()

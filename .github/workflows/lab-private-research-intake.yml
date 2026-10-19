@@ -1,0 +1,67 @@
+name: OpenLRR Private Research Intake Verification
+
+on:
+  push:
+    branches: [lab-private-research-intake-v1]
+    paths:
+      - '.github/workflows/lab-private-research-intake.yml'
+      - 'scripts/agent/private_research_inbox.py'
+      - 'scripts/agent/tests/test_private_research_inbox.py'
+  workflow_dispatch:
+    inputs:
+      ticket_id:
+        description: 'Exact immutable research ticket ID (research_ + 24 hex digits)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: openlrr-readonly-private-intake
+  cancel-in-progress: false
+
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Python static compilation and fully mocked private intake tests
+        run: |
+          python -m compileall -q scripts/agent
+          python -m unittest discover -s scripts/agent/tests -p 'test_private_research_inbox.py' -v
+      - name: Safe offline preflight
+        run: python scripts/agent/private_research_inbox.py --ticket-id research_aaaaaaaaaaaaaaaaaaaaaaaa
+
+  verify:
+    if: github.event_name == 'workflow_dispatch'
+    needs: offline
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Independent private evidence verification
+        env:
+          GH_TOKEN: ${{ secrets.OPENLRR_RESULTS_READ_TOKEN }}
+          REQUEST_TICKET: ${{ inputs.ticket_id }}
+        run: |
+          test -n "$GH_TOKEN" || { echo 'Separate private read-only token not connected; refusing'; exit 2; }
+          python scripts/agent/private_research_inbox.py --ticket-id "$REQUEST_TICKET" --verify-private --out validated-research/verified-ticket.json
+      - name: Upload non-executable, sanitized verification report
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenLRR-ReadOnly-Research-Intake
+          path: validated-research/verified-ticket.json
+          if-no-files-found: error
+          retention-days: 7
