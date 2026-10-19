@@ -145,6 +145,12 @@ def analyze_csv(source):
         "window_blt_cpu_unavailable", "window_blt_slow_low_cpu",
     )
     cpu_found = {name for name in cpu_names if name in totals}
+    # Newer CPU probes explicitly report impossible per-call CPU>wall
+    # accounting. Older valid CSV records omit the optional metric.
+    inconsistent_name = "window_blt_cpu_inconsistent"
+    if inconsistent_name in totals and cpu_found != set(cpu_names):
+        raise ValueError("CPU inconsistency counter needs complete CPU probe fields")
+    inconsistent_calls = totals.get(inconsistent_name, {}).get("calls", 0)
     if cpu_found and cpu_found != set(cpu_names):
         raise ValueError("Incomplete DirectDraw CPU diagnostic fields")
     cpu_probe_present = bool(cpu_found)
@@ -161,6 +167,8 @@ def analyze_csv(source):
             raise ValueError("CPU slow-call samples exceed long Blt events")
         if slow_low_cpu > slow_cpu_samples:
             raise ValueError("Low-CPU calls exceed sampled slow Blts")
+        if inconsistent_calls > cpu_missing:
+            raise ValueError("Impossible CPU samples exceed rejected CPU measurements")
     cpu_all = totals.get("window_blt_thread_cpu", {})
     cpu_slow = totals.get("window_blt_slow_thread_cpu", {})
 
@@ -210,6 +218,8 @@ def analyze_csv(source):
         "blit_slow_thread_cpu_avg_ms": round(cpu_slow["total_ms"] / slow_cpu_samples, 4)
         if slow_cpu_samples else None,
         "blit_slow_low_cpu_calls": slow_low_cpu if cpu_probe_present else None,
+        "blit_cpu_inconsistent_calls": inconsistent_calls
+        if inconsistent_name in totals else None,
     }
 
 
