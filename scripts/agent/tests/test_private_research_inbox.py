@@ -159,10 +159,16 @@ class PrivateIntakeTests(unittest.TestCase):
                 inbox.get_verified_ticket(self.id)
 
     def test_forged_benchmark_metrics_are_detected(self):
-        first = self.doc["pairs"][0]["candidate"]
-        changed = json.loads(self.remote["runs/" + first + "/summary.json"])
-        changed["metrics"]["present_avg_ms"] = 80.0
-        self.remote["runs/" + first + "/summary.json"] = json.dumps(changed).encode()
+        # The evidence gate compares the median of five paired runs, so
+        # tampering with just one value can leave its summary unchanged.
+        # Change all five candidate runs to ensure the recomputed evidence
+        # fingerprint differs while retaining the no_improvement category.
+        for pair in self.doc["pairs"]:
+            candidate = pair["candidate"]
+            key = "runs/" + candidate + "/summary.json"
+            changed = json.loads(self.remote[key])
+            changed["metrics"]["present_avg_ms"] = 240.0
+            self.remote[key] = json.dumps(changed).encode()
         with mock.patch.object(inbox, "gh", side_effect=self.fake_gh):
             with self.assertRaisesRegex(ValueError, "fingerprint disagrees"):
                 inbox.get_verified_ticket(self.id)
