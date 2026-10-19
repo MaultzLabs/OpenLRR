@@ -134,7 +134,8 @@ def verify_result(run_name: str, mode: str, expected_sha: str) -> Path:
     return run / "menuperf.csv"
 
 
-def run_one(mode: str, approved_sha: str, seconds: int, baseline: Path | None) -> tuple[str, Path]:
+def run_one(mode: str, approved_sha: str, seconds: int, baseline: Path | None,
+            *, record_visual_timing: bool = False) -> tuple[str, Path]:
     if switches() != "ready":
         raise RuntimeError("PAUSE or STOP active before game launch")
     if fingerprint(DLL) != approved_sha:
@@ -144,7 +145,8 @@ def run_one(mode: str, approved_sha: str, seconds: int, baseline: Path | None) -
            if not k.startswith("OPENAI_") and k not in
            {"GITHUB_TOKEN", "GH_TOKEN", "GIT_ASKPASS", "SSH_ASKPASS"}}
     env.update(OPENLRR_SUPERVISED="1", OPENLRR_BENCH_MODE=mode,
-               OPENLRR_BENCH_SECONDS=str(seconds))
+               OPENLRR_BENCH_SECONDS=str(seconds),
+               OPENLRR_VISUAL_TIMELINE="1" if record_visual_timing else "0")
     env.pop("OPENLRR_BASELINE_CSV", None)
     if baseline:
         env["OPENLRR_BASELINE_CSV"] = str(baseline)
@@ -293,6 +295,8 @@ def main(argv=None) -> int:
     parser.add_argument("--analyze", action="store_true",
                         help="After two or more verified runs, call the read-only OpenAI agent once")
     parser.add_argument("--model", default="gpt-6-luna")
+    parser.add_argument("--record-visual-timing", action="store_true",
+                        help="Opt-in TEST run start/end timing markers (never starts screen capture)")
     parser.add_argument("--coordinate", action="store_true",
                         help="After two verified A/B runs, record one policy decision; no AI or extra game execution")
     args = parser.parse_args(argv)
@@ -304,6 +308,12 @@ def main(argv=None) -> int:
     if args.analyze and len(plan) < 2:
         parser.error("--analyze requires two benchmark modes")
     info = preflight(args.approved_sha, plan, args.seconds, args.run)
+    if args.record_visual_timing and args.run:
+        helper = RUNNER.with_name("visual_timeline.py")
+        if not helper.is_file():
+            raise RuntimeError("Timing marker helper missing beside TEST benchmark runner")
+    info["record_visual_timing"] = args.record_visual_timing
+    info["screen_capture_authorized"] = False
     print(json.dumps(info, indent=2), flush=True)
     if not args.run:
         print("DRY RUN ONLY. Add --run after inspecting the plan.")
@@ -322,7 +332,8 @@ def main(argv=None) -> int:
             if not wait_unpaused():
                 audit("supervisor_stopped")
                 return 2
-            run_name, csv = run_one(mode, args.approved_sha, args.seconds, baseline)
+            run_name, csv = run_one(mode, args.approved_sha, args.seconds, baseline,
+                                    record_visual_timing=args.record_visual_timing)
             completed.append(run_name)
             if mode == "baseline":
                 baseline = csv
