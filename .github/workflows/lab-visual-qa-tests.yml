@@ -2,10 +2,12 @@ name: OpenLRR Visual QA (offline synthetic proof)
 
 on:
   push:
-    branches: [lab-visual-qa-v1, lab-visual-binding-v1, lab-visual-temporal-provenance-v1]
+    branches: [lab-visual-qa-v1, lab-visual-binding-v1, lab-visual-temporal-provenance-v1, lab-visual-review-bridge-v1]
     paths:
       - 'scripts/visual_qa/**'
       - 'scripts/agent/visual_feedback.py'
+      - 'scripts/agent/visual_review_bridge.py'
+      - 'scripts/agent/review_queue.py'
       - 'scripts/agent/visual_capture_binding.py'
       - 'scripts/agent/visual_timeline_gate.py'
       - 'scripts/macos/visual_timeline.py'
@@ -16,6 +18,8 @@ on:
     paths:
       - 'scripts/visual_qa/**'
       - 'scripts/agent/visual_feedback.py'
+      - 'scripts/agent/visual_review_bridge.py'
+      - 'scripts/agent/review_queue.py'
       - 'scripts/agent/visual_capture_binding.py'
       - 'scripts/agent/visual_timeline_gate.py'
       - 'scripts/macos/visual_timeline.py'
