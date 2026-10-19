@@ -83,6 +83,16 @@ def check_environment(session: int, *, os_check: bool = True) -> dict:
                  HOME / ".local/share/openlrr-agent/approved-diagnostic-worker.lock"):
         if lock.exists() or lock.is_symlink():
             raise RuntimeError("Another lab experiment has an active/stale lock")
+    if os_check:
+        revision = safe_process(["git", "-C", str(ROOT), "rev-parse", "--verify", "HEAD"])
+        if not isinstance(revision, str) or not re.fullmatch(r"[a-f0-9]{40}", revision):
+            raise RuntimeError("Cannot verify checked-out lab source revision")
+        dirty = subprocess.run(
+            ["git", "-C", str(ROOT), "status", "--porcelain", "--untracked-files=no"],
+            capture_output=True, text=True, timeout=15, check=False,
+        )
+        if dirty.returncode != 0 or dirty.stdout.strip():
+            raise RuntimeError("Local lab scripts are modified; refuse unreviewed execution")
     for path in (APP, GAME, GAME / "LegoRR.exe", GAME / "openlrr.dll",
                  ONE_SHOT, SUPERVISOR):
         if not no_symlink_ancestors(path):
@@ -328,7 +338,18 @@ def run_session(session: int, *, profile_cpu: bool = True) -> dict:
             )
             started = time.monotonic()
             attempted = False
+            previous_notice = -30
+            print("Approved menu session started. TEST app only; "
+                  "two baselines" if session == 1 else
+                  "Approved menu session started. TEST app only; "
+                  "two preliminary graphics A/B pairs", flush=True)
+            print("Private benchmark uploads are handled by the existing runner. "
+                  "Log:", log, flush=True)
             while proc.poll() is None:
+                if time.monotonic() - started - previous_notice >= 30:
+                    previous_notice = time.monotonic() - started
+                    print("TEST session still running; elapsed:",
+                          int(previous_notice), "seconds", flush=True)
                 elapsed = time.monotonic() - started
                 if elapsed > MAX_SESSION_SECONDS[session]:
                     (CONFIG / "STOP").touch(exist_ok=True)
@@ -340,11 +361,16 @@ def run_session(session: int, *, profile_cpu: bool = True) -> dict:
                 # exists and fresh TEST menu telemetry has appeared.
                 live = GAME / "menuperf.csv"
                 observed_new_run = bool(known_runs() - before)
-                fresh_frame_data = (
-                    live.is_file() and not live.is_symlink()
-                    and live.stat().st_size > 120
-                    and live.stat().st_mtime >= start.timestamp()
-                )
+                try:
+                    fresh_frame_data = (
+                        live.is_file() and not live.is_symlink()
+                        and live.stat().st_size > 120
+                        and live.stat().st_mtime >= start.timestamp()
+                    )
+                except (FileNotFoundError, PermissionError):
+                    # The runner rotates the TEST telemetry file between
+                    # arms. A transient gap is not a failing game result.
+                    fresh_frame_data = False
                 if (profile_cpu and not attempted and elapsed >= 20
                         and observed_new_run and fresh_frame_data):
                     attempted = True
