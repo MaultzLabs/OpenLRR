@@ -124,6 +124,42 @@ def reserve_one_model_call(ticket: dict, *, now: datetime | None = None) -> dict
     return record
 
 
+def research_context(ticket: dict) -> dict:
+    """Whitelist ONLY recomputed, bounded numeric measurements for the model."""
+    if ticket.get("verification_only") is not True:
+        raise ValueError("Research context requires independently verified intake")
+    status = ticket.get("verified_evidence_status")
+    action = ticket.get("verified_research_next_step")
+    if status not in ("no_improvement", "inconclusive", "regression"):
+        raise ValueError("Unsupported research evidence status")
+    if action not in ("new_hypothesis", "improve_instrumentation", "isolate_regression"):
+        raise ValueError("Unsupported research action")
+    pairs = ticket.get("verified_matched_pairs")
+    if type(pairs) is not int or not 1 <= pairs <= 12:
+        raise ValueError("Invalid matched pair count")
+    metrics = {}
+    for key in (
+        "verified_median_present_change_pct",
+        "verified_bootstrap_upper95_change_pct",
+        "verified_median_logical_fps_change_pct"
+    ):
+        value = ticket.get(key)
+        if value is not None and (
+            type(value) not in (int, float) or not -1000 <= value <= 1000
+        ):
+            raise ValueError("Invalid recomputed research metric")
+        metrics[key] = value
+    return {
+        "verified_status": status,
+        "policy_action": action,
+        "matched_pairs": pairs,
+        **metrics,
+        "source": "independently_recomputed_private_mac_benchmarks",
+        "visible_fps_confirmed": False,
+        "candidate_executable_authorized": False,
+    }
+
+
 def produce_research_plan(ticket: dict) -> dict:
     """Single tool-free structured model call. Do not send raw private logs."""
     from agents import Agent, Runner, set_tracing_disabled
@@ -155,14 +191,7 @@ def produce_research_plan(ticket: dict) -> dict:
     agent = Agent(name="Bounded OpenLRR Researcher", model=MODEL,
                   instructions=instructions, output_type=ProposedResearch,
                   tools=[])
-    context = {
-        "verified_status": ticket["verified_evidence_status"],
-        "policy_action": ticket["verified_research_next_step"],
-        "matched_pairs": ticket["verified_matched_pairs"],
-        "source": "independently_recomputed_private_mac_benchmarks",
-        "visible_fps_confirmed": False,
-        "candidate_executable_authorized": False,
-    }
+    context = research_context(ticket)
     result = Runner.run_sync(
         agent, json.dumps(context, sort_keys=True),
         max_turns=MAX_MODEL_TURNS_PER_REQUEST,
