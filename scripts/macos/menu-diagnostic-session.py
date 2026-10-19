@@ -97,11 +97,20 @@ def check_environment(session: int, *, os_check: bool = True) -> dict:
         raise RuntimeError("Previously configured isolated lab Python venv missing")
     # Respect an existing ongoing TEST process. Never kill it automatically.
     if os_check:
-        found = safe_process(["/usr/sbin/lsof", "-nP", "-t", "+D", str(GAME)],
-                             timeout=25)
-        if found is None:
-            raise RuntimeError("Could not inspect TEST process handles; no new run")
-        if found:
+        # lsof returns exit status 1 with EMPTY output when no processes
+        # own files under the TEST game. This is the normal safe case.
+        try:
+            inspected = subprocess.run(
+                ["/usr/sbin/lsof", "-nP", "-t", "+D", str(GAME)],
+                capture_output=True, text=True, timeout=25, check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as error:
+            raise RuntimeError("Could not inspect TEST process handles") from error
+        if (inspected.returncode not in (0, 1)
+                or (inspected.returncode == 1 and inspected.stderr.strip())
+                or len(inspected.stdout) > 8192):
+            raise RuntimeError("TEST process handle inspection unreliable")
+        if inspected.stdout.strip():
             raise RuntimeError("TEST app still has open file handles")
         needed = ("gh", "shasum", "lsof", "git", "python3")
         if any(shutil.which(c) is None for c in needed):
