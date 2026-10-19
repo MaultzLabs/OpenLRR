@@ -132,6 +132,24 @@ class NativeMapComposerTests(unittest.TestCase):
                     with self.subTest(bad=bad), self.assertRaisesRegex(ValueError, "game or source"):
                         composer.safe_output(Path(tmp) / bad)
 
+    def test_cannot_escape_into_game_via_parent_traversal_or_symlink(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            app = root / "Applications"
+            app.mkdir()
+            shortcut = root / "shortcut"
+            shortcut.symlink_to(app, target_is_directory=True)
+            with mock.patch.object(composer.Path, "home", return_value=root):
+                with self.assertRaisesRegex(ValueError, "traversal"):
+                    composer.safe_output(
+                        root / "Downloads/../Applications/WorkingGame"
+                    )
+                with self.assertRaisesRegex(ValueError, "symlink"):
+                    composer.safe_output(shortcut / "WorkingGame")
+                with self.assertRaisesRegex(ValueError, "game or source"):
+                    composer.safe_output(root / "Applications/Sikarugir/NewLevel")
+            self.assertFalse((app / "WorkingGame").exists())
+
     def test_default_cli_is_dry_without_files_or_processes(self):
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp) / "CrystalFrontier"
