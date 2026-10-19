@@ -120,12 +120,44 @@ class MenuSessionTests(unittest.TestCase):
             return no_handles(args, **kwargs)
         with mock.patch.object(session, "sys") as fake_sys, \
              mock.patch.object(session, "safe_process",
-                               side_effect=lambda cmd, **k: "a" * 40
-                               if cmd[0] == "git" else "PRIVATE"), \
+                               side_effect=lambda cmd, **k: (
+                                   "a" * 40 if cmd[0] == "git" else
+                                   "1" if cmd[0] == "/usr/sbin/sysctl" else
+                                   "PRIVATE"
+                               )), \
              mock.patch.object(session.subprocess, "run", side_effect=inspected):
             fake_sys.platform = "darwin"
             data = session.check_environment(1, os_check=True)
         self.assertEqual(data["plan"], ["baseline", "baseline"])
+
+    def test_rosetta_process_architecture_does_not_override_arm64_hardware(self):
+        def reader(cmd, **kwargs):
+            if cmd[0] == "/usr/sbin/sysctl":
+                return "1"
+            if cmd[0] == "git":
+                return "a" * 40
+            return "PRIVATE"
+        def no_handles(argv, **kwargs):
+            return mock.Mock(returncode=0, stdout="", stderr="") if argv[0] == "git" \
+                else mock.Mock(returncode=1, stdout="", stderr="")
+        with mock.patch.object(session, "sys") as fake_sys, \
+             mock.patch.object(session.platform, "machine", return_value="x86_64"), \
+             mock.patch.object(session, "safe_process", side_effect=reader), \
+             mock.patch.object(session.subprocess, "run", side_effect=no_handles):
+            fake_sys.platform = "darwin"
+            self.assertEqual(session.check_environment(1, os_check=True)["session"], 1)
+            snapshot = session.mac_snapshot()
+            self.assertEqual(snapshot["python_process_architecture"], "x86_64")
+            self.assertTrue(snapshot["hardware_apple_silicon"])
+
+    def test_no_apple_silicon_hardware_evidence_fails_closed(self):
+        with mock.patch.object(session, "sys") as fake_sys, \
+             mock.patch.object(session, "safe_process", return_value=None), \
+             mock.patch.object(session.subprocess, "Popen",
+                               side_effect=AssertionError("game launched")):
+            fake_sys.platform = "darwin"
+            with self.assertRaisesRegex(RuntimeError, "Apple Silicon"):
+                session.check_environment(1, os_check=True)
 
     def test_macos_lsof_still_running_process_blocks_preflight(self):
         def inspected(args, **kwargs):
@@ -134,8 +166,11 @@ class MenuSessionTests(unittest.TestCase):
             return mock.Mock(returncode=0, stdout="12345\\n", stderr="")
         with mock.patch.object(session, "sys") as fake_sys, \
              mock.patch.object(session, "safe_process",
-                               side_effect=lambda cmd, **k: "a" * 40
-                               if cmd[0] == "git" else "PRIVATE"), \
+                               side_effect=lambda cmd, **k: (
+                                   "a" * 40 if cmd[0] == "git" else
+                                   "1" if cmd[0] == "/usr/sbin/sysctl" else
+                                   "PRIVATE"
+                               )), \
              mock.patch.object(session.subprocess, "run", side_effect=inspected):
             fake_sys.platform = "darwin"
             with self.assertRaisesRegex(RuntimeError, "open file handles"):
@@ -148,8 +183,11 @@ class MenuSessionTests(unittest.TestCase):
             return mock.Mock(returncode=1, stdout="", stderr="unknown error")
         with mock.patch.object(session, "sys") as fake_sys, \
              mock.patch.object(session, "safe_process",
-                               side_effect=lambda cmd, **k: "a" * 40
-                               if cmd[0] == "git" else "PRIVATE"), \
+                               side_effect=lambda cmd, **k: (
+                                   "a" * 40 if cmd[0] == "git" else
+                                   "1" if cmd[0] == "/usr/sbin/sysctl" else
+                                   "PRIVATE"
+                               )), \
              mock.patch.object(session.subprocess, "run", side_effect=inspected):
             fake_sys.platform = "darwin"
             with self.assertRaisesRegex(RuntimeError, "unreliable"):
@@ -157,7 +195,11 @@ class MenuSessionTests(unittest.TestCase):
 
     def test_dirty_lab_checkout_blocks_game_launch(self):
         with mock.patch.object(session, "sys") as fake_sys, \
-             mock.patch.object(session, "safe_process", return_value="a" * 40), \
+             mock.patch.object(session, "safe_process",
+                               side_effect=lambda cmd, **k: (
+                                   "1" if cmd[0] == "/usr/sbin/sysctl"
+                                   else "a" * 40
+                               )), \
              mock.patch.object(session.subprocess, "run",
                                return_value=mock.Mock(returncode=0,
                                                       stdout=" M scripts/macos/lab-supervisor.py",
