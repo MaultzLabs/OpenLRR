@@ -20,6 +20,10 @@ class ProfilerSafetyTests(unittest.TestCase):
         game = app / "Contents/SharedSupport/prefix/drive_c/Program Files/Rock Raiders OpenLRR"
         game.mkdir(parents=True)
         (game / "LegoRR.exe").write_bytes(b"fixture")
+        (game / "menuperf.csv").write_text(
+            "seconds,optimization,nowait,gdi,operation,calls,total_ms,max_ms\n"
+            "1.0,0,0,0,frame_flip,5,10.0000,5.0000\n"
+        )
         config = root / "config"
         config.mkdir()
         for prop, replacement in [
@@ -41,7 +45,7 @@ class ProfilerSafetyTests(unittest.TestCase):
     def test_requires_pid_owned_by_test_directory_and_wine(self):
         def commands(argv, *, timeout):
             if argv[0] == "/usr/sbin/lsof":
-                self.assertIn(str(profiler.GAME), argv)
+                self.assertEqual(argv[-1], str(profiler.GAME / "menuperf.csv"))
                 return "107\n205\n"
             if argv[0] == "/bin/ps":
                 return "wine64-preloader\n" if argv[2] == "205" else "/usr/bin/python\n"
@@ -62,6 +66,63 @@ class ProfilerSafetyTests(unittest.TestCase):
                  mock.patch.object(profiler, "checked_run", return_value=candidate):
                 with self.assertRaises(RuntimeError):
                     profiler.find_test_wine_pid()
+
+    def test_live_writer_file_is_required_before_process_inspection(self):
+        target = profiler.GAME / "menuperf.csv"
+        target.unlink()
+        with mock.patch.object(profiler, "checked_run",
+                               side_effect=AssertionError("process lookup should not run")):
+            with self.assertRaisesRegex(RuntimeError, "telemetry file"):
+                profiler.find_test_wine_pid()
+        target.write_text("not real TEST telemetry\n")
+        with mock.patch.object(profiler, "checked_run",
+                               side_effect=AssertionError("process lookup should not run")):
+            with self.assertRaisesRegex(RuntimeError, "header"):
+                profiler.find_test_wine_pid()
+
+    def test_test_telemetry_symlink_is_never_followed(self):
+        live = profiler.GAME / "menuperf.csv"
+        live.unlink()
+        foreign = profiler.GAME.parent / "untrusted.csv"
+        foreign.write_text("seconds,optimization,nowait,gdi,operation,calls,total_ms,max_ms\n")
+        live.symlink_to(foreign)
+        with mock.patch.object(profiler, "checked_run",
+                               side_effect=AssertionError("must not inspect symlink")):
+            with self.assertRaisesRegex(RuntimeError, "telemetry file"):
+                profiler.find_test_wine_pid()
+
+    def test_no_live_writer_never_falls_back_to_name_only(self):
+        with mock.patch.object(profiler, "checked_run", return_value="") as lookup:
+            with self.assertRaisesRegex(RuntimeError, "No live TEST"):
+                profiler.find_test_wine_pid()
+        self.assertEqual(lookup.call_count, 1)
+        self.assertEqual(lookup.call_args.args[0][-1],
+                         str(profiler.GAME / "menuperf.csv"))
+
+    def test_lsof_empty_exit_one_is_a_no_writer_result(self):
+        with mock.patch.object(profiler.subprocess, "run",
+                               return_value=mock.Mock(returncode=1, stdout="", stderr="")):
+            self.assertEqual(profiler.checked_run(
+                ["/usr/sbin/lsof", "-nP", "-t", str(profiler.GAME / "menuperf.csv")],
+                timeout=5), "")
+
+    def test_lsof_error_cannot_be_misread_as_no_writer(self):
+        with mock.patch.object(profiler.subprocess, "run",
+                               return_value=mock.Mock(returncode=1, stdout="",
+                                                      stderr="permission denied")):
+            with self.assertRaisesRegex(RuntimeError, "lookup"):
+                profiler.checked_run(
+                    ["/usr/sbin/lsof", "-nP", "-t",
+                     str(profiler.GAME / "menuperf.csv")], timeout=5)
+
+    def test_other_process_holding_live_file_does_not_grant_capture(self):
+        def fake(argv, *, timeout):
+            if argv[0] == "/usr/sbin/lsof":
+                return "205\n"
+            return "/usr/bin/python3\n"
+        with mock.patch.object(profiler, "checked_run", side_effect=fake):
+            with self.assertRaisesRegex(RuntimeError, "exactly one Wine writer"):
+                profiler.find_test_wine_pid()
 
     def test_stop_and_pause_prevent_preflight(self):
         for flag in ("STOP", "PAUSE"):
