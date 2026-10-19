@@ -253,6 +253,49 @@ class AnalyzerTests(unittest.TestCase):
             self.assertIsNone(summary["blit_thread_cpu_avg_ms"])
             self.assertEqual(summary["blit_thread_cpu_unavailable"], 2)
 
+    def test_impossible_cpu_accounting_is_never_treated_as_cpu_bound(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp) / "autobenchmark-cpu-impossible"
+            make_csv(run)
+            add_frame_boundary_fixture(run)
+            with (run / "menuperf.csv").open("a", newline="") as handle:
+                writer = csv.writer(handle)
+                for name, calls in (
+                    ("window_blt_thread_cpu", 1),
+                    ("window_blt_slow_thread_cpu", 0),
+                    ("window_blt_cpu_unavailable", 1),
+                    ("window_blt_slow_low_cpu", 0),
+                    ("window_blt_cpu_inconsistent", 1),
+                ):
+                    writer.writerow([1.1, 0, 0, 0, name, calls, 0, 0])
+            result = module.analyze_csv(run / "menuperf.csv")
+            self.assertEqual(result["blit_cpu_inconsistent_calls"], 1)
+            self.assertEqual(result["blit_thread_cpu_unavailable"], 1)
+            self.assertEqual(result["blit_thread_cpu_samples"], 1)
+            with (run / "menuperf.csv").open("a", newline="") as handle:
+                writer = csv.writer(handle)
+                writer.writerow([1.1, 0, 0, 0,
+                                 "window_blt_cpu_inconsistent", 1, 0, 0])
+            with self.assertRaisesRegex(ValueError, "Impossible CPU"):
+                module.analyze_csv(run / "menuperf.csv")
+
+    def test_older_cpu_probe_does_not_invent_invalid_counter(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp) / "autobenchmark-old-cpu"
+            make_csv(run)
+            add_frame_boundary_fixture(run)
+            with (run / "menuperf.csv").open("a", newline="") as handle:
+                writer = csv.writer(handle)
+                for name, calls in (
+                    ("window_blt_thread_cpu", 2),
+                    ("window_blt_slow_thread_cpu", 1),
+                    ("window_blt_cpu_unavailable", 0),
+                    ("window_blt_slow_low_cpu", 0),
+                ):
+                    writer.writerow([1.1, 0, 0, 0, name, calls, 0, 0])
+            result = module.analyze_csv(run / "menuperf.csv")
+            self.assertIsNone(result["blit_cpu_inconsistent_calls"])
+
     def test_cpu_probe_rejects_inconsistent_call_count(self):
         with tempfile.TemporaryDirectory() as tmp:
             run = Path(tmp) / "autobenchmark-cpu-incomplete"
