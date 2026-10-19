@@ -1,0 +1,33 @@
+name: OpenLRR TEST Wine CPU Sampler Offline Regression
+
+on:
+  push:
+    branches: [lab-menu-live-writer-profiler-v1]
+    paths:
+      - 'scripts/macos/wine-cpu-sample.py'
+      - 'scripts/macos/tests/test_wine_cpu_sample.py'
+      - '.github/workflows/lab-menu-profiler-proof.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Syntax check and mocked Mac process binding safety tests
+        run: |
+          python3 -m py_compile scripts/macos/wine-cpu-sample.py
+          python3 -m unittest discover -s scripts/macos/tests -p 'test_wine_cpu_sample.py' -v
+      - name: Assert no running game or candidate is required in CI
+        run: |
+          git diff --exit-code
+          echo 'Mac process and graphics capture remain untested; no real game launched.'
