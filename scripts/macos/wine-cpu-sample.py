@@ -100,6 +100,121 @@ def find_test_wine_pid() -> str:
     return wine_pids[0]
 
 
+# All report categories are allowlisted. No discovered symbol, address,
+# source path, environment value or thread name enters the safe summary.
+SAMPLE_CATEGORIES = (
+    "ddraw", "wined3d", "win32u", "wine_other", "metal",
+    "coreanimation", "quartz", "kernel_wait", "libsystem_kernel",
+    "pthread", "other",
+)
+SAMPLE_FRAME = re.compile(r"^([ \\t+|:!]*)([0-9]{1,9})[ \\t]+(.+)$")
+
+
+def _frame_category(symbol: str) -> str:
+    lower = symbol.lower()
+    # Order matters: metal framework, DirectDraw and WineD3D may all occur
+    # in one call chain. We classify only the sampled leaf's own frame.
+    for label, pattern in (
+        ("wined3d", r"\\bwined3d\\b"),
+        ("ddraw", r"\\bddraw\\b"),
+        ("win32u", r"\\bwin32u\\b"),
+        ("coreanimation", r"\\bcoreanimation\\b"),
+        ("metal", r"\\bmetal\\b|\\bmtl(?:command|device|blit)"),
+        ("quartz", r"\\bquartz\\b"),
+        ("kernel_wait", r"\\b(?:semaphore_wait_trap|__ulock_wait|mach_msg_trap|__psynch_cvwait)\\b"),
+        ("libsystem_kernel", r"\\blibsystem_kernel\\b"),
+        ("pthread", r"\\bpthread\\b"),
+        ("wine_other", r"\\bwine(?:64)?\\b"),
+    ):
+        if re.search(pattern, lower):
+            return label
+    return "other"
+
+
+def sample_tree_hotspots(data: str) -> dict:
+    """Parse macOS sample's inclusive call-tree counts, using guide columns.
+
+    Exclusive leaf weight = inclusive frame samples minus direct children.
+    These are thread-stack observations, NOT wall-time CPU percentages, a
+    diagnosis of a GPU driver, or necessarily the graphics thread.
+    """
+    counts = {category: 0 for category in SAMPLE_CATEGORIES}
+    if "Call graph:" not in data:
+        return {"status": "unrecognized_sample_format", "leaf_samples": counts,
+                "thread_root_count": 0, "total_leaf_sample_observations": 0}
+    nodes = []
+    parents = []
+    graph = False
+    thread_roots = 0
+    for line in data.splitlines():
+        if not graph:
+            if line.strip() == "Call graph:":
+                graph = True
+            continue
+        if line.strip().startswith(("Total number in stack", "Binary Images:",
+                                    "Sort by top of stack", "Heaviest stack",
+                                    "Sample analysis of process")):
+            break
+        matched = SAMPLE_FRAME.match(line)
+        if not matched:
+            continue
+        indent, count_s, symbol = matched.groups()
+        depth = len(indent.expandtabs(4))
+        count = int(count_s)
+        if count <= 0:
+            continue
+        while parents and nodes[parents[-1]]["depth"] >= depth:
+            parents.pop()
+        # Reject malformed nesting instead of attributing a thread-root's
+        # inclusive sample count to a guessed module.
+        is_thread = bool(re.search(r"\\bThread_[0-9]+\\b", symbol))
+        if not parents and not is_thread:
+            continue
+        if is_thread:
+            parents.clear()
+            thread_roots += 1
+        node = {"depth": depth, "count": count, "children": 0,
+                "category": None if is_thread else _frame_category(symbol)}
+        if parents:
+            nodes[parents[-1]]["children"] += count
+        nodes.append(node)
+        parents.append(len(nodes) - 1)
+    for node in nodes:
+        exclusive = max(0, node["count"] - node["children"])
+        if node["category"] is not None:
+            counts[node["category"]] += exclusive
+    total = sum(counts.values())
+    return {
+        "status": "parsed" if thread_roots and total else "unrecognized_sample_format",
+        "thread_root_count": min(thread_roots, 10000),
+        "total_leaf_sample_observations": total,
+        "leaf_samples": counts,
+        "fraction_denominator": "all parsed thread leaf observations, not process CPU time",
+    }
+
+
+def summarize_latest_local_trace() -> dict:
+    """Reanalyze a prior local trace without starting Wine or attaching a PID."""
+    if STATE.is_symlink() or not STATE.is_dir():
+        raise RuntimeError("No safe local CPU profiler state directory")
+    candidates = [
+        p for p in STATE.glob("sample_*/raw-local-only.sample")
+        if not p.is_symlink() and not p.parent.is_symlink() and p.is_file()
+        and 0 < p.stat().st_size <= MAX_RAW_BYTES
+    ]
+    if not candidates:
+        raise RuntimeError("No valid existing local CPU trace")
+    chosen = max(candidates, key=lambda p: p.stat().st_mtime_ns)
+    raw = chosen.read_text(encoding="utf-8", errors="replace")
+    return {
+        "status": "local_only_readonly_trace_analysis",
+        "tested_process_at_analysis_time": False,
+        "raw_trace_uploaded": False,
+        "safe_to_upload_raw_trace": False,
+        "cpu_tree": sample_tree_hotspots(raw),
+    }
+
+
 def sanitized_summary(data: str, pid: str) -> dict:
     if not PID.fullmatch(pid) or not isinstance(data, str):
         raise ValueError("Invalid local CPU trace")
@@ -119,6 +234,7 @@ def sanitized_summary(data: str, pid: str) -> dict:
         "seconds_requested": SECONDS,
         "sample_interval_ms_requested": SAMPLE_INTERVAL_MS,
         "symbol_mention_counts": counts,
+        "cpu_tree": sample_tree_hotspots(data),
         "has_driver_attribution": False,
         "is_verified_visible_fps": False,
         "safe_to_upload_raw_trace": False,
@@ -177,7 +293,14 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--capture", action="store_true",
                         help="Explicitly attach to an ALREADY RUNNING TEST Wine process")
+    parser.add_argument("--summarize-latest", action="store_true",
+                        help="Read and categorize a previous local trace, no game or sampling")
     args = parser.parse_args(argv)
+    if args.capture and args.summarize_latest:
+        parser.error("Choose capture OR offline summary")
+    if args.summarize_latest:
+        print(json.dumps(summarize_latest_local_trace(), indent=2, sort_keys=True))
+        return 0
     if not args.capture:
         print(json.dumps({
             "mode": "offline_preflight",

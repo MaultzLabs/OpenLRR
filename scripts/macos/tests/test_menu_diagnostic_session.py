@@ -332,6 +332,48 @@ class MenuSessionTests(unittest.TestCase):
         self.assertNotIn("/Users/private", json.dumps(captured))
         self.assertFalse(captured["visible_fps_measured"])
 
+    def test_cpu_sample_waits_for_two_complete_stalled_menu_intervals(self):
+        path = self.game / "menuperf.csv"
+        header = "seconds,optimization,nowait,gdi,operation,calls,total_ms,max_ms\\n"
+        def block(movie, slow):
+            rows = [
+                ("movie_update", movie),
+                ("frame_flip", 4),
+                ("window_blt_over_1000ms", slow),
+                ("window_blt_slow_low_cpu", 0),
+            ]
+            return "".join(
+                f"1.270,0,0,0,{name},{calls},1.0000,1.0000\\n"
+                for name, calls in rows
+            )
+        path.write_text(header + block(10, 1) + block(0, 1))
+        self.assertFalse(session.targeted_stall_window(path))
+        path.write_text(header + block(10, 1) + block(0, 1) + block(0, 1))
+        self.assertTrue(session.targeted_stall_window(path))
+        path.write_text(header + block(0, 1) + block(0, 1) + block(4, 1))
+        self.assertFalse(session.targeted_stall_window(path))
+
+    def test_cpu_sample_rejects_incomplete_rows_and_untrusted_csv(self):
+        path = self.game / "menuperf.csv"
+        header = "seconds,optimization,nowait,gdi,operation,calls,total_ms,max_ms\\n"
+        interval = "".join(
+            f"1.270,0,0,0,{name},{count},1.0000,1.0000\\n"
+            for name, count in (
+                ("movie_update", 0), ("frame_flip", 4),
+                ("window_blt_over_1000ms", 1),
+                ("window_blt_slow_low_cpu", 0)
+            )
+        )
+        path.write_text(header + interval + interval + "1.0,0,0")
+        self.assertFalse(session.targeted_stall_window(path))
+        path.write_text(header + interval + interval)
+        self.assertTrue(session.targeted_stall_window(path))
+        path.unlink()
+        outside = self.root / "other.csv"
+        outside.write_text(header + interval + interval)
+        path.symlink_to(outside)
+        self.assertFalse(session.targeted_stall_window(path))
+
     def test_cpu_profiler_failure_reporting_is_bounded_and_redacted(self):
         samples = {
             "TEST CPU SAMPLING BLOCKED: No live TEST menu telemetry writer found":

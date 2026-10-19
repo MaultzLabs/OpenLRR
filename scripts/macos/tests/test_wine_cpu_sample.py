@@ -149,6 +149,50 @@ class ProfilerSafetyTests(unittest.TestCase):
         self.assertNotIn("secret-project", str(report))
         self.assertNotIn("/Users", str(report))
 
+    def test_sample_tree_exclusive_leaf_counts_are_not_nested_double_counts(self):
+        text = (
+            "Analysis of sampling Wine\\n"
+            "Call graph:\\n"
+            "  100 Thread_12345 DispatchQueue_1\\n"
+            "  + 100 main (in wine64)\\n"
+            "  +   70 ddraw_dispatch (in ddraw)\\n"
+            "  +   +  60 draw (in wined3d)\\n"
+            "  +   +   50 render (in Metal)\\n"
+            "  +   30 __ulock_wait (in libsystem_kernel)\\n"
+            "Binary Images:\\n"
+            "/Users/confidential/documents/client-path\\n"
+        )
+        result = profiler.sample_tree_hotspots(text)
+        self.assertEqual(result["status"], "parsed")
+        self.assertEqual(result["thread_root_count"], 1)
+        self.assertEqual(result["total_leaf_sample_observations"], 100)
+        self.assertEqual(result["leaf_samples"]["ddraw"], 10)
+        self.assertEqual(result["leaf_samples"]["wined3d"], 10)
+        self.assertEqual(result["leaf_samples"]["metal"], 50)
+        self.assertEqual(result["leaf_samples"]["kernel_wait"], 30)
+        self.assertNotIn("confidential", str(result))
+        self.assertNotIn("/Users", str(result))
+
+    def test_sample_tree_unsupported_format_fails_closed(self):
+        result = profiler.sample_tree_hotspots("Wine DirectDraw sample path /Users/private")
+        self.assertEqual(result["status"], "unrecognized_sample_format")
+        self.assertEqual(result["total_leaf_sample_observations"], 0)
+        self.assertFalse(profiler.sanitized_summary(
+            "some text", "205")["has_driver_attribution"])
+
+    def test_offline_summary_only_reads_local_and_does_not_attach(self):
+        folder = profiler.STATE / "sample_20261019T000000Z_205"
+        folder.mkdir(parents=True)
+        raw = folder / "raw-local-only.sample"
+        raw.write_text("Call graph:\\n  2 Thread_205\\n  + 2 Metal\\n")
+        with mock.patch.object(profiler.subprocess, "run",
+                               side_effect=AssertionError("no process inspection")):
+            report = profiler.summarize_latest_local_trace()
+            self.assertEqual(profiler.main(["--summarize-latest"]), 0)
+        self.assertFalse(report["tested_process_at_analysis_time"])
+        self.assertFalse(report["raw_trace_uploaded"])
+        self.assertEqual(report["cpu_tree"]["leaf_samples"]["metal"], 2)
+
     def test_capture_requires_same_test_pid_twice(self):
         with mock.patch.object(profiler, "find_test_wine_pid",
                                side_effect=["205", "206"]), \

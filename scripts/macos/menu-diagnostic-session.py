@@ -8,6 +8,7 @@ launches exactly one bounded approved diagnostic plan into the TEST app.
 from __future__ import annotations
 
 import argparse
+import csv
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -175,6 +176,51 @@ def classify_cpu_profile_failure(stderr: str) -> str:
     if "CPU sampling process lookup or profiling failed" in stderr:
         return "unavailable_process_lookup_failed"
     return "unavailable_unclassified_cpu_profile_failure"
+
+
+def targeted_stall_window(path: Path) -> bool:
+    """Only sample after TWO fully flushed, movie-free long-blit intervals.
+
+    Checks the trusted TEST telemetry, not guessed launch time. An incomplete
+    or unusual CSV fails closed. One interval is a group ending in the known
+    last metric; two groups reduce capture during movie->menu transitions.
+    """
+    columns = ["seconds", "optimization", "nowait", "gdi",
+               "operation", "calls", "total_ms", "max_ms"]
+    try:
+        if path.is_symlink() or not path.is_file():
+            return False
+        size = path.stat().st_size
+        if not 120 < size <= 2_000_000:
+            return False
+        completed = []
+        group = {}
+        with path.open("r", encoding="utf-8", newline="") as stream:
+            reader = csv.DictReader(stream)
+            if reader.fieldnames != columns:
+                return False
+            for row in reader:
+                if None in row or any(value is None for value in row.values()):
+                    return False
+                op = row["operation"]
+                if op in ("movie_update", "window_blt_over_1000ms", "frame_flip"):
+                    try:
+                        count = int(row["calls"])
+                    except (ValueError, TypeError):
+                        return False
+                    if count < 0:
+                        return False
+                    group[op] = count
+                if op == "window_blt_slow_low_cpu":
+                    completed.append(
+                        group.get("movie_update") == 0
+                        and group.get("window_blt_over_1000ms", 0) > 0
+                        and group.get("frame_flip", 0) > 0
+                    )
+                    group = {}
+        return len(completed) >= 2 and completed[-2:] == [True, True]
+    except (OSError, UnicodeError, csv.Error):
+        return False
 
 
 def mac_snapshot() -> dict:
@@ -422,7 +468,8 @@ def run_session(session: int, *, profile_cpu: bool = True) -> dict:
                     # arms. A transient gap is not a failing game result.
                     fresh_frame_data = False
                 if (profile_cpu and not attempted and elapsed >= 20
-                        and observed_new_run and fresh_frame_data):
+                        and observed_new_run and fresh_frame_data
+                        and targeted_stall_window(live)):
                     attempted = True
                     if PROFILE.is_file() and no_symlink_ancestors(PROFILE):
                         capture = subprocess.run(
@@ -444,7 +491,7 @@ def run_session(session: int, *, profile_cpu: bool = True) -> dict:
             raise RuntimeError("Wrong number of new benchmark directories; no result accepted")
         verified = verify_completed(new, MODES[session])
         if profile_cpu and not attempted:
-            profile_result = "unavailable_no_fresh_live_menu_telemetry"
+            profile_result = "unavailable_no_repeated_live_menu_stalls"
         result = {
             **verified, "session": session,
             "source_artifact_run": RUN_ID, "source_revision": SOURCE_SHA,

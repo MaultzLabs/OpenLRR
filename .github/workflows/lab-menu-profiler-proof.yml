@@ -2,7 +2,7 @@ name: OpenLRR TEST Wine CPU Sampler Offline Regression
 
 on:
   push:
-    branches: [lab-menu-live-writer-profiler-v1]
+    branches: [lab-menu-stall-targeted-cpu-evidence-v1]
     paths:
       - 'scripts/macos/wine-cpu-sample.py'
       - 'scripts/macos/tests/test_wine_cpu_sample.py'
