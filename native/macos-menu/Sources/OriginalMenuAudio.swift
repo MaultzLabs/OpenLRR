@@ -2,8 +2,8 @@
 import AVFoundation
 import Foundation
 
-/// Read-only native playback of the original front-end AmbientMusicLoop WAV.
-/// The Windows winmm/OGG compatibility DLLs are not required or loaded here.
+/// Original front-end sound, played by macOS rather than Windows DirectSound.
+/// Reads private user-owned WAVs in place; does not modify the install.
 final class OriginalMenuAudio {
     private var player: AVAudioPlayer?
 
@@ -12,81 +12,77 @@ final class OriginalMenuAudio {
         player = nil
     }
 
-    /// The retail front end queues SFX_AmbientMusicLoop in a loop. Its actual
-    /// filename comes from Lego.cfg -> Samples, rather than a hardcoded name.
-    /// Streaming effects may live loose under Data/Sounds/Streamed next to the
-    /// WADs, while regular effects often live inside the WAD archives.
+    private func play(_ candidate: AVAudioPlayer, volume: Int = 0) -> Bool {
+        candidate.numberOfLoops = -1
+        // Original DirectSound attenuation units are hundredths of a decibel.
+        candidate.volume = Float(pow(10.0, Double(volume) / 2000.0))
+        candidate.prepareToPlay()
+        guard candidate.play() else { return false }
+        player = candidate
+        return true
+    }
+
+    /// The original Front_RunScreenMenuType queues SFX_AmbientMusicLoop.
+    /// Its filename is read from Lego.cfg > Samples. If that resource is
+    /// unavailable, check the documented original menu audio Atmosdel.wav
+    /// without fabricating any sound or depending on Windows DLLs.
     @discardableResult
     func start(config: LegoConfig, resources: GameResources,
-               beside selectedWadURL: URL) -> String {
+               beside selectedWadURL: URL,
+               additionalAudioRoot: URL? = nil) -> String {
         stop()
-        // The retail LegoRR section overrides default Lego* sound settings.
+
         if let enabled = (config.value("LegoRR", "SoundOn") ??
                           config.valueUnderGame(["SoundOn"]))?.uppercased(),
-           ["FALSE", "NO", "OFF"].contains(enabled) {
-            return "sound disabled in Lego.cfg"
+           ["FALSE", "NO", "OFF", "0"].contains(enabled) {
+            return "SoundOn is disabled in Lego.cfg"
         }
 
-        // SFX_RegisterName(SFX_AmbientMusicLoop) hashes the full enum
-        // identifier, including "SFX_" (src/openlrr/game/audio/SFX.h).
-        // Lego.cfg's Samples key must therefore include that prefix.
-        let candidates: [SoundSampleCatalog.Sample]
-        do {
-            candidates = try SoundSampleCatalog(config: config)
-                .samples(named: "SFX_AmbientMusicLoop")
-        } catch {
-            return "menu audio config: \(error)"
-        }
-        let directory = selectedWadURL.deletingLastPathComponent()
-        let manager = FileManager.default
+        let configured = try? SoundSampleCatalog(config: config)
+            .samples(named: "SFX_AmbientMusicLoop")
 
-        for sample in candidates {
+        var attemptedDecoding = false
+        for sample in configured ?? [] {
             let path = sample.wavPath.replacingOccurrences(of: "\\", with: "/")
-            let components = path.split(separator: "/", omittingEmptySubsequences: false)
-            // Never follow absolute or parent-relative paths from an asset file.
-            guard !components.isEmpty,
-                  components.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." && !$0.contains(":") }) else {
-                continue
-            }
-
-            var bytes: Data?
-            if resources.exists(path) {
-                bytes = try? resources.data(at: path, maximumBytes: 50_000_000)
-            }
-
-            if bytes == nil {
-                // The original installer also keeps streamed WAVs as ordinary
-                // files in Data/, rather than in LegoRR0/1.wad.
-                // If the WAD itself was placed inside Data/, the original
-                // streamed sounds are relative to its parent install folder.
-                for url in [directory.appendingPathComponent("Data").appendingPathComponent(path),
-                            directory.appendingPathComponent(path),
-                            directory.deletingLastPathComponent().appendingPathComponent("Data").appendingPathComponent(path)] {
-                    guard let attributes = try? manager.attributesOfItem(atPath: url.path),
-                          let length = attributes[.size] as? NSNumber,
-                          (44...50_000_000).contains(length.intValue),
-                          let data = try? Data(contentsOf: url, options: [.mappedIfSafe]) else {
-                        continue
-                    }
-                    bytes = data
-                    break
+            if let url = OriginalAudioFileLocator.locate(path, beside: selectedWadURL,
+                                                        additionalRoot: additionalAudioRoot) {
+                attemptedDecoding = true
+                if let audio = try? AVAudioPlayer(contentsOf: url),
+                   play(audio, volume: sample.volume) {
+                    return "Playing original menu audio: \(url.lastPathComponent)"
                 }
             }
 
-            guard let bytes, let audio = try? AVAudioPlayer(data: bytes) else {
-                continue
-            }
-            audio.numberOfLoops = -1
-            // DirectSound attenuation uses 100ths of a decibel.
-            audio.volume = Float(pow(10.0, Double(sample.volume) / 2000.0))
-            audio.prepareToPlay()
-            if audio.play() {
-                player = audio
-                return "original menu ambience playing"
+            if resources.exists(path),
+               let data = try? resources.data(at: path, maximumBytes: 50_000_000) {
+                attemptedDecoding = true
+                if let audio = try? AVAudioPlayer(data: data),
+                   play(audio, volume: sample.volume) {
+                    return "Playing original menu audio from WAD: \(urlFilename(path))"
+                }
             }
         }
-        let firstPath = candidates.first?.wavPath.replacingOccurrences(of: "\\\\", with: "/") ?? "unknown"
-        return "menu ambience unavailable: \(firstPath)"
+
+        // RRU identifies this as the main-menu recording in loose Data/Sounds.
+        // Unlike the CD soundtrack it is already a WAV and needs no conversion.
+        if let url = OriginalAudioFileLocator.locate("Sounds/Atmosdel.wav",
+                                    beside: selectedWadURL, additionalRoot: additionalAudioRoot) {
+            attemptedDecoding = true
+            if let audio = try? AVAudioPlayer(contentsOf: url), play(audio) {
+                return "Playing original menu audio: \(url.lastPathComponent)"
+            }
+        }
+
+        if attemptedDecoding {
+            return "Found original WAV, but macOS cannot decode/play it; check the RRU Atmosdel.wav replacement"
+        }
+        let expected = configured?.first?.wavPath ?? "Sounds/Atmosdel.wav"
+        return "Missing \(urlFilename(expected)); click Locate Sounds…"
+    }
+
+    private func urlFilename(_ raw: String) -> String {
+        raw.replacingOccurrences(of: "\\", with: "/").split(separator: "/").last
+            .map(String.init) ?? raw
     }
 }
 #endif
