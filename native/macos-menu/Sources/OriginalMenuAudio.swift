@@ -27,9 +27,15 @@ final class OriginalMenuAudio {
             return "sound disabled in Lego.cfg"
         }
 
-        guard let candidates = try? SoundSampleCatalog(config: config)
-                  .samples(named: "AmbientMusicLoop") else {
-            return "AmbientMusicLoop missing from Lego.cfg"
+        // SFX_RegisterName(SFX_AmbientMusicLoop) hashes the full enum
+        // identifier, including "SFX_" (src/openlrr/game/audio/SFX.h).
+        // Lego.cfg's Samples key must therefore include that prefix.
+        let candidates: [SoundSampleCatalog.Sample]
+        do {
+            candidates = try SoundSampleCatalog(config: config)
+                .samples(named: "SFX_AmbientMusicLoop")
+        } catch {
+            return "menu audio config: \\(error)"
         }
         let directory = selectedWadURL.deletingLastPathComponent()
         let manager = FileManager.default
@@ -51,8 +57,11 @@ final class OriginalMenuAudio {
             if bytes == nil {
                 // The original installer also keeps streamed WAVs as ordinary
                 // files in Data/, rather than in LegoRR0/1.wad.
+                // If the WAD itself was placed inside Data/, the original
+                // streamed sounds are relative to its parent install folder.
                 for url in [directory.appendingPathComponent("Data").appendingPathComponent(path),
-                            directory.appendingPathComponent(path)] {
+                            directory.appendingPathComponent(path),
+                            directory.deletingLastPathComponent().appendingPathComponent("Data").appendingPathComponent(path)] {
                     guard let attributes = try? manager.attributesOfItem(atPath: url.path),
                           let length = attributes[.size] as? NSNumber,
                           (44...50_000_000).contains(length.intValue),
@@ -76,7 +85,8 @@ final class OriginalMenuAudio {
                 return "original menu ambience playing"
             }
         }
-        return "original menu ambience not found or unreadable"
+        let firstPath = candidates.first?.wavPath.replacingOccurrences(of: "\\\\", with: "/") ?? "unknown"
+        return "menu ambience unavailable: \\(firstPath)"
     }
 }
 #endif
