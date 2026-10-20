@@ -34,6 +34,7 @@ jobs:
           Copy-Item BUILD-AND-TEST.md dist/
           Copy-Item scripts/macos/run-autobenchmark.sh dist/
           Copy-Item scripts/macos/publish-benchmark.sh dist/
+          Copy-Item scripts/macos/privacy-validate-benchmark.py dist/
           Copy-Item scripts/macos/analyze-benchmark.py dist/
           Copy-Item docs/autobenchmark.md dist/
           $digest = (Get-FileHash $dll -Algorithm SHA256).Hash.ToLowerInvariant()

@@ -58,7 +58,7 @@ cleanup() {
   status="$?"
   trap - EXIT
   if [ "$staged" -eq 1 ]; then
-    for f in openlrr.dll run-autobenchmark.sh publish-benchmark.sh analyze-benchmark.py; do
+    for f in openlrr.dll run-autobenchmark.sh publish-benchmark.sh privacy-validate-benchmark.py analyze-benchmark.py; do
       if [ -f "$tmp/previous/$f" ]; then
         cp -p "$tmp/previous/$f" "$downloads/$f"
       else
@@ -73,7 +73,7 @@ trap cleanup EXIT
 
 gh run download "$run_id" --repo MaultzLabs/OpenLRR \
   --name OpenLRR-menu-diagnostics-x86 --dir "$tmp/artifact"
-for f in openlrr.dll SHA256.txt run-autobenchmark.sh publish-benchmark.sh analyze-benchmark.py; do
+for f in openlrr.dll SHA256.txt run-autobenchmark.sh publish-benchmark.sh privacy-validate-benchmark.py analyze-benchmark.py; do
   [ -s "$tmp/artifact/$f" ] || fail "Expected artifact missing: $f"
 done
 expected="$(tr -d '\r\n[:space:]' < "$tmp/artifact/SHA256.txt" | tr '[:upper:]' '[:lower:]')"
@@ -85,11 +85,11 @@ if [ -n "$reviewed_sha" ]; then
 fi
 
 mkdir -p "$downloads"
-for f in openlrr.dll run-autobenchmark.sh publish-benchmark.sh analyze-benchmark.py; do
+for f in openlrr.dll run-autobenchmark.sh publish-benchmark.sh privacy-validate-benchmark.py analyze-benchmark.py; do
   if [ -e "$downloads/$f" ]; then cp -p "$downloads/$f" "$tmp/previous/$f"; fi
 done
 staged=1
-for f in openlrr.dll run-autobenchmark.sh publish-benchmark.sh analyze-benchmark.py; do
+for f in openlrr.dll run-autobenchmark.sh publish-benchmark.sh privacy-validate-benchmark.py analyze-benchmark.py; do
   cp -p "$tmp/artifact/$f" "$downloads/$f"
 done
 printf 'Verified diagnostic DLL SHA256: %s\n' "$actual"

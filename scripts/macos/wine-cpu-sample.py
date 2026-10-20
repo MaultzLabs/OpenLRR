@@ -131,8 +131,8 @@ def verified_test_writer_roles() -> dict[str, str]:
     """Classify writable owners; do not attach or infer a PID from ordering.
 
     A Wine child and Wine wrapper may both hold the same writable descriptor.
-    Only a unique process explicitly named LegoRR can disambiguate several
-    owners. All other combinations must be reported, not guessed.
+    A unique LegoRR owner wins. Alternatively, one Wine owner accompanied
+    ONLY by TEST wrappers is safe to select. Otherwise fail closed.
     """
     stop_check()
     validate_test_target()
@@ -173,12 +173,20 @@ def selected_verified_test_pid(roles: dict[str, str]) -> str:
         raise RuntimeError("No verified writable TEST menu telemetry owner found")
     if len(roles) == 1:
         pid, role = next(iter(roles.items()))
-        if role == "unrecognized":
-            raise RuntimeError("Writable TEST owner has unrecognized game process identity")
+        if role not in ("game_executable", "wine_related"):
+            raise RuntimeError("TEST telemetry owner is not a Wine game process")
         return pid
     game = [pid for pid, role in roles.items() if role == "game_executable"]
     if len(game) == 1:
         return game[0]
+    # The real Mac October 19 trace reported one Wine process and one
+    # isolated Wineskin wrapper sharing the verified TEST telemetry file.
+    # Sample the uniquely identified Wine owner, NEVER the wrapper.
+    wine = [pid for pid, role in roles.items() if role == "wine_related"]
+    if not game and len(wine) == 1 and all(
+            role in ("wine_related", "isolated_test_wrapper")
+            for role in roles.values()):
+        return wine[0]
     raise RuntimeError("Multiple writable TEST menu telemetry owners")
 
 

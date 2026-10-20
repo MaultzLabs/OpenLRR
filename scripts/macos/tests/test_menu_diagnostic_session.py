@@ -70,6 +70,12 @@ class MenuSessionTests(unittest.TestCase):
         self.assertEqual(session.DLL_SHA,
                          "1179323074e03caf22f89ecbf05b9234f8ef5e18f2c1d6b8d797c2cf31c5b4ff")
 
+    def test_single_run_wine_probe_is_baseline_only(self):
+        self.assertEqual(session.MODES[3], ("baseline",))
+        self.assertEqual(session.check_environment(3, os_check=False)["plan"],
+                         ["baseline"])
+        self.assertEqual(session.MAX_SESSION_SECONDS[3], 700)
+
     def fixture(self, run: str, mode="baseline", *, latency=200.0,
                 seconds=62.0, valid_receipt=True, binary_sha=True):
         folder = self.runs / run
