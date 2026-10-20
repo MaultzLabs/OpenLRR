@@ -1,0 +1,16 @@
+build/
+*.app/
+*.wad
+*.WAD
+*.bmp
+*.BMP
+*.wav
+*.WAV
+*.avi
+*.AVI
+*.exe
+*.EXE
+*.dll
+*.DLL
+*.zip
+*.log
