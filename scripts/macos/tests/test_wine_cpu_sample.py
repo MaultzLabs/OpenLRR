@@ -110,7 +110,7 @@ class ProfilerSafetyTests(unittest.TestCase):
         def commands(argv, *, timeout):
             return self.lsof_fixture([(107, "w"), (205, "w")]) if argv[0] == "/usr/sbin/lsof" else "wine64-preloader\n"
         with mock.patch.object(profiler, "checked_run", side_effect=commands):
-            with self.assertRaisesRegex(RuntimeError, "exactly one"):
+            with self.assertRaisesRegex(RuntimeError, "Multiple writable"):
                 profiler.find_test_wine_pid()
 
     def test_untrusted_pid_or_no_test_handles_refused(self):
@@ -146,7 +146,7 @@ class ProfilerSafetyTests(unittest.TestCase):
 
     def test_no_live_writer_never_falls_back_to_name_only(self):
         with mock.patch.object(profiler, "checked_run", return_value="") as lookup:
-            with self.assertRaisesRegex(RuntimeError, "No live TEST"):
+            with self.assertRaisesRegex(RuntimeError, "No verified writable"):
                 profiler.find_test_wine_pid()
         self.assertEqual(lookup.call_count, 1)
         self.assertEqual(lookup.call_args.args[0][-1],
