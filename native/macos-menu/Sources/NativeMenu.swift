@@ -140,7 +140,7 @@ final class OriginalMenuCanvas: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         NSColor.black.setFill()
-        NSRectFill(bounds)
+        bounds.fill()
         guard resources != nil, let ctx = NSGraphicsContext.current else { return }
         ctx.saveGraphicsState()
         defer { ctx.restoreGraphicsState() }
@@ -161,7 +161,7 @@ final class OriginalMenuCanvas: NSView {
         // handled by dedicated decoders, not by inventing placeholder animations.
         for overlay in menu.overlays where overlay.asset.lowercased().hasSuffix(".bmp") {
             if let art = image(overlay.asset) {
-                drawImage(art, at: CGRect(x: overlay.x, y: overlay.y,
+                drawImage(art, at: CGRect(x: CGFloat(overlay.x), y: CGFloat(overlay.y),
                                           width: art.size.width, height: art.size.height))
             }
         }
