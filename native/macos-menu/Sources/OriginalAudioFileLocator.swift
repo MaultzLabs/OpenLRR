@@ -27,6 +27,22 @@ struct OriginalAudioFileLocator {
 
         for root in roots {
             var candidates = [parts]
+            // A user may select the game installation itself, Data/, Sounds/,
+            // Streamed/, or a ZIP extraction folder. Probe only beneath that
+            // explicitly selected directory; never walk arbitrary parents.
+            if let additionalRoot, root.standardizedFileURL == additionalRoot.standardizedFileURL {
+                let head = parts.first?.lowercased()
+                if head == "sounds" {
+                    candidates.append(["Data"] + parts)
+                }
+                if head == "data" {
+                    candidates.append(Array(parts.dropFirst()))
+                }
+                if head != "sounds" && head != "data" {
+                    candidates.append(["Data", "Sounds", "Streamed"] + parts)
+                    candidates.append(["Sounds", "Streamed"] + parts)
+                }
+            }
             // RRU's standalone Atmosdel_and_Stats.zip can be extracted to a
             // directory containing WAVs directly. Only allow basename lookup
             // inside the folder that the user explicitly selected.
