@@ -145,17 +145,18 @@ final class OriginalMenuCanvas: NSView {
         ctx.saveGraphicsState()
         defer { ctx.restoreGraphicsState() }
         ctx.cgContext.scaleBy(x: bounds.width / 640.0, y: bounds.height / 480.0)
+        ctx.cgContext.interpolationQuality = .none
         hitRects.removeAll()
 
         let backgroundName = "Interface/FrontEnd/MenuBGpic.bmp"
         if let background = image(backgroundName) {
-            drawImage(background, at: CGRect(x: 0, y: 0, width: 640, height: 480))
+            drawImage(background, at: CGRect(origin: .zero, size: background.size))
         }
         guard let definitions, definitions.menus.indices.contains(menuIndex) else { return }
         let menu = definitions.menus[menuIndex]
         if let source = menu.backgroundImage, let img = image(source) {
             drawImage(img, at: imageFrame(for: source,
-                                          fallback: CGRect(x: 0, y: 0, width: 640, height: 480)))
+                                          fallback: CGRect(origin: .zero, size: img.size)))
         }
         // Show only known BMP overlays. Original FLIC/AVI/LWS animations must be
         // handled by dedicated decoders, not by inventing placeholder animations.
@@ -187,7 +188,7 @@ final class OriginalMenuCanvas: NSView {
                 if actionable { hitRects.append((i, rect)) }
             } else if !item.caption.isEmpty {
                 let measured = drawText(item.caption, x: x, y: y, size: 22,
-                                        hovered: hovered, enabled: actionable, centered: false,
+                                        hovered: hovered, enabled: actionable, centered: menu.autoCenter,
                                         fontPath: hovered ? menu.hoverFont : menu.normalFont)
                 if actionable { hitRects.append((i, measured)) }
             }
@@ -295,6 +296,7 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate {
     private var canvas: OriginalMenuCanvas!
     private var status: NSTextField!
     private let originalAudio = OriginalMenuAudio()
+    private let selectedWadDefaultsKey = "OriginalGameWadURL.v1"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 680),
@@ -350,6 +352,9 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
         if CommandLine.arguments.count > 1 {
             load(URL(fileURLWithPath: CommandLine.arguments[1]))
+        } else if let savedPath = UserDefaults.standard.string(forKey: selectedWadDefaultsKey),
+                  !savedPath.isEmpty {
+            load(URL(fileURLWithPath: savedPath), automatic: true)
         }
     }
 
@@ -364,7 +369,7 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func load(_ url: URL) {
+    private func load(_ url: URL, automatic: Bool = false) {
         originalAudio.stop()
         do {
             let resources = try GameResources(selectedWadURL: url)
@@ -381,8 +386,18 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate {
                 canvas.definitions = nil
                 status.stringValue = "Original background loaded. LegoRR1.wad with Lego.cfg is needed for navigation."
             }
+            // Persist only successfully loaded original archives. The app is
+            // not sandboxed; this is the user-selected local path, not a copy.
+            UserDefaults.standard.set(url.path, forKey: selectedWadDefaultsKey)
             window.title = "Rock Raiders — Original Asset Native Prototype"
         } catch {
+            canvas.resources = nil
+            canvas.definitions = nil
+            if automatic {
+                UserDefaults.standard.removeObject(forKey: selectedWadDefaultsKey)
+                status.stringValue = "Previous WAD location unavailable; select the original WAD again."
+                return
+            }
             status.stringValue = "Game resources could not be loaded."
             let alert = NSAlert()
             alert.messageText = "Cannot load the original Rock Raiders resources"
