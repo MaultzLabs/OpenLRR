@@ -17,7 +17,7 @@ import Foundation
         let wad = installed.appendingPathComponent("LegoRR0.wad")
         let nestedWad = installed.appendingPathComponent("Data/LegoRR0.wad")
         // The locator never reads or requires the WAD itself, only its position.
-        precondition(OriginalAudioFileLocator.locate("Sounds\\\\ATmosDel.wav", beside: wad) == wav)
+        precondition(OriginalAudioFileLocator.locate("Sounds\\ATmosDel.wav", beside: wad) == wav)
         precondition(OriginalAudioFileLocator.locate("sounds/streamed/originalambient.wav",
                                                      beside: nestedWad) == streamWav)
         precondition(OriginalAudioFileLocator.locate("Data/Sounds/Atmosdel.wav",
@@ -35,7 +35,7 @@ import Foundation
         // Do not follow traversal or arbitrary formats from untrusted CFG.
         precondition(OriginalAudioFileLocator.locate("../Sounds/Atmosdel.wav", beside: wad) == nil)
         precondition(OriginalAudioFileLocator.locate("/etc/passwd.wav", beside: wad) == nil)
-        precondition(OriginalAudioFileLocator.locate("Sounds\\\\Atmosdel.ogg", beside: wad) == nil)
+        precondition(OriginalAudioFileLocator.locate("Sounds\\Atmosdel.ogg", beside: wad) == nil)
         precondition(OriginalAudioFileLocator.locate("Sounds/doesnotexist.wav", beside: wad) == nil)
         print("PASS: original loose audio discovery, custom folder, case-insensitive lookup, unsafe path rejection")
     }
