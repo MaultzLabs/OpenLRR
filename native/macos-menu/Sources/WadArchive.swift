@@ -1,7 +1,8 @@
 import Foundation
 
-/// Read-only parser for classic Rock Raiders WWAD containers.
-/// Portable Foundation-only core; no Wine or game EXE is required.
+/// Read-only parser for the classic Rock Raiders WWAD container.
+/// This file deliberately uses only Foundation and can be tested on Linux.
+/// The native viewer never modifies or redistributes the user's game assets.
 struct WadArchive {
     enum WadError: Error, CustomStringConvertible {
         case invalid(String)
@@ -46,6 +47,7 @@ struct WadArchive {
                 (UInt32(data[offset+2]) << 16) | (UInt32(data[offset+3]) << 24)
         }
         let count = Int(try number(4))
+        // Prevent malicious/corrupt headers from causing unbounded allocations.
         guard count >= 0, count <= 100_000, count <= data.count / 18 else {
             throw WadError.invalid("unreasonable file count")
         }
@@ -69,6 +71,7 @@ struct WadArchive {
         var names: [String] = []
         names.reserveCapacity(count)
         for _ in 0..<count { names.append(try cstring()) }
+        // The original packer stores an additional table of build-time paths.
         for _ in 0..<count { _ = try cstring() }
         guard cursor <= data.count, count <= (data.count - cursor) / 16 else {
             throw WadError.invalid("truncated entry table")
@@ -112,7 +115,7 @@ struct WadArchive {
         guard let i = paths[Self.normalized(path)] else { throw WadError.notFound(path) }
         let entry = entries[i]
         guard entry.flags & 2 == 0 else { throw WadError.unsupportedCompression(entry.path) }
-        guard entry.packedSize <= maximumBytes else {
+        guard maximumBytes >= 0, entry.packedSize <= maximumBytes else {
             throw WadError.invalid("asset exceeds read limit")
         }
         return bytes.subdata(in: entry.offset..<(entry.offset + entry.packedSize))

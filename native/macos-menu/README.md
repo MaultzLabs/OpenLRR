@@ -1,57 +1,65 @@
-# Native macOS menu background — experimental
+# Original Rock Raiders — Native macOS prototype (experimental)
 
-This is **the first native asset-loading milestone**, not a playable port.
+**This is a native application prototype, not yet a playable game.** It does
+not use Wine, the original Windows EXE, DirectDraw, or any injected DLLs.
 
-The prototype reads the original Rock Raiders menu image from the user's local
-`LegoRR0.wad` and draws it in a real macOS AppKit window. It does not use
-Wine, DirectDraw, dgVoodoo, the original Windows EXE, or injected DLLs.
+## Source-grounded features developed
 
-## Implemented
+- Read-only WWAD parser based on `src/openlrr/engine/core/Wad.cpp`.
+  Loads only explicitly selected `LegoRR0.wad` plus adjacent `LegoRR1.wad`.
+  Higher-numbered WAD overrides lower-numbered WAD entries.
+- `Lego.cfg` parser preserving the game's nested menus, settings, colon-separated
+  original front-end items, original coordinates and display strings.
+- Native AppKit window with original `Interface/FrontEnd/MenuBGpic.bmp`,
+  per-menu `MenuImage` BMPs, configured bitmap overlays, and mouse-driven
+  navigation for actual `Next` items defined in `Menu::MainMenuFull`.
+- Original sprite-font format: indexed 8-bit BMP, 10 columns by 19 rows,
+  pen-zero transparency and pen-255 trailing width markers, following
+  `src/openlrr/engine/drawing/Fonts.cpp`. Native system font is only a fallback.
+- Parses original mission and tutorial ordering from `Main/StartLevel`,
+  `TutorialStartLevel`, and the `NextLevel` chains.
+- Reads original `.map` binary terrain/height/predug arrays without altering
+  them, using the documented `MAP ` header and little-endian 16-bit cells.
+- Portable tests use **synthetic bytes only**. No copyrighted assets in GitHub.
 
-- Portable read-only WWAD parser: validates the WWAD header, reads the two
-  filename tables and 16-byte entry descriptors, normalizes Windows paths,
-  checks file bounds, and extracts uncompressed entries into memory.
-- Swift tests using entirely synthetic archive bytes; no game assets or
-  user files are checked into GitHub.
-- Native Apple Silicon AppKit viewer of
-  `Interface/FrontEnd/MenuBGpic.bmp` via macOS ImageIO.
-- Open WAD, About, and Quit controls; aspect-ratio-preserving rendering;
-  read-only asset access; explicit errors for malformed archives.
+## Actual verified scope
 
-## Verified so far
+The portable archive, config, front-end, map and font decoding tests **compile
+and run on Linux** with Swift 6. No original WADs were available during these
+remote tests. The AppKit code has been parsed, but **has not yet compiled or run
+on real macOS** because GitHub's free Mac jobs were cancelled before acquiring
+runners. Original image rendering, controls, menu positions, audio, performance,
+3D gameplay and missions require testing before any working-game claims.
 
-- WWAD parser compiles and the synthetic portable tests pass on Linux.
-- The macOS AppKit code has only been syntax-parsed without macOS frameworks.
-  **It has not yet compiled or run on a Mac**, and no original WAD has yet
-  been tested with this new prototype.
+The framework for `Next` navigation exists, but the rest of the original menu
+items remain intentionally non-operational; no fake game or save actions.
+Native 3D graphics, AI, level runtime, NERPs and sound have **not** been ported.
 
-## Build and run (later, when you want to test on your Mac)
+## Building locally when you are ready
 
-1. Use an isolated copy of the repository branch
-   `lab-native-macos-menu-v1`. Your working game remains untouched.
-2. Install Apple Command Line Tools / Xcode if needed.
-3. From `native/macos-menu` run `bash test.sh` and `bash build.sh`.
-4. Open `build/RockRaidersNativeMenu.app`. Select your own `LegoRR0.wad`
-   using the file chooser. The app reads but does not modify or upload it.
+Requires Apple Silicon and Apple Command Line Tools / Xcode.
 
-Minimum target: macOS 12, Apple Silicon arm64. Built output stays within
-this project folder; the script does not install or change existing apps.
+```
+cd native/macos-menu
+bash test.sh
+bash build.sh
+open build/RockRaidersNativeMenu.app
+```
 
-## Scope still missing
+Select `LegoRR0.wad` (or its adjacent `LegoRR1.wad`). The viewer loads the
+other neighboring WAD automatically when present. Do not upload those private
+original assets or extracted files to the public GitHub repository.
 
-This app only displays the authentic menu **background image**. It does not
-yet have original menu interaction, sound, video, input/game state, 3D rendering,
-or playable missions. It is not a faithful reproduction of the complete menu,
-and no visible FPS performance claims have been made.
+Only creates build files under `native/macos-menu/build`. Does not change
+original installation, the separate Wine TEST app, or save files.
 
-Compressed RNC WAD entries are rejected explicitly (original game WADs
-normally contain uncompressed entries).
+## Source references
 
-The next milestone is **compile and run this actual AppKit app on a Mac and
-verify that the original menu image renders correctly**. The native work stays
-separate from the existing Sikarugir/Wine test installation.
+- OpenLRR C++: `src/openlrr/game/front/FrontEnd.cpp` (`Front_LoadMenuSet`,
+  `Front_Menu_LoadMenuImage`, `Front_Menu_Update`), `engine/drawing/Fonts.cpp`,
+  `engine/core/Wad.cpp`.
+- RRU Knowledge Base: WWAD file format, `Lego.cfg`, MAP file,
+  [original file tree](https://kb.rockraidersunited.com/LEGO_Rock_Raiders_PC_file_tree).
 
-### Safety
-
-Never upload or commit `LegoRR0.wad`, `LegoRR1.wad`, extracted game
-art, licensed music, or private local filesystem paths to the public repo.
+This is intentionally a **single** native prototype under an isolated branch,
+not an independent testing laboratory or a replacement for your working game.

@@ -55,6 +55,7 @@ private func expectFailure(_ data: Data, containing phrase: String) {
             _ = try compressed.asset(path)
             fatalError("Compressed assets cannot be returned as plain BMP data")
         } catch WadArchive.WadError.unsupportedCompression(_) { }
+        // Untrusted asset names must not be able to confuse lookup normalization.
         precondition(!wad.contains("../../Interface/FrontEnd/MenuBGpic.bmp"))
         print("PASS: WWAD signature, path lookup, stored image bytes, bounds, corrupt headers, and RNC refusal")
     }
