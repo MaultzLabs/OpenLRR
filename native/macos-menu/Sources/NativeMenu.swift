@@ -297,6 +297,16 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate {
     private var status: NSTextField!
     private let originalAudio = OriginalMenuAudio()
     private let selectedWadDefaultsKey = "OriginalGameWadURL.v1"
+    private let audioFolderDefaultsKey = "OriginalGameAudioFolderURL.v1"
+    private var activeWadURL: URL?
+    private var activeResources: GameResources?
+    private var activeConfig: LegoConfig?
+
+    private var selectedAudioFolder: URL? {
+        guard let path = UserDefaults.standard.string(forKey: audioFolderDefaultsKey),
+              !path.isEmpty else { return nil }
+        return URL(fileURLWithPath: path, isDirectory: true)
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 680),
@@ -312,7 +322,10 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate {
 
         canvas = OriginalMenuCanvas(frame: NSRect(x: 0, y: 80, width: 800, height: 600))
         root.gameCanvas = canvas
-        canvas.onNavigation = { [weak self] value in self?.status.stringValue = value }
+        // Keep persistent audio diagnostics visible while navigating menus.
+        canvas.onNavigation = { [weak self] value in
+            self?.window.title = "Rock Raiders — \(value)"
+        }
         root.addSubview(canvas)
 
         let toolbar = NSVisualEffectView(frame: CGRect(x: 0, y: 0, width: 800, height: 80))
@@ -324,10 +337,13 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate {
 
         let open = NSButton(title: "Open original WAD files…", target: self,
                             action: #selector(openArchive))
+        let locateSounds = NSButton(title: "Locate Sounds…", target: self,
+                                    action: #selector(chooseOriginalSoundsFolder))
+        locateSounds.toolTip = "Select an original Data, Sounds or Streamed folder (only if audio is missing)."
         let about = NSButton(title: "About", target: self, action: #selector(aboutPrototype))
         let quit = NSButton(title: "Quit", target: NSApp,
                             action: #selector(NSApplication.terminate(_:)))
-        let buttons = NSStackView(views: [open, about, quit])
+        let buttons = NSStackView(views: [open, locateSounds, about, quit])
         buttons.orientation = .horizontal
         buttons.alignment = .centerY
         buttons.spacing = 12
@@ -369,8 +385,35 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate {
         }
     }
 
+    @objc private func chooseOriginalSoundsFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.message = "Select your original Data, Sounds or Streamed directory (or a folder containing the RRU Atmosdel.wav). Nothing is changed or uploaded."
+        if let folder = selectedAudioFolder { panel.directoryURL = folder }
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, let folder = panel.url, let self else { return }
+            UserDefaults.standard.set(folder.path, forKey: self.audioFolderDefaultsKey)
+            self.restartOriginalAudio()
+        }
+    }
+
+    private func restartOriginalAudio() {
+        guard let activeWadURL, let activeResources, let activeConfig else { return }
+        let result = originalAudio.start(config: activeConfig,
+                                         resources: activeResources,
+                                         beside: activeWadURL,
+                                         additionalAudioRoot: selectedAudioFolder)
+        status.stringValue = result
+        status.toolTip = result
+    }
+
     private func load(_ url: URL, automatic: Bool = false) {
         originalAudio.stop()
+        activeWadURL = nil
+        activeResources = nil
+        activeConfig = nil
         do {
             let resources = try GameResources(selectedWadURL: url)
             guard resources.exists("Interface/FrontEnd/MenuBGpic.bmp") else {
@@ -380,8 +423,10 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate {
             if resources.exists("Lego.cfg") {
                 let config = try LegoConfig(data: resources.configData())
                 canvas.definitions = try MenuDefinition(config: config)
-                let soundStatus = originalAudio.start(config: config, resources: resources, beside: url)
-                status.stringValue = "\(canvas.definitions?.menus.count ?? 0) menus loaded; \(soundStatus). Actions incomplete."
+                activeWadURL = url
+                activeResources = resources
+                activeConfig = config
+                restartOriginalAudio()
             } else {
                 canvas.definitions = nil
                 status.stringValue = "Original background loaded. LegoRR1.wad with Lego.cfg is needed for navigation."
@@ -410,7 +455,7 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate {
     @objc private func aboutPrototype() {
         let alert = NSAlert()
         alert.messageText = "Original assets, native macOS prototype"
-        alert.informativeText = "Reads the original WAD archives and Lego.cfg to draw the menu background and navigate configured Next links. Bitmap fonts, animations, audio, game logic and missions are not ported. This viewer never launches the Windows game or modifies the original files."
+        alert.informativeText = "Reads your original WADs and Lego.cfg without modifying them. Basic menu navigation and native WAV menu ambience are experimental. Animations, full save/mission functionality, the CD/OGG soundtrack, and gameplay are not yet ported."
         alert.beginSheetModal(for: window)
     }
 
