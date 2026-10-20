@@ -127,7 +127,13 @@ def recognizable_test_game_identity(command: str) -> bool:
     )
 
 
-def find_test_wine_pid() -> str:
+def verified_test_writer_roles() -> dict[str, str]:
+    """Classify writable owners; do not attach or infer a PID from ordering.
+
+    A Wine child and Wine wrapper may both hold the same writable descriptor.
+    Only a unique process explicitly named LegoRR can disambiguate several
+    owners. All other combinations must be reported, not guessed.
+    """
     stop_check()
     validate_test_target()
     live = GAME / "menuperf.csv"
@@ -137,27 +143,70 @@ def find_test_wine_pid() -> str:
     with live.open("r", encoding="utf-8", errors="replace") as stream:
         if stream.readline().strip() != header:
             raise RuntimeError("TEST menu telemetry header is invalid")
-
-    # -t reported *all* openers, including readers. The file-descriptor
-    # access field lets us identify who is actually writing TEST telemetry.
     raw = checked_run(["/usr/sbin/lsof", "-nP", "-Fpcfan", str(live)], timeout=20)
     writers = writable_test_csv_owners(raw, live)
     if not writers:
         raise RuntimeError("No verified writable TEST menu telemetry owner found")
     if len(writers) > MAX_DISCOVERED_PIDS:
         raise RuntimeError("Too many TEST telemetry writable owners")
-    if len(writers) != 1:
-        raise RuntimeError("Multiple writable TEST menu telemetry owners")
-    target = next(iter(writers))
 
-    comm = checked_run(["/bin/ps", "-p", target, "-o", "comm="], timeout=10).strip()
-    if not recognizable_test_game_identity(comm):
-        # Wine wrappers sometimes hide the executable identity in 'comm'.
-        # Read the full argv only in memory; never report paths/arguments.
-        argv = checked_run(["/bin/ps", "-p", target, "-o", "command="], timeout=10).strip()
-        if not recognizable_test_game_identity(argv):
+    roles: dict[str, str] = {}
+    for pid in sorted(writers, key=int):
+        # Arguments are never retained in the report, logged or uploaded.
+        name = checked_run(["/bin/ps", "-p", pid, "-o", "comm="], timeout=5).strip()
+        argv = checked_run(["/bin/ps", "-p", pid, "-o", "command="], timeout=5).strip()
+        command = name + "\n" + argv
+        if re.search(r"(?<![a-z0-9])legorr(?:\.exe)?(?![a-z0-9])", command.lower()):
+            roles[pid] = "game_executable"
+        elif (str(APP).lower() in command.lower()
+              and any(x in command.lower() for x in ("sikarugir", "wineskin"))):
+            roles[pid] = "isolated_test_wrapper"
+        elif any(x in command.lower() for x in ("wine", "rock raiders")):
+            roles[pid] = "wine_related"
+        else:
+            roles[pid] = "unrecognized"
+    return roles
+
+
+def selected_verified_test_pid(roles: dict[str, str]) -> str:
+    if not roles:
+        raise RuntimeError("No verified writable TEST menu telemetry owner found")
+    if len(roles) == 1:
+        pid, role = next(iter(roles.items()))
+        if role == "unrecognized":
             raise RuntimeError("Writable TEST owner has unrecognized game process identity")
-    return target
+        return pid
+    game = [pid for pid, role in roles.items() if role == "game_executable"]
+    if len(game) == 1:
+        return game[0]
+    raise RuntimeError("Multiple writable TEST menu telemetry owners")
+
+
+def sanitized_test_writer_inspection(roles: dict[str, str]) -> dict:
+    """No PIDs, process commands, file locations, or personal paths leave Mac."""
+    allowed = ("game_executable", "isolated_test_wrapper", "wine_related",
+               "unrecognized")
+    counts = {kind: sum(role == kind for role in roles.values())
+              for kind in allowed}
+    try:
+        selected_verified_test_pid(roles)
+        state = "unique_target_verified"
+    except RuntimeError:
+        state = "ambiguous_or_unrecognized"
+    return {
+        "schema_version": 1,
+        "status": state,
+        "writer_count": len(roles),
+        "owner_role_counts": counts,
+        "pid_values_exposed": False,
+        "raw_commands_exposed": False,
+        "launches_game": False,
+        "attempts_native_sampling": False,
+    }
+
+
+def find_test_wine_pid() -> str:
+    return selected_verified_test_pid(verified_test_writer_roles())
 
 
 # All report categories are allowlisted. No discovered symbol, address,
@@ -355,9 +404,15 @@ def main(argv=None) -> int:
                         help="Explicitly attach to an ALREADY RUNNING TEST Wine process")
     parser.add_argument("--summarize-latest", action="store_true",
                         help="Read and categorize a previous local trace, no game or sampling")
+    parser.add_argument("--inspect-writers", action="store_true",
+                        help="Classify currently running TEST telemetry owners; no sampling")
     args = parser.parse_args(argv)
-    if args.capture and args.summarize_latest:
-        parser.error("Choose capture OR offline summary")
+    if sum((args.capture, args.summarize_latest, args.inspect_writers)) > 1:
+        parser.error("Choose one action")
+    if args.inspect_writers:
+        print(json.dumps(sanitized_test_writer_inspection(
+            verified_test_writer_roles()), indent=2, sort_keys=True))
+        return 0
     if args.summarize_latest:
         print(json.dumps(summarize_latest_local_trace(), indent=2, sort_keys=True))
         return 0

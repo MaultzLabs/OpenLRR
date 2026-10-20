@@ -186,6 +186,32 @@ def classify_cpu_profile_failure(stderr: str) -> str:
     return "unavailable_unclassified_cpu_profile_failure"
 
 
+def parse_safe_writer_inspection(stdout: str) -> dict | None:
+    """Whitelist only anonymous bounded categories from the read-only helper."""
+    if len(stdout) > 4096:
+        return None
+    try:
+        data = json.loads(stdout)
+        expected = ("game_executable", "isolated_test_wrapper",
+                    "wine_related", "unrecognized")
+        counts = data["owner_role_counts"]
+        count = data["writer_count"]
+        if (data.get("schema_version") != 1
+                or data.get("status") not in (
+                    "unique_target_verified", "ambiguous_or_unrecognized")
+                or type(count) is not int or not 1 <= count <= 16
+                or set(counts) != set(expected)
+                or any(type(counts[k]) is not int or
+                       not 0 <= counts[k] <= 16 for k in expected)
+                or sum(counts.values()) != count):
+            return None
+        return {"status": data["status"], "writer_count": count,
+                "owner_role_counts": {key: counts[key] for key in expected},
+                "raw_process_data_included": False}
+    except (ValueError, TypeError, KeyError, AttributeError):
+        return None
+
+
 def targeted_stall_window(path: Path) -> bool:
     """Only sample after TWO fully flushed, movie-free long-blit intervals.
 
@@ -433,6 +459,7 @@ def run_session(session: int, *, profile_cpu: bool = True) -> dict:
     }
     store_new(directory / "plan.json", provenance)
     profile_result = "not_attempted"
+    owner_inspection = None
     status = "failed_or_incomplete"
     try:
         with log.open("x", encoding="utf-8") as sink:
@@ -488,6 +515,20 @@ def run_session(session: int, *, profile_cpu: bool = True) -> dict:
                             "locally_recorded" if capture.returncode == 0
                             else classify_cpu_profile_failure(capture.stderr)
                         )
+                        if (profile_result ==
+                                "unavailable_multiple_writable_test_owners"):
+                            # Failed attachments are not retried. This follow-up
+                            # merely classifies existing TEST owners (no sample).
+                            try:
+                                checked = subprocess.run(
+                                    [sys.executable, str(PROFILE), "--inspect-writers"],
+                                    capture_output=True, text=True, timeout=20,
+                                    env=env, check=False)
+                                if checked.returncode == 0:
+                                    owner_inspection = parse_safe_writer_inspection(
+                                        checked.stdout)
+                            except (OSError, subprocess.SubprocessError):
+                                owner_inspection = None
                     else:
                         profile_result = "unavailable_missing_profiler"
                 time.sleep(2)
@@ -505,6 +546,7 @@ def run_session(session: int, *, profile_cpu: bool = True) -> dict:
             "source_artifact_run": RUN_ID, "source_revision": SOURCE_SHA,
             "private_upload": "supervisor_reports_all_uploaded",
             "cpu_stack_profile": profile_result,
+            "cpu_profiler_owner_inspection": owner_inspection,
             "visible_fps_verified": False,
             "complete_60fps_success": False,
             "raw_cpu_stack_upload": False,

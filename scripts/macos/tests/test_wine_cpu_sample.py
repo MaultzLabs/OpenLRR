@@ -43,6 +43,60 @@ class ProfilerSafetyTests(unittest.TestCase):
             for pid, access in entries
         )
 
+    def test_unique_game_executable_disambiguates_writable_wine_helpers(self):
+        def commands(args, *, timeout):
+            if args[0] == "/usr/sbin/lsof":
+                return self.lsof_fixture([(107, "w"), (205, "u"), (300, "w")])
+            pid = args[2]
+            if pid == "205":
+                return "LegoRR.exe\n"
+            return "wine64-preloader\n"
+        with mock.patch.object(profiler, "checked_run", side_effect=commands):
+            self.assertEqual(profiler.find_test_wine_pid(), "205")
+            roles = profiler.verified_test_writer_roles()
+            summary = profiler.sanitized_test_writer_inspection(roles)
+        self.assertEqual(summary["status"], "unique_target_verified")
+        self.assertEqual(summary["owner_role_counts"]["game_executable"], 1)
+        self.assertEqual(summary["owner_role_counts"]["wine_related"], 2)
+        self.assertNotIn("205", str(summary))
+
+    def test_two_game_executable_owners_remain_ambiguous(self):
+        def commands(args, *, timeout):
+            if args[0] == "/usr/sbin/lsof":
+                return self.lsof_fixture([(107, "w"), (205, "w")])
+            return "LegoRR.exe\n"
+        with mock.patch.object(profiler, "checked_run", side_effect=commands):
+            with self.assertRaisesRegex(RuntimeError, "Multiple writable"):
+                profiler.find_test_wine_pid()
+            result = profiler.sanitized_test_writer_inspection(
+                profiler.verified_test_writer_roles())
+        self.assertEqual(result["status"], "ambiguous_or_unrecognized")
+        self.assertEqual(result["owner_role_counts"]["game_executable"], 2)
+
+    def test_wine_only_multiple_owners_refuse_capture_but_report_roles(self):
+        def commands(args, *, timeout):
+            if args[0] == "/usr/sbin/lsof":
+                return self.lsof_fixture([(107, "w"), (205, "w")])
+            return "wine64-preloader\n"
+        with mock.patch.object(profiler, "checked_run", side_effect=commands):
+            with self.assertRaisesRegex(RuntimeError, "Multiple writable"):
+                profiler.find_test_wine_pid()
+            result = profiler.sanitized_test_writer_inspection(
+                profiler.verified_test_writer_roles())
+        self.assertEqual(result["owner_role_counts"]["wine_related"], 2)
+        self.assertFalse(result["raw_commands_exposed"])
+
+    def test_inspect_mode_never_attaches_or_launches_game(self):
+        def commands(args, *, timeout):
+            if args[0] == "/usr/sbin/lsof":
+                return self.lsof_fixture([(205, "w")])
+            return "LegoRR.exe\n"
+        with mock.patch.object(profiler, "checked_run", side_effect=commands), \
+             mock.patch.object(profiler.subprocess, "run",
+                               side_effect=AssertionError("native sample started")):
+            self.assertEqual(profiler.main(["--inspect-writers"]), 0)
+        self.assertFalse(profiler.STATE.exists())
+
     def test_reader_does_not_confuse_writable_owner(self):
         with mock.patch.object(profiler, "checked_run",
                                side_effect=lambda args, *, timeout: (

@@ -332,6 +332,30 @@ class MenuSessionTests(unittest.TestCase):
         self.assertNotIn("/Users/private", json.dumps(captured))
         self.assertFalse(captured["visible_fps_measured"])
 
+    def test_owner_inspection_output_is_bounded_and_redacted(self):
+        valid = {
+            "schema_version": 1, "status": "ambiguous_or_unrecognized",
+            "writer_count": 3, "owner_role_counts": {
+                "game_executable": 0, "isolated_test_wrapper": 1,
+                "wine_related": 2, "unrecognized": 0},
+            "secrets": "/Users/private/should-never-appear",
+        }
+        result = session.parse_safe_writer_inspection(json.dumps(valid))
+        self.assertEqual(result["writer_count"], 3)
+        self.assertEqual(result["owner_role_counts"]["wine_related"], 2)
+        self.assertNotIn("private", json.dumps(result))
+        for bad in (
+            {**valid, "writer_count": 4},
+            {**valid, "writer_count": -1},
+            {**valid, "owner_role_counts": {"wine_related": 2}},
+            {**valid, "status": "raw_process_dump"},
+            {**valid, "writer_count": True},
+        ):
+            self.assertIsNone(session.parse_safe_writer_inspection(
+                json.dumps(bad)))
+        self.assertIsNone(session.parse_safe_writer_inspection(
+            "{" + "x" * 5000))
+
     def test_cpu_sample_waits_for_two_complete_stalled_menu_intervals(self):
         path = self.game / "menuperf.csv"
         header = "seconds,optimization,nowait,gdi,operation,calls,total_ms,max_ms\n"
