@@ -1,0 +1,115 @@
+name: OpenLRR free Wine bootstrap feasibility
+# Standard macos-26 public runner only; zero paid API, no game assets.
+on:
+  push:
+    branches: [lab-arm64-free-runner-capability-v1]
+    paths:
+      - .github/workflows/lab-arm64-free-wine-bootstrap.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: openlrr-macos-arm64-wine-bootstrap
+  cancel-in-progress: false
+
+jobs:
+  bootstrap:
+    if: github.repository == 'MaultzLabs/OpenLRR'
+    runs-on: macos-26
+    timeout-minutes: 14
+    steps:
+      - name: Verify public Wine archive and exercise isolated Wine binary
+        shell: bash
+        env:
+          OPENLRR_WINE_TMP: ${{ runner.temp }}
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, platform, shutil, subprocess, tempfile
+          from pathlib import Path
+
+          url = "https://github.com/Gcenx/macOS_Wine_builds/releases/download/11.18/wine-devel-11.18-osx64.tar.xz"
+          expected = "aa0ea4c82e636ae7bca2076387cb0a5affa26509ad13f119ecd0d62bd7ba6f82"
+          report = {
+              "schema": "openlrr-free-wine-bootstrap-v1",
+              "runner_apple_silicon": platform.machine() == "arm64",
+              "wine_source": "Gcenx/macOS_Wine_builds 11.18",
+              "archive_digest_matches": False,
+              "archive_extracted": False,
+              "wine_binary_found": False,
+              "wine_version_executes": False,
+              "wineboot_isolated_prefix": "not_attempted",
+              "win32_executable_executes": "not_attempted",
+              "graphics_directdraw_verified": False,
+              "matching_sikarugir_engine_verified": False,
+              "game_assets_used": False,
+              "working_game_modified": False,
+              "paid_api_calls": False,
+              "paid_runner_requested": False,
+          }
+          dest = Path(os.environ["OPENLRR_WINE_TMP"])
+          archive = dest / "openlrr-wine-11.18.tar.xz"
+          extracted = dest / "openlrr-wine-extracted"
+          extracted.mkdir(exist_ok=True)
+
+          def exec_result(argv, timeout=30, env=None):
+              try:
+                  result = subprocess.run(argv, stdin=subprocess.DEVNULL,
+                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                      timeout=timeout, env=env, check=False)
+                  return "yes" if result.returncode == 0 else "no"
+              except (OSError, subprocess.TimeoutExpired):
+                  return "unavailable"
+
+          try:
+              download = exec_result(["/usr/bin/curl", "-fL", "--retry", "1",
+                  "--connect-timeout", "20", "--max-time", "180",
+                  "-o", str(archive), url], 205)
+              if download != "yes":
+                  report["download"] = download
+              elif hashlib.sha256(archive.read_bytes()).hexdigest() != expected:
+                  report["download"] = "hash_mismatch"
+              else:
+                  report["archive_digest_matches"] = True
+                  extract = exec_result(["/usr/bin/tar", "-xJf", str(archive),
+                      "-C", str(extracted)], 130)
+                  report["archive_extracted"] = extract == "yes"
+                  if extract == "yes":
+                      candidates = sorted(
+                          p for p in extracted.rglob("wine")
+                          if p.is_file() and p.parent.name == "bin"
+                          and "Resources" in p.parts and os.access(p, os.X_OK))
+                      report["wine_binary_found"] = bool(candidates)
+                      if candidates:
+                          wine = candidates[0]
+                          report["wine_version_executes"] = (
+                              exec_result([str(wine), "--version"], 30) == "yes")
+                          if report["wine_version_executes"]:
+                              wineboot = wine.parent / "wineboot"
+                              prefix = dest / "openlrr-wine-test-prefix"
+                              wine_env = dict(os.environ, WINEPREFIX=str(prefix),
+                                  WINEARCH="win64", WINEDEBUG="-all",
+                                  WINEDLLOVERRIDES="mscoree,mshtml=")
+                              report["wineboot_isolated_prefix"] = exec_result(
+                                  [str(wineboot), "-i"], 100, wine_env)
+                              if report["wineboot_isolated_prefix"] == "yes":
+                                  cmd = prefix / "drive_c/windows/syswow64/cmd.exe"
+                                  if cmd.is_file():
+                                      report["win32_executable_executes"] = exec_result(
+                                          [str(wine), r"C:\\windows\\syswow64\\cmd.exe",
+                                          "/c", "exit", "0"], 45, wine_env)
+                                  else:
+                                      report["win32_executable_executes"] = "not_present"
+          finally:
+              output = dest / "openlrr-wine-bootstrap-sanitized.json"
+              output.write_text(json.dumps(report, sort_keys=True, indent=2)+"\n")
+              print(json.dumps(report, sort_keys=True, indent=2))
+          PY
+      - name: Store only allowlisted feasibility statuses
+        uses: actions/upload-artifact@v4
+        with:
+          name: openlrr-wine-bootstrap-statuses-only
+          path: ${{ runner.temp }}/openlrr-wine-bootstrap-sanitized.json
+          if-no-files-found: error
+          retention-days: 1
