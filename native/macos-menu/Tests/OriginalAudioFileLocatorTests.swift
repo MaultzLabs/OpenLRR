@@ -32,6 +32,14 @@ import Foundation
         precondition(OriginalAudioFileLocator.locate("Sounds/MenuTheme.wav",
                   beside: wad, additionalRoot: selectedSounds) == extra)
 
+        // RRU audio ZIPs can contain WAVs directly, without Sounds/Streamed.
+        let extracted = temp.appendingPathComponent("Atmosdel_and_Stats", isDirectory: true)
+        try fm.createDirectory(at: extracted, withIntermediateDirectories: true)
+        let replacement = extracted.appendingPathComponent("Atmosdel.wav")
+        try Data(repeating: 0, count: 44).write(to: replacement)
+        precondition(OriginalAudioFileLocator.locate("Sounds/Streamed/Atmosdel.wav",
+                  beside: wad, additionalRoot: extracted) == replacement)
+
         // Do not follow traversal or arbitrary formats from untrusted CFG.
         precondition(OriginalAudioFileLocator.locate("../Sounds/Atmosdel.wav", beside: wad) == nil)
         precondition(OriginalAudioFileLocator.locate("/etc/passwd.wav", beside: wad) == nil)
