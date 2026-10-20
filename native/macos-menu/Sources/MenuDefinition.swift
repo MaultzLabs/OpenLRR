@@ -26,6 +26,8 @@ struct MenuDefinition {
         let internalName: String
         let x: Int
         let y: Int
+        let displayTitle: Bool
+        let titleAnchorY: Int
         let backgroundImage: String?
         let darkBackgroundImage: String?
         let titleFont: String?
@@ -60,7 +62,14 @@ struct MenuDefinition {
             let px = intPart(location.first)
             let py = intPart(location.dropFirst().first)
             let title = (value(path + ["Title"]) ?? "").replacingOccurrences(of: "_", with: " ")
-            let fullName = (value(path + ["FullName"]) ?? "Menu\(index)").replacingOccurrences(of: "_", with: " ")
+            // Front_LoadMenuSet reads FullName and only draws it when DisplayTitle
+            // is enabled. Never synthesize an absent original menu label.
+            let fullName = (value(path + ["FullName"]) ?? "").replacingOccurrences(of: "_", with: " ")
+            let displayTitle = !["NO", "FALSE", "OFF"].contains(
+                (value(path + ["DisplayTitle"]) ?? "TRUE").uppercased())
+            let anchorParts = (value(path + ["Anchored"]) ?? "")
+                .split(separator: ":", omittingEmptySubsequences: false)
+            let titleAnchorY = anchorParts.count == 2 ? (Int(anchorParts[1]) ?? 0) : 0
             let declaredItems = Int(value(path + ["ItemCount"]) ?? "0") ?? 0
             guard (0...150).contains(declaredItems) else {
                 throw MenuError.invalid("unreasonable ItemCount in \(menuSetName)/Menu\(index)")
@@ -116,7 +125,8 @@ struct MenuDefinition {
                                   linkedMenu: linked, raw: raw))
             }
             result.append(Screen(title: title, internalName: fullName,
-                                 x: px, y: py,
+                                 x: px, y: py, displayTitle: displayTitle,
+                                 titleAnchorY: titleAnchorY,
                                  backgroundImage: value(path + ["MenuImage"]),
                                  darkBackgroundImage: value(path + ["MenuImageDark"]),
                                  titleFont: value(path + ["MenuFont"]),

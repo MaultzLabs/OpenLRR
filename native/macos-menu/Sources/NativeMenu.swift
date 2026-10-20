@@ -166,9 +166,11 @@ final class OriginalMenuCanvas: NSView {
             }
         }
 
-        let title = menu.internalName.isEmpty ? menu.title : menu.internalName
-        if !title.isEmpty {
-            drawText(title, x: 320, y: 18, size: 23, hovered: false, enabled: false,
+        // Front_Menu_Update centers FullName at the screen midpoint and
+        // places it at menu.position.y + menu.anchoredPosition.y.
+        if menu.displayTitle && !menu.internalName.isEmpty {
+            drawText(menu.internalName, x: 320, y: CGFloat(menu.y + menu.titleAnchorY),
+                     size: 23, hovered: false, enabled: false,
                      centered: true, fontPath: menu.titleFont)
         }
 

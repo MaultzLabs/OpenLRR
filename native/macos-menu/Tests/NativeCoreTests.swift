@@ -36,6 +36,8 @@ private func failure(_ label: String, _ run: () throws -> Void) {
                 Title Main_Menu
                 FullName Main_Menu
                 Position 100:55
+                DisplayTitle OFF
+                Anchored 12:17
                 MenuImage Interface\\FrontEnd\\MenuBGpic.bmp
                 ItemCount 3
                 Item1 Next:20:30:Play_Game:Menu2
@@ -67,6 +69,9 @@ private func failure(_ label: String, _ run: () throws -> Void) {
         precondition(menus.menus.count == 2)
         precondition(menus.menus[0].title == "Main Menu")
         precondition(menus.menus[0].x == 100 && menus.menus[0].y == 55)
+        precondition(!menus.menus[0].displayTitle && menus.menus[0].titleAnchorY == 17)
+        precondition(menus.menus[1].displayTitle && menus.menus[1].titleAnchorY == 0)
+        precondition(menus.menus[1].internalName.isEmpty) // No invented FullName.
         precondition(menus.menus[0].items.count == 3)
         precondition(menus.menus[0].items[0].linkedMenu == 1)
         precondition(menus.menus[0].items[0].caption == "Play Game")
