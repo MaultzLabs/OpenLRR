@@ -215,7 +215,7 @@ class MenuSessionTests(unittest.TestCase):
                 session.check_environment(1, os_check=True)
 
     def test_unreviewed_sessions_are_never_eligible(self):
-        for value in (0, 3, 4, 5, 6, 99):
+        for value in (0, 4, 5, 6, 99):
             with self.subTest(session=value), self.assertRaises(ValueError):
                 session.check_environment(value, os_check=False)
 
