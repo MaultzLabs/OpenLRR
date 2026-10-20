@@ -24,3 +24,7 @@ swiftc -O Sources/WadArchive.swift Sources/GameResources.swift \
 "$tmp4"
 swiftc -O Sources/OriginalAudioFileLocator.swift Tests/OriginalAudioFileLocatorTests.swift -o "$tmp5"
 "$tmp5"
+
+# Converter is optional on macOS; syntax/help must work without FFmpeg.
+bash -n tools/convert-original-media.sh
+bash tools/convert-original-media.sh --help >/dev/null
