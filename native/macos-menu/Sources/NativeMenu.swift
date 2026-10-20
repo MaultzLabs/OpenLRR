@@ -12,29 +12,24 @@ private struct OriginalBitmapFont {
     let cellHeight: Int
     let sheetHeight: Int
 
-    func textWidth(_ text: String) -> CGFloat {
-        CGFloat(text.utf8.reduce(0) { partial, ch in
-            let glyph = Int(ch) - 32
-            return partial + ((0..<characterWidths.count).contains(glyph) ? characterWidths[glyph] : 0)
-        })
+    func layout(_ text: String) -> OriginalFontLayout? {
+        OriginalFontLayout.make(text, characterWidths: characterWidths,
+                                lineHeight: cellHeight)
     }
 
-    func draw(_ text: String, at point: CGPoint) {
-        var cursor = point.x
-        for byte in text.utf8 {
-            let glyph = Int(byte) - 32
-            guard (0..<characterWidths.count).contains(glyph) else { continue }
-            let col = glyph % 10
-            let row = glyph / 10
-            let width = CGFloat(characterWidths[glyph])
+    func draw(_ layout: OriginalFontLayout, at point: CGPoint) {
+        for placement in layout.glyphs {
+            let col = placement.index % 10
+            let row = placement.index / 10
+            let width = CGFloat(characterWidths[placement.index])
             let source = CGRect(x: CGFloat(col * cellWidth),
                                 y: CGFloat(sheetHeight - ((row + 1) * cellHeight)),
                                 width: width, height: CGFloat(cellHeight))
-            let destination = CGRect(x: cursor, y: point.y,
+            let destination = CGRect(x: point.x + CGFloat(placement.x),
+                                     y: point.y + CGFloat(placement.y),
                                      width: width, height: CGFloat(cellHeight))
             image.draw(in: destination, from: source, operation: .sourceOver,
                        fraction: 1, respectFlipped: true, hints: nil)
-            cursor += width
         }
     }
 }
@@ -201,12 +196,12 @@ final class OriginalMenuCanvas: NSView {
                                               size: CGFloat, hovered: Bool,
                                               enabled: Bool, centered: Bool,
                                               fontPath: String?) -> CGRect {
-        if let atlas = originalFont(fontPath) {
-            let width = atlas.textWidth(content)
+        if let atlas = originalFont(fontPath), let layout = atlas.layout(content) {
+            let width = CGFloat(layout.width)
             let x = centered ? x - width / 2 : x
-            atlas.draw(content, at: CGPoint(x: x, y: y))
+            atlas.draw(layout, at: CGPoint(x: x, y: y))
             return CGRect(x: x, y: y, width: width,
-                          height: CGFloat(atlas.cellHeight)).insetBy(dx: -3, dy: -3)
+                          height: CGFloat(layout.height)).insetBy(dx: -3, dy: -3)
         }
         // System font is only a fallback when the specific original font BMP
         // is not present/decodable. Never ship replacement font image assets.

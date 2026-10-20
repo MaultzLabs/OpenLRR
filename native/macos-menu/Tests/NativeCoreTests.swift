@@ -202,6 +202,30 @@ private func failure(_ label: String, _ run: () throws -> Void) {
         failure("streamed sound cannot use in-memory PCM") {
             _ = try sfx.pcm(named: "SND_Stream", resources: soundResources)
         }
-        print("PASS: WAD0/WAD1, CFG, menus, levels, maps, fonts, original SFX sample resolution")
+        // Gods98::Font_VPrintF2 uses CP1252 bytes, tab stops, newlines and
+        // a special non-advancing character 203. Synthetic glyph widths only.
+        var fontWidths = [Int](repeating: 4, count: 190)
+        fontWidths[0] = 2
+        fontWidths[171] = 6
+        let multi = OriginalFontLayout.make("A\tB\nC", characterWidths: fontWidths,
+                                            lineHeight: 10)!
+        precondition(multi.width == 20 && multi.height == 20 && multi.lineCount == 2)
+        precondition(multi.glyphs.map(\.x) == [0, 16, 0])
+        precondition(multi.glyphs.map(\.y) == [0, 0, 10])
+        let overlay = OriginalFontLayout.make("ABËC", characterWidths: fontWidths,
+                                              lineHeight: 10)!
+        precondition(overlay.glyphs.map(\.index) == [33, 34, 171, 35])
+        precondition(overlay.glyphs.map(\.x) == [0, 4, 8, 8] && overlay.width == 12)
+        let cp1252 = OriginalFontLayout.make("’", characterWidths: fontWidths,
+                                             lineHeight: 10)!
+        precondition(cp1252.glyphs[0].index == 114)
+        precondition(OriginalFontLayout.make("🐱", characterWidths: fontWidths,
+                                             lineHeight: 10) == nil)
+        precondition(OriginalFontLayout.make("A", characterWidths: [],
+                                             lineHeight: 10) == nil)
+        precondition(OriginalFontLayout.make(String(repeating: "A", count: 4097),
+                                             characterWidths: fontWidths,
+                                             lineHeight: 10) == nil)
+        print("PASS: WAD0/WAD1, CFG, menus, levels, maps, original font layout, SFX resolution")
     }
 }

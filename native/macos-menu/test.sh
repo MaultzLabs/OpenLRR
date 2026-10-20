@@ -11,6 +11,7 @@ swiftc -O Sources/WadArchive.swift Tests/WadArchiveTests.swift -o "$tmp1"
 swiftc -O Sources/WadArchive.swift Sources/GameResources.swift \
   Sources/LegoConfig.swift Sources/MenuDefinition.swift \
   Sources/LevelCatalog.swift Sources/MapFile.swift Sources/PalettedBMP.swift \
+  Sources/OriginalFontLayout.swift \
   Sources/WavePCM.swift Sources/SoundSampleCatalog.swift \
   Tests/NativeCoreTests.swift -o "$tmp2"
 "$tmp2"
