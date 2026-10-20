@@ -22,11 +22,11 @@ cat > "$out/Contents/Info.plist" <<'PLIST'
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>
 PLIST
-xcrun swiftc -O -target arm64-apple-macos12.0 -framework AppKit -framework ImageIO \
+xcrun swiftc -O -target arm64-apple-macos12.0 -framework AppKit -framework ImageIO -framework AVFoundation \
   Sources/WadArchive.swift Sources/GameResources.swift Sources/LegoConfig.swift \
   Sources/MenuDefinition.swift Sources/LevelCatalog.swift Sources/MapFile.swift \
   Sources/PalettedBMP.swift Sources/OriginalFontLayout.swift Sources/WavePCM.swift \
-  Sources/SoundSampleCatalog.swift Sources/NERPsScript.swift Sources/NativeMenu.swift \
+  Sources/SoundSampleCatalog.swift Sources/NERPsScript.swift Sources/OriginalMenuAudio.swift Sources/NativeMenu.swift \
   -o "$out/Contents/MacOS/RockRaidersNativeMenu"
 /usr/bin/codesign --force --sign - "$out"
 printf 'Compiled native ARM64 app: %s\n' "$out"
