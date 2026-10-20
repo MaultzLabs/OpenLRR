@@ -27,6 +27,13 @@ struct OriginalAudioFileLocator {
 
         for root in roots {
             var candidates = [parts]
+            // RRU's standalone Atmosdel_and_Stats.zip can be extracted to a
+            // directory containing WAVs directly. Only allow basename lookup
+            // inside the folder that the user explicitly selected.
+            if let additionalRoot, root.standardizedFileURL == additionalRoot.standardizedFileURL,
+               let filename = parts.last {
+                candidates.append([filename])
+            }
             let rootName = root.lastPathComponent.lowercased()
             if rootName == "sounds", parts.first?.lowercased() == "sounds" {
                 candidates.append(Array(parts.dropFirst()))
