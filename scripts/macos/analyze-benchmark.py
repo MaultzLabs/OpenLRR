@@ -203,8 +203,8 @@ def analyze_csv(source):
     outcome_samples = dd_outcomes + gdi_accepted + dib_accepted
     return {
         "rows": row_count,
-        "mode": {"optimization": mode[0], "nowait": mode[1], "gdi": mode[2],
-                 "dib": bool(dib_active)},
+        "mode": {**{"optimization": mode[0], "nowait": mode[1], "gdi": mode[2]},
+                 **({"dib": 1} if dib_active else {})},
         "present_path": path,
         "logged_duration_s": round(frames["logged_seconds"], 3),
         "frame_flips": frames["calls"],
@@ -300,7 +300,7 @@ def main():
         "Close request posted: " + ("yes (not proof of process exit)" if finished else "no"),
         "Graphics flags (optimization/nowait/gdi/dib): {}/{}/{}/{}".format(
             current["mode"]["optimization"], current["mode"]["nowait"],
-            current["mode"]["gdi"], int(current["mode"]["dib"])),
+            current["mode"]["gdi"], current["mode"].get("dib", 0)),
         "Logged duration (s): {:.3f}".format(current["logged_duration_s"]),
         "Frame flips: {}".format(current["frame_flips"]),
         "Frame flips per second: {:.3f}".format(current["frame_flips_per_s"]),
