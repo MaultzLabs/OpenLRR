@@ -294,6 +294,7 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate {
     private var window: NSWindow!
     private var canvas: OriginalMenuCanvas!
     private var status: NSTextField!
+    private let originalAudio = OriginalMenuAudio()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 680),
@@ -364,6 +365,7 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate {
     }
 
     private func load(_ url: URL) {
+        originalAudio.stop()
         do {
             let resources = try GameResources(selectedWadURL: url)
             guard resources.exists("Interface/FrontEnd/MenuBGpic.bmp") else {
@@ -373,7 +375,8 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate {
             if resources.exists("Lego.cfg") {
                 let config = try LegoConfig(data: resources.configData())
                 canvas.definitions = try MenuDefinition(config: config)
-                status.stringValue = "Original WADs and \(canvas.definitions?.menus.count ?? 0) configured menus loaded. Actions incomplete."
+                let soundStatus = originalAudio.start(config: config, resources: resources, beside: url)
+                status.stringValue = "\(canvas.definitions?.menus.count ?? 0) menus loaded; \(soundStatus). Actions incomplete."
             } else {
                 canvas.definitions = nil
                 status.stringValue = "Original background loaded. LegoRR1.wad with Lego.cfg is needed for navigation."
