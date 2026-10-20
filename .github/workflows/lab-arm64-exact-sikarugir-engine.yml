@@ -1,0 +1,96 @@
+name: OpenLRR free exact Sikarugir engine bootstrap
+# Scoped standard public-repo macos-26 runner. No game assets, paid APIs, or premium runners.
+on:
+  push:
+    branches: [lab-arm64-free-runner-capability-v1]
+    paths:
+      - .github/workflows/lab-arm64-exact-sikarugir-engine.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: openlrr-free-exact-sikarugir-engine
+  cancel-in-progress: false
+jobs:
+  engine-bootstrap:
+    if: github.repository == 'MaultzLabs/OpenLRR'
+    runs-on: macos-26
+    timeout-minutes: 14
+    steps:
+      - name: Hash-verify and sandbox-run official Sikarugir 11.0_1 engine
+        shell: bash
+        env:
+          OPENLRR_TMP: ${{ runner.temp }}
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, platform, subprocess
+          from pathlib import Path
+          tmp=Path(os.environ['OPENLRR_TMP'])
+          archive=tmp/'WS12WineSikarugir11.0_1.tar.xz'
+          unpack=tmp/'sikarugir-engine';unpack.mkdir(exist_ok=True)
+          prefix=tmp/'sikarugir-11-experimental-prefix'
+          url='https://github.com/Sikarugir-App/Engines/releases/download/v1.0/WS12WineSikarugir11.0_1.tar.xz'
+          sha='67e29fb3d74f363af39c69ba11f9b13a79812c5db07cf4748672658e4a200a0e'
+          report={
+            'schema':'openlrr-exact-sikarugir-engine-bootstrap-v1',
+            'source':'official_Sikarugir_App_Engines_v1_0',
+            'engine':'WS12WineSikarugir11.0_1',
+            'real_macos_26_arm64':platform.system()=='Darwin' and platform.machine()=='arm64' and platform.mac_ver()[0].startswith('26.'),
+            'archive_sha256_verified':False,
+            'archive_extraction_success':False,
+            'wine_executable_found':False,
+            'wine_version_executed':False,
+            'wineboot_found':False,
+            'isolated_prefix_created':False,
+            'wineboot_exit_zero':False,
+            'wineskin_wrapper_template_present':False,
+            'actual_user_wineskin_configuration_reproduced':False,
+            'directdraw_rendering_tested':False,
+            'original_game_tested':False,
+            'visible_fps_verified':False,
+            'paid_api_calls':False,
+            'paid_runner_requested':False,
+            'user_game_touched':False,
+          }
+          def check(argv,timeout=75,env=None):
+            try:
+              return subprocess.run(argv,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,
+                                    timeout=timeout,env=env,check=False)
+            except (OSError,subprocess.TimeoutExpired):return None
+          try:
+            r=check(['/usr/bin/curl','-fL','--retry','1','--connect-timeout','20','--max-time','210',
+                     '-o',str(archive),url],240)
+            if r is not None and r.returncode==0 and archive.is_file():
+              report['archive_sha256_verified']=hashlib.sha256(archive.read_bytes()).hexdigest()==sha
+            if report['archive_sha256_verified']:
+              r=check(['/usr/bin/tar','-xJf',str(archive),'-C',str(unpack)],145)
+              report['archive_extraction_success']=r is not None and r.returncode==0
+              if report['archive_extraction_success']:
+                candidates=sorted(p for p in unpack.rglob('wine') if p.is_file() and p.parent.name=='bin' and os.access(p,os.X_OK))
+                report['wine_executable_found']=len(candidates)>0
+                env=dict(os.environ,WINEPREFIX=str(prefix),WINEARCH='win64',
+                         WINEDEBUG='-all',WINEDLLOVERRIDES='mscoree,mshtml=')
+                for wine in candidates[:4]:
+                  r=check([str(wine),'--version'],30,env)
+                  if r is None or r.returncode!=0:continue
+                  report['wine_version_executed']=True
+                  boot=wine.parent/'wineboot'
+                  report['wineboot_found']=boot.is_file()
+                  if report['wineboot_found']:
+                    r=check([str(boot),'-i'],100,env)
+                    report['wineboot_exit_zero']=r is not None and r.returncode==0
+                    report['isolated_prefix_created']=(prefix/'drive_c').is_dir()
+                  break
+          finally:
+            # Write only predetermined status flags. Never expose system paths, logs or images.
+            p=tmp/'exact-sikarugir-engine-status-only.json'
+            p.write_text(json.dumps(report,sort_keys=True,indent=2)+'\n')
+            print(json.dumps(report,sort_keys=True,indent=2))
+          PY
+      - name: Upload status flags only
+        uses: actions/upload-artifact@v4
+        with:
+          name: openlrr-free-exact-sikarugir-engine-status-only
+          path: ${{ runner.temp }}/exact-sikarugir-engine-status-only.json
+          if-no-files-found: error
+          retention-days: 1
