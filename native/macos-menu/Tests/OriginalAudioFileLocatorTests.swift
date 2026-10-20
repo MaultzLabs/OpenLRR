@@ -40,6 +40,12 @@ import Foundation
         precondition(OriginalAudioFileLocator.locate("Sounds/Streamed/Atmosdel.wav",
                   beside: wad, additionalRoot: extracted) == replacement)
 
+        // If WADs were copied to Downloads, selecting the original game
+        // installation directory should still discover its streamed audio.
+        let copiedWad = temp.appendingPathComponent("Downloads/LegoRR0.wad")
+        precondition(OriginalAudioFileLocator.locate("Sounds/Streamed/OriginalAmbient.wav",
+                  beside: copiedWad, additionalRoot: installed) == streamWav)
+
         // Do not follow traversal or arbitrary formats from untrusted CFG.
         precondition(OriginalAudioFileLocator.locate("../Sounds/Atmosdel.wav", beside: wad) == nil)
         precondition(OriginalAudioFileLocator.locate("/etc/passwd.wav", beside: wad) == nil)
