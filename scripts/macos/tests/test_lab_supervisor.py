@@ -29,7 +29,7 @@ class SupervisorSafetyTests(unittest.TestCase):
             folder = root / run_name
             folder.mkdir()
             (folder / "lifecycle.verified").write_text(
-                "wrapper_wait_exited=yes\\ntest_game_handles=none\\n")
+                "wrapper_wait_exited=yes\ntest_game_handles=none\n")
             metrics = {
                 "mode": {"optimization": 0, "nowait": 0, "gdi": 0, "dib": 1},
                 "present_path": "dib_cpu", "present_calls": 3,
