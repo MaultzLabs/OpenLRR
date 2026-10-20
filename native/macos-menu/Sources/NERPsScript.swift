@@ -49,13 +49,15 @@ struct NERPsScript {
         guard data.count <= 4_000_000, data.count.isMultiple(of: 4) else {
             throw ScriptError.invalid("file must contain at most 1,000,000 complete 4-byte instructions")
         }
-        let count = data.count / 4
+        // Data slices may have a nonzero startIndex; normalize for safe offset reads.
+        let bytes = [UInt8](data)
+        let count = bytes.count / 4
         var decoded: [Instruction] = []
         decoded.reserveCapacity(count)
         for index in 0..<count {
             let start = index * 4
-            let operand = UInt16(data[start]) | (UInt16(data[start + 1]) << 8)
-            let rawOpcode = UInt16(data[start + 2]) | (UInt16(data[start + 3]) << 8)
+            let operand = UInt16(bytes[start]) | (UInt16(bytes[start + 1]) << 8)
+            let rawOpcode = UInt16(bytes[start + 2]) | (UInt16(bytes[start + 3]) << 8)
             guard let opcode = Opcode(rawValue: rawOpcode) else {
                 throw ScriptError.invalid("unknown opcode \(rawOpcode) at instruction \(index)")
             }
