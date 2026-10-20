@@ -13,6 +13,7 @@ enum class Metric : unsigned { FlicLock, FlicDecode, FlicUnlock, FlicBlt, ImageB
     FrameStartGap, FrameOutsideFlip, WindowBltSlow100ms, WindowBltSlow1000ms,
     OutsideFlipSlow100ms, OutsideFlipSlow1000ms,
     WindowBltThreadCpu, WindowBltSlowThreadCpu, WindowBltCpuUnavailable,
+    DibAttempt, DibLock, DibStretch, DibUnlock, DibPresentAccepted, DibPresentFallback,
     WindowBltSlowLowCpu, Count };
 struct Stat { std::uint64_t calls = 0; std::uint64_t ticks = 0; std::uint64_t maxTicks = 0; };
 
@@ -45,6 +46,8 @@ struct State {
     bool nonblockingWindowBlt = HasMarker("menuperf.nowait");
     // Alternative 2D window presenter test. Original DirectDraw blit stays the default.
     bool gdiWindowPresent = HasMarker("menuperf.gdi");
+    // TEST ONLY: bypass DirectDraw front Blt using CPU-visible backbuffer + StretchDIBits.
+    bool dibWindowPresent = HasMarker("menuperf.dib");
     std::FILE* output = nullptr;
     LARGE_INTEGER frequency = {};
     LARGE_INTEGER intervalStart = {};
@@ -74,6 +77,7 @@ inline State& Get() { static State state; return state; }
 inline bool OptimizeStaticFlic() { return Get().optimizeStaticFlic; }
 inline bool NonblockingWindowBlt() { return Get().nonblockingWindowBlt; }
 inline bool GdiWindowPresent() { return Get().gdiWindowPresent; }
+inline bool DibWindowPresent() { return Get().dibWindowPresent; }
 inline bool AutoTestEnabled() { return Get().autoTestSeconds != 0; }
 
 // A completed sample is held in memory until the existing one-second CSV
@@ -213,6 +217,14 @@ inline void RecordGdiWindowOutcome(bool succeeded) {
     ++s.counters[static_cast<unsigned>(metric)].calls;
 }
 
+// Every failed DIB attempt falls through to the original DirectDraw Blt.
+inline void RecordDibWindowOutcome(bool succeeded) {
+    State& s = Get();
+    if (!s.enabled) return;
+    const Metric metric = succeeded ? Metric::DibPresentAccepted : Metric::DibPresentFallback;
+    ++s.counters[static_cast<unsigned>(metric)].calls;
+}
+
 // Called after each full frame presentation, so only one disk write per second.
 inline void FlushIfDue() {
     State& s = Get();
@@ -231,7 +243,10 @@ inline void FlushIfDue() {
         "frame_start_gap", "frame_outside_flip", "window_blt_over_100ms",
         "window_blt_over_1000ms", "frame_outside_over_100ms", "frame_outside_over_1000ms",
         "window_blt_thread_cpu", "window_blt_slow_thread_cpu",
-        "window_blt_cpu_unavailable", "window_blt_slow_low_cpu"
+        "window_blt_cpu_unavailable",
+        "dib_window_attempt", "dib_backbuffer_lock", "dib_stretchdibits",
+        "dib_backbuffer_unlock", "dib_present_accepted", "dib_present_fallback",
+        "window_blt_slow_low_cpu"
     };
     const double seconds = static_cast<double>(elapsed) / s.frequency.QuadPart;
     const double factor = 1000.0 / s.frequency.QuadPart;

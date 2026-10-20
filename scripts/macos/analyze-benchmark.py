@@ -78,7 +78,39 @@ def analyze_csv(source):
     gdi = totals.get("gdi_window_attempt", {})
     gdi_accepted = totals.get("gdi_present_accepted", {}).get("calls", 0)
     gdi_fallback = totals.get("gdi_present_fallback", {}).get("calls", 0)
-    if mode[2]:
+    dib = totals.get("dib_window_attempt", {})
+    dib_accepted = totals.get("dib_present_accepted", {}).get("calls", 0)
+    dib_fallback = totals.get("dib_present_fallback", {}).get("calls", 0)
+    dib_active = dib.get("calls", 0) > 0
+    if dib_active:
+        required_dib_metrics = (
+            "dib_window_attempt", "dib_backbuffer_lock", "dib_stretchdibits",
+            "dib_backbuffer_unlock", "dib_present_accepted", "dib_present_fallback",
+        )
+        if not all(name in totals for name in required_dib_metrics):
+            raise ValueError("Partial DIB presenter diagnostic")
+        if mode[2] or gdi.get("calls", 0):
+            raise ValueError("DIB and original GDI experiments must be isolated")
+        if dib_accepted + dib_fallback != dib["calls"]:
+            raise ValueError("DIB accepted/fallback counters disagree with attempts")
+        if dd_calls != dib_fallback:
+            raise ValueError("DIB fallback count does not match DirectDraw calls")
+        if totals["dib_backbuffer_lock"]["calls"] != dib["calls"]:
+            raise ValueError("DIB lock count does not match DIB attempts")
+        if totals["dib_backbuffer_unlock"]["calls"] > dib["calls"]:
+            raise ValueError("DIB unlock count exceeds attempts")
+        if totals["dib_stretchdibits"]["calls"] > totals["dib_backbuffer_unlock"]["calls"]:
+            raise ValueError("DIB copy count exceeds successful locks")
+        if dib_accepted > totals["dib_stretchdibits"]["calls"]:
+            raise ValueError("DIB accepted count exceeds DIB copies")
+        present_calls = dib["calls"]
+        present_total_ms = dib["total_ms"] + dd.get("total_ms", 0)
+        present_worst_ms = max(dib["max_ms"], dd.get("max_ms", 0))
+        present_intervals = dib["intervals"]
+        slow_100ms = min(present_intervals, dib["slow_100ms"] + dd.get("slow_100ms", 0))
+        slow_1000ms = min(present_intervals, dib["slow_1000ms"] + dd.get("slow_1000ms", 0))
+        path = "dib_cpu"
+    elif mode[2]:
         # The alternative path does not invoke the DirectDraw window Blt on
         # success. Analyzing only window_present_blt would report a false zero.
         if not gdi.get("calls"):
@@ -165,13 +197,14 @@ def analyze_csv(source):
     cpu_slow = totals.get("window_blt_slow_thread_cpu", {})
 
     fps = frames["calls"] / frames["logged_seconds"] if frames["logged_seconds"] else 0
-    accepted = dd_accepted + gdi_accepted
+    accepted = dd_accepted + gdi_accepted + dib_accepted
     busy = dd_busy
     errors = dd_errors
-    outcome_samples = dd_outcomes + gdi_accepted
+    outcome_samples = dd_outcomes + gdi_accepted + dib_accepted
     return {
         "rows": row_count,
-        "mode": {"optimization": mode[0], "nowait": mode[1], "gdi": mode[2]},
+        "mode": {"optimization": mode[0], "nowait": mode[1], "gdi": mode[2],
+                 "dib": bool(dib_active)},
         "present_path": path,
         "logged_duration_s": round(frames["logged_seconds"], 3),
         "frame_flips": frames["calls"],
@@ -180,7 +213,7 @@ def analyze_csv(source):
         "present_total_s": round(present_total_ms / 1000, 4),
         "present_avg_ms": round(present_total_ms / present_calls, 4),
         "present_worst_ms": round(present_worst_ms, 4),
-        "present_worst_is_exact": not bool(gdi_fallback),
+        "present_worst_is_exact": not bool(gdi_fallback or dib_fallback),
         "present_intervals": present_intervals,
         "present_intervals_over_100ms": slow_100ms,
         "present_intervals_over_1000ms": slow_1000ms,
@@ -190,6 +223,10 @@ def analyze_csv(source):
         "present_accepted_percent": round(100.0 * accepted / present_calls, 2) if outcome_samples else None,
         "gdi_accepted_calls": gdi_accepted if mode[2] else None,
         "gdi_fallback_calls": gdi_fallback if mode[2] else None,
+        "dib_accepted_calls": dib_accepted if dib_active else None,
+        "dib_fallback_calls": dib_fallback if dib_active else None,
+        "dib_lock_max_ms": round(totals["dib_backbuffer_lock"]["max_ms"], 4) if dib_active else None,
+        "dib_copy_max_ms": round(totals["dib_stretchdibits"]["max_ms"], 4) if dib_active else None,
         "frame_timing_diagnostics_available": diagnostic,
         "frame_start_gap_calls": cadence["calls"] if diagnostic else None,
         "frame_start_gap_avg_ms": round(cadence["total_ms"] / cadence["calls"], 4) if diagnostic else None,
@@ -261,7 +298,9 @@ def main():
         "OpenLRR unattended benchmark",
         "Run: " + args.run_dir.name,
         "Close request posted: " + ("yes (not proof of process exit)" if finished else "no"),
-        "Graphics flags (optimization/nowait/gdi): {}/{}/{}".format(*current["mode"].values()),
+        "Graphics flags (optimization/nowait/gdi/dib): {}/{}/{}/{}".format(
+            current["mode"]["optimization"], current["mode"]["nowait"],
+            current["mode"]["gdi"], int(current["mode"]["dib"])),
         "Logged duration (s): {:.3f}".format(current["logged_duration_s"]),
         "Frame flips: {}".format(current["frame_flips"]),
         "Frame flips per second: {:.3f}".format(current["frame_flips_per_s"]),
@@ -279,6 +318,14 @@ def main():
             "Busy/rejected DirectDraw presentations: {}".format(current["present_busy_calls"]),
             "Other DirectDraw presentation failures: {}".format(current["present_error_calls"]),
             "Accepted presentation calls (%): {:.2f}".format(current["present_accepted_percent"]),
+        ])
+    if current["dib_accepted_calls"] is not None:
+        report.extend([
+            "Successful CPU DIB presentations: {}".format(current["dib_accepted_calls"]),
+            "DIB fallback-to-DirectDraw calls: {}".format(current["dib_fallback_calls"]),
+            "DIB backbuffer lock worst (ms): {}".format(current["dib_lock_max_ms"]),
+            "DIB StretchDIBits worst (ms): {}".format(current["dib_copy_max_ms"]),
+            "Warning: DIB visible correctness/FPS not verified; one CPU-side success is not proof of a displayed frame.",
         ])
     if current["gdi_accepted_calls"] is not None:
         report.extend([

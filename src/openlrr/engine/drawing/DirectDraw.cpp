@@ -445,6 +445,95 @@ void __cdecl Gods98::DirectDraw_ReturnFrontBuffer(void)
 	}
 }
 
+// Experimental CPU-visible presentation path. This avoids the DirectDraw
+// front-surface Blt and also avoids backbuffer GetDC (which stalled on Wine).
+// ONLY called with an explicit menuperf.dib marker inside the TEST install.
+// The existing DirectDraw Blt remains the unconditional fallback.
+static bool TryDibWindowPresent(
+    HWND hwnd, IDirectDrawSurface4* back, const RECT& source,
+    int clientWidth, int clientHeight)
+{
+    if (!hwnd || !back || source.right <= 0 || source.bottom <= 0 ||
+        clientWidth <= 0 || clientHeight <= 0 ||
+        clientWidth > 8192 || clientHeight > 8192)
+        return false;
+
+    DDSURFACEDESC2 desc = {};
+    desc.dwSize = sizeof(desc);
+    HRESULT locked = DDERR_GENERIC;
+    {
+        MenuPerf::Scope lockTimer(MenuPerf::Metric::DibLock);
+        locked = back->Lock(nullptr, &desc, DDLOCK_WAIT | DDLOCK_READONLY, nullptr);
+    }
+    if (locked != DD_OK)
+        return false;
+
+    bool success = false;
+    // DDSURFACEDESC2 is only usable until Unlock. Validate all dimensions,
+    // row layout and color masks rather than drawing an incorrectly pitched
+    // or compressed surface (e.g., 8-bit palette surfaces).
+    const DWORD width = desc.dwWidth;
+    const DWORD height = desc.dwHeight;
+    const DWORD bits = desc.ddpfPixelFormat.dwRGBBitCount;
+    const DWORD red = desc.ddpfPixelFormat.dwRBitMask;
+    const DWORD green = desc.ddpfPixelFormat.dwGBitMask;
+    const DWORD blue = desc.ddpfPixelFormat.dwBBitMask;
+    const bool rgb = (desc.ddpfPixelFormat.dwFlags & DDPF_RGB) != 0;
+    const bool rgb32 = bits == 32 && red == 0x00ff0000 &&
+                       green == 0x0000ff00 && blue == 0x000000ff;
+    const bool rgb565 = bits == 16 && red == 0xf800 &&
+                        green == 0x07e0 && blue == 0x001f;
+    const bool rgb555 = bits == 16 && red == 0x7c00 &&
+                        green == 0x03e0 && blue == 0x001f;
+    const bool valid = desc.lpSurface && rgb && (rgb32 || rgb565 || rgb555) &&
+                       width > 0 && width <= 8192 && height > 0 && height <= 8192 &&
+                       source.right <= static_cast<LONG>(width) &&
+                       source.bottom <= static_cast<LONG>(height) &&
+                       desc.lPitch > 0 &&
+                       static_cast<unsigned long>(desc.lPitch) ==
+                           ((width * bits + 31u) / 32u) * 4u;
+
+    if (valid) {
+        // BI_RGB 32-bit expects little-endian B,G,R,X. 16-bit requires
+        // explicit R,G,B bit masks immediately following BITMAPINFOHEADER.
+        struct DibInfo {
+            BITMAPINFOHEADER header;
+            DWORD masks[3];
+        } dib = {};
+        dib.header.biSize = sizeof(BITMAPINFOHEADER);
+        dib.header.biWidth = static_cast<LONG>(width);
+        dib.header.biHeight = -static_cast<LONG>(height); // DirectDraw top-down
+        dib.header.biPlanes = 1;
+        dib.header.biBitCount = static_cast<WORD>(bits);
+        dib.header.biCompression = bits == 16 ? BI_BITFIELDS : BI_RGB;
+        if (bits == 16) {
+            dib.masks[0] = red;
+            dib.masks[1] = green;
+            dib.masks[2] = blue;
+        }
+
+        HDC windowDC = ::GetDC(hwnd);
+        if (windowDC) {
+            int copied = 0;
+            {
+                MenuPerf::Scope copyTimer(MenuPerf::Metric::DibStretch);
+                copied = ::StretchDIBits(
+                    windowDC, 0, 0, clientWidth, clientHeight,
+                    0, 0, source.right, source.bottom, desc.lpSurface,
+                    reinterpret_cast<const BITMAPINFO*>(&dib),
+                    DIB_RGB_COLORS, SRCCOPY);
+            }
+            ::ReleaseDC(hwnd, windowDC);
+            success = copied != 0 && copied != GDI_ERROR;
+        }
+    }
+    {
+        MenuPerf::Scope unlockTimer(MenuPerf::Metric::DibUnlock);
+        back->Unlock(nullptr);
+    }
+    return success;
+}
+
 // <LegoRR.exe @0047cf10>
 void __cdecl Gods98::DirectDraw_BlitBuffers(void)
 {
@@ -473,6 +562,24 @@ void __cdecl Gods98::DirectDraw_BlitBuffers(void)
 	};
 
 	Draw_AssertUnlocked("DirectDraw_BlitBuffers");
+
+    // New, strictly opt-in repair candidate: map the already-rendered
+    // backbuffer into a CPU DIB rather than Wine's slow front-surface Blt.
+    // This is NOT the older GetDC-on-DirectDraw-backbuffer experiment.
+    // On unsupported formats or failed calls we restore the original Blt.
+    if (MenuPerf::DibWindowPresent()) {
+        bool succeeded = false;
+        {
+            MenuPerf::Scope attempt(MenuPerf::Metric::DibAttempt);
+            succeeded = TryDibWindowPresent(
+                directDrawGlobs.hWnd, DirectDraw_bSurf(), src,
+                static_cast<int>(directDrawGlobs.width * Main_Scale()),
+                static_cast<int>(directDrawGlobs.height * Main_Scale()));
+        }
+        MenuPerf::RecordDibWindowOutcome(succeeded);
+        if (succeeded)
+            return;
+    }
 
 	// Experimental alternative to the slow windowed DirectDraw front-surface blit.
 	// GDI presents the existing back buffer; the Direct3D renderer stays unchanged.
