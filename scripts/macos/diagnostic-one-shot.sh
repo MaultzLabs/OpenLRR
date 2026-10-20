@@ -13,7 +13,7 @@ commit_sha="$2"
 # Optional, trusted session orchestration. Default is unchanged.
 plan="${OPENLRR_DIAGNOSTIC_PLAN:-baseline,baseline}"
 case "$plan" in
-  baseline,baseline|baseline,nowait,baseline,nowait|baseline,gdi,baseline,gdi) ;;
+  baseline|baseline,baseline|baseline,nowait,baseline,nowait|baseline,gdi,baseline,gdi) ;;
   *) fail "Unsupported graphics experiment plan; refusing arbitrary modes" ;;
 esac
 reviewed_sha="${OPENLRR_DIAGNOSTIC_REVIEWED_SHA256:-}"
@@ -97,4 +97,4 @@ printf 'Target: isolated OpenLRR Menu Test.app only\n'
 printf 'Plan: %s, 60 seconds each; STOP/PAUSE respected\n' "$plan"
 "$python" "$supervisor" --approved-sha "$actual" --plan "$plan" --seconds 60 --run
 printf 'All supervised diagnostic runs verified and uploaded to the private results repo.\n'
-printf 'No AI-authored DLL has been executed. Local download files restored on exit.\n'
+printf 'Only the reviewed SHA-pinned TEST DLL was executed. Local download files restored on exit.\n'

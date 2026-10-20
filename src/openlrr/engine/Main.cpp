@@ -842,7 +842,14 @@ sint32 __stdcall Gods98::Main_WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTAN
 						Input_ReadMouse2();
 
 						// Run the main loop (pass 1.0f as the initial timing value)
-						if (!mainGlobs.currState.MainLoop(_mainDeltaTime)) mainGlobs.exit = true;
+						// Passive timing of the game update before 3D device presentation.
+						// The renderer, return value, and loop exit behavior are unchanged.
+						bool32 keepRunning = true;
+						{
+							MenuPerf::Scope gamePhase(MenuPerf::Metric::GameMainloop);
+							keepRunning = mainGlobs.currState.MainLoop(_mainDeltaTime);
+						}
+						if (!keepRunning) mainGlobs.exit = true;
 
 						// Update the device and flip the surfaces...
 						Graphics_Finalise3D();
