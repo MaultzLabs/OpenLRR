@@ -20,7 +20,9 @@ final class OriginalMenuAudio {
     func start(config: LegoConfig, resources: GameResources,
                beside selectedWadURL: URL) -> String {
         stop()
-        if let enabled = config.valueUnderGame(["SoundOn"])?.uppercased(),
+        // The retail LegoRR section overrides default Lego* sound settings.
+        if let enabled = (config.value("LegoRR", "SoundOn") ??
+                          config.valueUnderGame(["SoundOn"]))?.uppercased(),
            ["FALSE", "NO", "OFF"].contains(enabled) {
             return "sound disabled in Lego.cfg"
         }
