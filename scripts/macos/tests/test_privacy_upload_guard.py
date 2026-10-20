@@ -82,6 +82,7 @@ class PrivacyUploadTests(unittest.TestCase):
         self.write()
         with self.assertRaisesRegex(ValueError, "numeric"):
             guard.validate(self.run, True)
+        self.summary["metrics"]["frame_flips"] = 4
         self.summary["metrics"]["present_path"] = "http://malicious.example"
         self.write()
         with self.assertRaisesRegex(ValueError, "text"):
