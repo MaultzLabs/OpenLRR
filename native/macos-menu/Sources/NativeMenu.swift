@@ -267,6 +267,28 @@ final class OriginalMenuCanvas: NSView {
     }
 }
 
+/// Keeps the game's 640x480 canvas at a true 4:3 aspect ratio and reserves
+/// separate space for prototype-only controls. The game never draws beneath
+/// the toolbar, even when the window is resized.
+private final class NativeMenuHostView: NSView {
+    weak var gameCanvas: NSView?
+    weak var controlBar: NSView?
+    private let controlHeight: CGFloat = 80
+
+    override func layout() {
+        super.layout()
+        controlBar?.frame = NSRect(x: 0, y: 0,
+                                   width: bounds.width, height: controlHeight)
+        let availableHeight = max(0, bounds.height - controlHeight)
+        let scale = min(bounds.width / 640.0, availableHeight / 480.0)
+        let width = 640.0 * scale
+        let height = 480.0 * scale
+        gameCanvas?.frame = NSRect(x: (bounds.width - width) / 2,
+                                   y: controlHeight + (availableHeight - height) / 2,
+                                   width: width, height: height)
+    }
+}
+
 /// Creates a real native ARM64 AppKit window and reads only the selected WADs.
 final class NativeMenuApplication: NSObject, NSApplicationDelegate {
     private var window: NSWindow!
@@ -274,28 +296,27 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate {
     private var status: NSTextField!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 680),
                           styleMask: [.titled, .closable, .miniaturizable, .resizable],
                           backing: .buffered, defer: false)
         window.title = "Rock Raiders — Native Mac Prototype"
         window.center()
-        window.minSize = NSSize(width: 640, height: 480)
-        window.contentAspectRatio = NSSize(width: 4, height: 3)
-        let root = NSView(frame: window.contentView!.bounds)
+        window.minSize = NSSize(width: 640, height: 560)
+        let root = NativeMenuHostView(frame: window.contentView!.bounds)
         root.wantsLayer = true
         root.layer?.backgroundColor = NSColor.black.cgColor
         window.contentView = root
 
-        canvas = OriginalMenuCanvas(frame: root.bounds)
-        canvas.autoresizingMask = [.width, .height]
+        canvas = OriginalMenuCanvas(frame: NSRect(x: 0, y: 80, width: 800, height: 600))
+        root.gameCanvas = canvas
         canvas.onNavigation = { [weak self] value in self?.status.stringValue = value }
         root.addSubview(canvas)
 
-        let toolbar = NSVisualEffectView(frame: CGRect(x: 0, y: 520, width: 800, height: 80))
+        let toolbar = NSVisualEffectView(frame: CGRect(x: 0, y: 0, width: 800, height: 80))
         toolbar.material = .hudWindow
         toolbar.blendingMode = .withinWindow
         toolbar.state = .active
-        toolbar.autoresizingMask = [.width, .minYMargin]
+        root.controlBar = toolbar
         root.addSubview(toolbar)
 
         let open = NSButton(title: "Open original WAD files…", target: self,
@@ -321,6 +342,8 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate {
             status.trailingAnchor.constraint(lessThanOrEqualTo: toolbar.trailingAnchor, constant: -16),
             status.topAnchor.constraint(equalTo: buttons.bottomAnchor, constant: 7)
         ])
+        root.needsLayout = true
+        root.layoutSubtreeIfNeeded()
         window.makeKeyAndOrderFront(nil)
         window.makeFirstResponder(canvas)
         NSApp.activate(ignoringOtherApps: true)
