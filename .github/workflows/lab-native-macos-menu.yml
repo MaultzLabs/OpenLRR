@@ -1,0 +1,50 @@
+name: Native Rock Raiders menu prototype verification
+on:
+  push:
+    branches: [lab-native-macos-menu-v1]
+    paths:
+      - native/macos-menu/**
+      - .github/workflows/lab-native-macos-menu.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: native-rock-raiders-menu-prototype
+  cancel-in-progress: false
+jobs:
+  parser-tests:
+    if: github.repository == 'MaultzLabs/OpenLRR'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify portable WWAD parser without licensed game data
+        run: |
+          swiftc --version
+          bash native/macos-menu/test.sh
+  compile-native-mac:
+    needs: parser-tests
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Test parser and compile isolated native arm64 AppKit prototype
+        run: |
+          cd native/macos-menu
+          bash test.sh
+          bash build.sh
+          test -f build/RockRaidersNativeMenu.app/Contents/MacOS/RockRaidersNativeMenu
+          /usr/bin/lipo -archs build/RockRaidersNativeMenu.app/Contents/MacOS/RockRaidersNativeMenu | grep -qx 'arm64'
+          /usr/bin/ditto -c -k --sequesterRsrc --keepParent \
+            build/RockRaidersNativeMenu.app RockRaidersNativeMenu-arm64-prototype.zip
+      - name: Upload code-only native prototype (no game assets)
+        uses: actions/upload-artifact@v4
+        with:
+          name: rock-raiders-native-menu-arm64-prototype
+          path: native/macos-menu/RockRaidersNativeMenu-arm64-prototype.zip
+          if-no-files-found: error
+          retention-days: 3
