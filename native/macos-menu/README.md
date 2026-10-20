@@ -23,7 +23,16 @@ not use Wine, the original Windows EXE, DirectDraw, or any injected DLLs.
   `TutorialStartLevel`, and the `NextLevel` chains.
 - Reads original `.map` binary terrain/height/predug arrays without altering
   them, using the documented `MAP ` header and little-endian 16-bit cells.
-- Experimental macOS playback of the **configured original front-end** `AmbientMusicLoop` WAV via AVFoundation, sourced from the selected WADs or adjacent `Data/` files. No Windows music DLLs, audio extraction or bundled tracks. Playback requires macOS testing; the separate CD/OGG *in-level* soundtrack is not yet implemented.
+- Experimental macOS playback of the original `SFX_AmbientMusicLoop` sound using
+  AVFoundation. Resolves configured WAVs from the WADs or loose
+  `Data/Sounds/Streamed/` files; falls back to the original `Atmosdel.wav`
+  when present. A "Locate Sounds…" picker can select a separate user-owned
+  directory once, remembers the path, and shows persistent playback diagnostics.
+  No Windows music DLLs or copyrighted WAVs are bundled.
+- Optional offline media converter (`tools/convert-original-media.sh`) using
+  local FFmpeg: Indeo/other legacy `.avi` -> H.264/AAC `.mp4`, original
+  `Trackxx.ogg` music -> AAC `.m4a`. Keeps the originals unchanged.
+  Converted media is **not yet connected** to cutscene/gameplay playback.
 - Portable tests use **synthetic bytes only**. No copyrighted assets in GitHub.
 
 ## Actual verified scope
@@ -59,6 +68,45 @@ The other neighboring WAD is loaded automatically when present. The audio
 status under the window controls reports the configured ambient sound filename
 if native playback cannot locate it. Do not upload those private original
 assets or extracted files to the public GitHub repository.
+
+### Restoring the authentic main-menu ambience
+
+The original menu sound is a **WAV**, not a CD track. The Rock Raiders United
+[Atmosdel and Stats.wav download](https://rockraidersunited.com/files/lego_rock_raiders/resources/atmosdel-and-statswav-r323/)
+contains the original menu and score audio. RRU instructs users to extract it
+into `Data/Sounds/Streamed` (rather than into either WAD). Some extracted
+retail installations contain corrupted copies.
+
+The native app now searches `Data/Sounds/Streamed`, `Data/Sounds` and the
+original sound path in `Lego.cfg`. If your WADs are stored elsewhere, extract
+the RRU ZIP locally **after reviewing RRU's download terms**, open our app,
+click **Locate Sounds…** and choose the extracted folder containing the WAVs.
+The app remembers that folder; no repeated selection is necessary. The
+original assets stay local, no upload to GitHub and no changes to the Wine game.
+
+The separate [RRU Music without CD fix](https://rockraidersunited.com/guides/lrr-music-without-cd-fix-r11/)
+intercepts *Windows* `winmm.dll` CD-audio calls and maps tracks onto
+`Music/Trackxx.ogg` files. Those DLLs must **not** be copied into this native
+Mac app. Native soundtrack playback has to use an appropriate macOS decoder
+(or optional local conversion), and will be wired up with gameplay.
+
+### Optional local audio/video conversion
+
+Requires FFmpeg installed on your Mac (e.g. `brew install ffmpeg`). The
+converter performs no network requests and never overwrites originals:
+
+```bash
+cd native/macos-menu
+bash tools/convert-original-media.sh "/path/to/your/original/Data/AVI"
+bash tools/convert-original-media.sh "/path/to/your/original/Music"
+```
+
+The output is kept privately under
+`~/Library/Application Support/RockRaidersNativeMenu/ConvertedMedia`.
+Converting a legacy AVI container is **not** the same as translating Windows
+program code. Modern macOS video players can use the converted MP4 when
+cutscene playback is implemented. WAV files are played directly and do not
+need MP4 conversion.
 
 Only creates build files under `native/macos-menu/build`. Does not change
 original installation, the separate Wine TEST app, or save files.
