@@ -35,7 +35,7 @@ final class OriginalMenuAudio {
             candidates = try SoundSampleCatalog(config: config)
                 .samples(named: "SFX_AmbientMusicLoop")
         } catch {
-            return "menu audio config: \\(error)"
+            return "menu audio config: \(error)"
         }
         let directory = selectedWadURL.deletingLastPathComponent()
         let manager = FileManager.default
@@ -86,7 +86,7 @@ final class OriginalMenuAudio {
             }
         }
         let firstPath = candidates.first?.wavPath.replacingOccurrences(of: "\\\\", with: "/") ?? "unknown"
-        return "menu ambience unavailable: \\(firstPath)"
+        return "menu ambience unavailable: \(firstPath)"
     }
 }
 #endif
