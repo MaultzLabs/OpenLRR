@@ -1,6 +1,7 @@
 // Self-contained Win32 DirectDraw4 smoke benchmark (no LEGO data).
 // Intentionally measures API wall time only; not a displayed FPS claim.
 #define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
 #include <windows.h>
 #include <ddraw.h>
 #include <chrono>
