@@ -567,7 +567,8 @@ void __cdecl Gods98::DirectDraw_BlitBuffers(void)
     // backbuffer into a CPU DIB rather than Wine's slow front-surface Blt.
     // This is NOT the older GetDC-on-DirectDraw-backbuffer experiment.
     // On unsupported formats or failed calls we restore the original Blt.
-    if (MenuPerf::DibWindowPresent()) {
+    // Keep experiments mutually exclusive if two marker files are present.
+    if (MenuPerf::DibWindowPresent() && !MenuPerf::GdiWindowPresent()) {
         bool succeeded = false;
         {
             MenuPerf::Scope attempt(MenuPerf::Metric::DibAttempt);
