@@ -140,7 +140,9 @@ class ProfilerSafetyTests(unittest.TestCase):
                 return str(profiler.APP / "Contents/MacOS/Sikarugir") + "\n"
             raise AssertionError("Unexpected identity request")
         with mock.patch.object(profiler, "checked_run", side_effect=commands):
-            self.assertEqual(profiler.find_test_wine_pid(), "205")
+            # A wrapper-only owner must never be sampled as a game process.
+            with self.assertRaisesRegex(RuntimeError, "not a Wine game process"):
+                profiler.find_test_wine_pid()
 
     def test_unrecognized_unique_writer_stays_blocked(self):
         def commands(argv, *, timeout):
