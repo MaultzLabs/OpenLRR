@@ -1,0 +1,143 @@
+name: OpenLRR free 32-bit DirectDraw4 Wine smoke
+on:
+  push:
+    branches: [lab-arm64-free-runner-capability-v1]
+    paths: [.github/workflows/lab-arm64-directdraw-smoke.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: openlrr-free-apple-silicon-ddraw-smoke
+  cancel-in-progress: false
+jobs:
+  build-win32:
+    if: github.repository == 'MaultzLabs/OpenLRR'
+    runs-on: windows-2022
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compile standalone 32-bit DirectDraw4 program without game assets
+        shell: pwsh
+        run: |
+          cmake -S scripts/ci/directdraw-smoke -B .lab-ddraw-build -G "Visual Studio 17 2022" -A Win32
+          if ($LASTEXITCODE -ne 0) { throw 'Win32 CMake configure failed' }
+          cmake --build .lab-ddraw-build --config Release --parallel
+          if ($LASTEXITCODE -ne 0) { throw 'Win32 CMake build failed' }
+          $exe = '.lab-ddraw-build/Release/ddraw-smoke.exe'
+          if (!(Test-Path $exe)) { throw 'EXE missing' }
+          $bytes = [System.IO.File]::ReadAllBytes((Resolve-Path $exe))
+          $pe = [System.BitConverter]::ToInt32($bytes, 0x3c)
+          $machine = [System.BitConverter]::ToUInt16($bytes, $pe + 4)
+          if ($machine -ne 0x014c) { throw 'Program is not x86 Win32' }
+          Write-Host 'Standalone Windows x86 DirectDraw4 test compiled successfully'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openlrr-isolated-ddraw4-x86-executable
+          path: .lab-ddraw-build/Release/ddraw-smoke.exe
+          if-no-files-found: error
+          retention-days: 1
+  wine-ddraw:
+    needs: build-win32
+    runs-on: macos-26
+    timeout-minutes: 15
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: openlrr-isolated-ddraw4-x86-executable
+          path: ${{ runner.temp }}/smoke-exe
+      - name: Run DirectDraw4 API blit timing on verified Wine in isolated prefix
+        shell: bash
+        env:
+          OPENLRR_LAB_TEMP: ${{ runner.temp }}
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, re, subprocess
+          from pathlib import Path
+
+          tmp = Path(os.environ["OPENLRR_LAB_TEMP"])
+          archive = tmp / "wine-devel-11.18-osx64.tar.xz"
+          extracted = tmp / "wine-extracted"
+          extracted.mkdir(exist_ok=True)
+          prefix = tmp / "wine-prefix"
+          exe = tmp / "smoke-exe/ddraw-smoke.exe"
+          url = "https://github.com/Gcenx/macOS_Wine_builds/releases/download/11.18/wine-devel-11.18-osx64.tar.xz"
+          digest = "aa0ea4c82e636ae7bca2076387cb0a5affa26509ad13f119ecd0d62bd7ba6f82"
+          report = {
+              "schema": "openlrr-free-directdraw4-smoke-v1",
+              "synthetic_windows_x86_exe_only": True,
+              "real_game_assets_used": False,
+              "working_game_modified": False,
+              "paid_api_calls": False,
+              "wine_archive_verified": False,
+              "wine_prefix_initialized": False,
+              "ddraw4_smoke_status": "not_attempted",
+              "ddraw4_stage": "unavailable",
+              "directdraw_blt_calls": 0,
+              "directdraw_blt_mean_ms": None,
+              "directdraw_blt_max_ms": None,
+              "blts_over_100ms": 0,
+              "blts_over_1000ms": 0,
+              "visible_fps_verified": False,
+              "sikarugir_engine_matched": False,
+          }
+
+          def run(command, timeout=100, env=None, stdout=subprocess.DEVNULL):
+              try:
+                  return subprocess.run(command, stdin=subprocess.DEVNULL,
+                      stdout=stdout, stderr=subprocess.DEVNULL,
+                      timeout=timeout, env=env, check=False)
+              except (OSError, subprocess.TimeoutExpired):
+                  return None
+
+          try:
+              dl = run(["/usr/bin/curl", "-fL", "--retry", "1", "--max-time", "180",
+                  "-o", str(archive), url], timeout=200)
+              if dl is not None and dl.returncode == 0 and hashlib.sha256(archive.read_bytes()).hexdigest() == digest:
+                  report["wine_archive_verified"] = True
+                  unpack = run(["/usr/bin/tar", "-xJf", str(archive),
+                      "-C", str(extracted)], timeout=130)
+                  if unpack is not None and unpack.returncode == 0:
+                      wines = sorted(p for p in extracted.rglob("wine")
+                          if p.is_file() and p.parent.name == "bin" and os.access(p, os.X_OK))
+                      if wines and exe.is_file():
+                          wine = wines[0]
+                          env = dict(os.environ, WINEPREFIX=str(prefix),
+                              WINEARCH="win64", WINEDEBUG="-all",
+                              WINEDLLOVERRIDES="mscoree,mshtml=")
+                          boot = run([str(wine.parent / "wineboot"), "-i"], 100, env)
+                          report["wine_prefix_initialized"] = boot is not None and boot.returncode == 0
+                          if report["wine_prefix_initialized"]:
+                              output = run([str(wine), str(exe)], 110, env, subprocess.PIPE)
+                              if output is None:
+                                  report["ddraw4_smoke_status"] = "timed_out_or_unavailable"
+                              else:
+                                  data = output.stdout.decode("utf-8", errors="replace")
+                                  success = re.search(r"OPENLRR_DDRAW ok=1 calls=(\d+) mean_ms=([0-9.]+) worst_ms=([0-9.]+) slow100=(\d+) slow1000=(\d+)", data)
+                                  failure = re.search(r"OPENLRR_DDRAW stage=([a-z_]+) code=\d+ ok=0", data)
+                                  if success and output.returncode == 0:
+                                      report["ddraw4_smoke_status"] = "success"
+                                      report["directdraw_blt_calls"] = int(success.group(1))
+                                      report["directdraw_blt_mean_ms"] = float(success.group(2))
+                                      report["directdraw_blt_max_ms"] = float(success.group(3))
+                                      report["blts_over_100ms"] = int(success.group(4))
+                                      report["blts_over_1000ms"] = int(success.group(5))
+                                  else:
+                                      report["ddraw4_smoke_status"] = "failed"
+                                      stage = failure.group(1) if failure else ""
+                                      report["ddraw4_stage"] = stage if stage in {
+                                          "register", "window", "create", "query4", "cooperative",
+                                          "primary", "clipper", "clipper_hwnd", "clipper_set",
+                                          "offscreen", "backfill", "present_blt"} else "unavailable"
+          finally:
+              path = tmp / "ddraw-smoke-sanitized.json"
+              path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
+              print(json.dumps(report, indent=2, sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openlrr-directdraw4-synthetic-timing-only
+          path: ${{ runner.temp }}/ddraw-smoke-sanitized.json
+          if-no-files-found: error
+          retention-days: 1
