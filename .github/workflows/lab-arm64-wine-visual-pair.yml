@@ -1,0 +1,167 @@
+name: OpenLRR free Wine DirectDraw screenshot pair
+on:
+  push:
+    branches: [lab-arm64-free-runner-capability-v1]
+    paths:
+      - .github/workflows/lab-arm64-wine-visual-pair.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: openlrr-free-wine-visual-pair
+  cancel-in-progress: false
+jobs:
+  build-win32:
+    if: github.repository == 'MaultzLabs/OpenLRR'
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Create long-held white and black DirectDraw phases in isolated fixture
+        shell: pwsh
+        run: |
+          $p = 'scripts/ci/directdraw-smoke/directdraw-smoke.cpp'
+          $s = [System.IO.File]::ReadAllText($p)
+          $a = 'const int attempts = 120;'
+          $b = 'fill.dwFillColor = static_cast<DWORD>(i & 0xFF);'
+          $c = '++successful;'
+          if (!$s.Contains($a) -or !$s.Contains($b) -or !$s.Contains($c)) { throw 'Fixture source does not match verified version' }
+          $s = $s.Replace($a, 'const int attempts = 2;')
+          $s = $s.Replace($b, 'fill.dwFillColor = (i == 0) ? 0xFFFFFFFF : 0x00000000;')
+          $s = $s.Replace($c, 'std::printf("OPENLRR_VISUAL_PHASE=%s\n", (i == 0) ? "white" : "black"); std::fflush(stdout); Sleep(6500); ++successful;')
+          [System.IO.File]::WriteAllText($p, $s)
+          cmake -S scripts/ci/directdraw-smoke -B .lab-screen-build -G 'Visual Studio 17 2022' -A Win32
+          if ($LASTEXITCODE -ne 0) { throw 'Configuration failed' }
+          cmake --build .lab-screen-build --config Release --parallel
+          if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
+          $exe = '.lab-screen-build/Release/ddraw-smoke.exe'
+          if (!(Test-Path $exe)) { throw 'Fixture exe absent' }
+          $bytes = [System.IO.File]::ReadAllBytes((Resolve-Path $exe))
+          $pe = [System.BitConverter]::ToInt32($bytes, 0x3c)
+          if ([System.BitConverter]::ToUInt16($bytes, $pe + 4) -ne 0x014c) { throw 'Not x86 Windows' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openlrr-x86-visual-pair-fixture
+          path: .lab-screen-build/Release/ddraw-smoke.exe
+          if-no-files-found: error
+          retention-days: 1
+  wine-visual-pair:
+    needs: build-win32
+    runs-on: macos-26
+    timeout-minutes: 12
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: openlrr-x86-visual-pair-fixture
+          path: ${{ runner.temp }}/visual-fixture
+      - name: Capture two Quartz screen states during synthetic Wine DirectDraw blits
+        shell: bash
+        env:
+          OPENLRR_TMP: ${{ runner.temp }}
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,os,subprocess,time
+          from pathlib import Path
+          tmp=Path(os.environ['OPENLRR_TMP'])
+          report={
+            'schema':'openlrr-free-wine-quartz-sampled-pair-v1',
+            'synthetic_win32_directdraw_fixture':True,
+            'wine_11_18_archive_verified':False,
+            'wineboot_success':False,
+            'process_exit_success':False,
+            'captured_white_phase':False,
+            'captured_black_phase':False,
+            'screen_pixel_samples_changed':None,
+            'screen_pixel_samples_total':None,
+            'screen_pixel_change_correlated_with_phases':False,
+            'wine_window_identity_verified':False,
+            'capture_origin_verified':False,
+            'sikarugir_wineskin_engine_matched':False,
+            'original_game_tested':False,
+            'visible_fps_verified':False,
+            'public_images_uploaded':False,
+            'paid_api_calls':False,
+            'paid_runner_requested':False,
+          }
+          def run(argv,timeout=100,env=None):
+            try:
+              return subprocess.run(argv,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=timeout,env=env)
+            except (OSError,subprocess.TimeoutExpired): return None
+          try:
+            archive=tmp/'wine-11.18.tar.xz'
+            url='https://github.com/Gcenx/macOS_Wine_builds/releases/download/11.18/wine-devel-11.18-osx64.tar.xz'
+            digest='aa0ea4c82e636ae7bca2076387cb0a5affa26509ad13f119ecd0d62bd7ba6f82'
+            dl=run(['/usr/bin/curl','-fL','--retry','1','--max-time','180','-o',str(archive),url],200)
+            if dl is not None and dl.returncode==0 and hashlib.sha256(archive.read_bytes()).hexdigest()==digest:
+              report['wine_11_18_archive_verified']=True
+              extracted=tmp/'wine-extracted';extracted.mkdir(exist_ok=True)
+              unpack=run(['/usr/bin/tar','-xJf',str(archive),'-C',str(extracted)],120)
+              if unpack is not None and unpack.returncode==0:
+                bins=sorted(x for x in extracted.rglob('wine') if x.is_file() and x.parent.name=='bin' and os.access(x,os.X_OK))
+                if bins:
+                  wine=bins[0]
+                  env=dict(os.environ,WINEPREFIX=str(tmp/'isolated-wine-prefix'),WINEARCH='win64',WINEDEBUG='-all',WINEDLLOVERRIDES='mscoree,mshtml=')
+                  boot=run([str(wine.parent/'wineboot'),'-i'],100,env)
+                  report['wineboot_success']=boot is not None and boot.returncode==0
+                  if report['wineboot_success']:
+                    fixture=tmp/'visual-fixture/ddraw-smoke.exe'
+                    log=tmp/'phase-markers.txt'
+                    with log.open('wb') as output:
+                      proc=subprocess.Popen([str(wine),str(fixture)],stdin=subprocess.DEVNULL,stdout=output,stderr=subprocess.DEVNULL,env=env)
+                      samples=[]
+                      deadline=time.monotonic()+35
+                      for phase in ['white','black']:
+                        marker=f'OPENLRR_VISUAL_PHASE={phase}'
+                        while marker not in log.read_text(errors='replace') and time.monotonic()<deadline and proc.poll() is None:
+                          time.sleep(0.2)
+                        if marker not in log.read_text(errors='replace'):break
+                        image=tmp/f'{phase}.png'
+                        grab=run(['/usr/sbin/screencapture','-x','-D','1',str(image)],15)
+                        if grab is None or grab.returncode!=0 or not image.is_file():break
+                        report[f'captured_{phase}_phase']=True
+                        samples.append(image)
+                      try: report['process_exit_success']=proc.wait(timeout=17)==0
+                      except subprocess.TimeoutExpired: proc.kill();proc.wait()
+                    if len(samples)==2:
+                      script=tmp/'score.swift'
+                      script.write_text('''import AppKit
+          import Foundation
+          guard CommandLine.arguments.count == 3,
+                let a = NSBitmapImageRep(data: try Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1]))),
+                let b = NSBitmapImageRep(data: try Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[2]))) else { exit(1) }
+          let w = min(a.pixelsWide,b.pixelsWide), h = min(a.pixelsHigh,b.pixelsHigh)
+          var changed = 0, total = 0
+          for y in stride(from: 0, to: h, by: 12) {
+            for x in stride(from: 0, to: w, by: 12) {
+              guard let ac = a.colorAt(x:x,y:y)?.usingColorSpace(.deviceRGB),
+                    let bc = b.colorAt(x:x,y:y)?.usingColorSpace(.deviceRGB) else { continue }
+              let aa = (ac.redComponent + ac.greenComponent + ac.blueComponent)/3.0
+              let bb = (bc.redComponent + bc.greenComponent + bc.blueComponent)/3.0
+              total += 1
+              if abs(aa-bb) > 0.4 { changed += 1 }
+            }
+          }
+          print("PIXEL_DIFF=" + String(changed) + "/" + String(total))
+          ''')
+                      try:
+                        result=subprocess.run(['/usr/bin/swift',str(script),str(samples[0]),str(samples[1])],stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=75)
+                        if result.returncode==0:
+                          value=result.stdout.decode().strip().split('PIXEL_DIFF=')[-1].split('/')
+                          if len(value)==2:
+                            report['screen_pixel_samples_changed']=int(value[0])
+                            report['screen_pixel_samples_total']=int(value[1])
+                            report['screen_pixel_change_correlated_with_phases']=int(value[0])>100
+                      except (OSError,subprocess.TimeoutExpired,ValueError):pass
+          finally:
+            output=tmp/'screen-pair-metadata-only.json'
+            output.write_text(json.dumps(report,sort_keys=True,indent=2)+'\n')
+            print(json.dumps(report,sort_keys=True,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openlrr-free-wine-screen-pair-metadata-only
+          path: ${{ runner.temp }}/screen-pair-metadata-only.json
+          if-no-files-found: error
+          retention-days: 1
