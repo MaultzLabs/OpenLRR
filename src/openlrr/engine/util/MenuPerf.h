@@ -13,7 +13,7 @@ enum class Metric : unsigned { FlicLock, FlicDecode, FlicUnlock, FlicBlt, ImageB
     FrameStartGap, FrameOutsideFlip, WindowBltSlow100ms, WindowBltSlow1000ms,
     OutsideFlipSlow100ms, OutsideFlipSlow1000ms,
     WindowBltThreadCpu, WindowBltSlowThreadCpu, WindowBltCpuUnavailable,
-    WindowBltSlowLowCpu, Count };
+    WindowBltSlowLowCpu, GameMainloop, D3DRMDeviceUpdate, Count };
 struct Stat { std::uint64_t calls = 0; std::uint64_t ticks = 0; std::uint64_t maxTicks = 0; };
 
 inline bool HasMarker(const char* name) {
@@ -231,7 +231,8 @@ inline void FlushIfDue() {
         "frame_start_gap", "frame_outside_flip", "window_blt_over_100ms",
         "window_blt_over_1000ms", "frame_outside_over_100ms", "frame_outside_over_1000ms",
         "window_blt_thread_cpu", "window_blt_slow_thread_cpu",
-        "window_blt_cpu_unavailable", "window_blt_slow_low_cpu"
+        "window_blt_cpu_unavailable", "window_blt_slow_low_cpu",
+        "game_mainloop", "d3drm_device_update"
     };
     const double seconds = static_cast<double>(elapsed) / s.frequency.QuadPart;
     const double factor = 1000.0 / s.frequency.QuadPart;

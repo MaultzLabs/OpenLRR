@@ -164,6 +164,18 @@ def analyze_csv(source):
     cpu_all = totals.get("window_blt_thread_cpu", {})
     cpu_slow = totals.get("window_blt_slow_thread_cpu", {})
 
+    # Optional original-renderer phase timings. Legacy CSVs are unaffected.
+    # These calls are timings, not displayed frames or GPU utilization.
+    phases = ("game_mainloop", "d3drm_device_update")
+    present_phases = {key for key in phases if key in totals}
+    if present_phases and present_phases != set(phases):
+        raise ValueError("Incomplete main-loop/Direct3DRM phase diagnostics")
+    phase_available = bool(present_phases)
+    game_loop = totals.get("game_mainloop", {})
+    d3drm_update = totals.get("d3drm_device_update", {})
+    if phase_available and not game_loop.get("calls"):
+        raise ValueError("No completed game main-loop timing samples")
+
     fps = frames["calls"] / frames["logged_seconds"] if frames["logged_seconds"] else 0
     accepted = dd_accepted + gdi_accepted
     busy = dd_busy
@@ -210,6 +222,15 @@ def analyze_csv(source):
         "blit_slow_thread_cpu_avg_ms": round(cpu_slow["total_ms"] / slow_cpu_samples, 4)
         if slow_cpu_samples else None,
         "blit_slow_low_cpu_calls": slow_low_cpu if cpu_probe_present else None,
+        "game_phase_diagnostics_available": phase_available,
+        "game_mainloop_calls": game_loop["calls"] if phase_available else None,
+        "game_mainloop_avg_ms": round(game_loop["total_ms"] / game_loop["calls"], 4)
+        if phase_available and game_loop["calls"] else None,
+        "game_mainloop_worst_ms": round(game_loop["max_ms"], 4) if phase_available else None,
+        "d3drm_update_calls": d3drm_update["calls"] if phase_available else None,
+        "d3drm_update_avg_ms": round(d3drm_update["total_ms"] / d3drm_update["calls"], 4)
+        if phase_available and d3drm_update["calls"] else None,
+        "d3drm_update_worst_ms": round(d3drm_update["max_ms"], 4) if phase_available else None,
     }
 
 
@@ -308,6 +329,16 @@ def main():
             "Long Blt events with valid CPU samples: {}".format(current["blit_slow_cpu_samples"]),
             "Long Blt events using at most 20% CPU time: {}".format(current["blit_slow_low_cpu_calls"]),
             "Do not attribute low-CPU stalls to any specific Wine/driver layer without tracing.",
+        ])
+    if current["game_phase_diagnostics_available"]:
+        report.extend([
+            "Main-loop timing (calls/avg ms/worst ms): {} / {} / {}".format(
+                current["game_mainloop_calls"], current["game_mainloop_avg_ms"],
+                current["game_mainloop_worst_ms"]),
+            "Direct3DRM Update timing (calls/avg ms/worst ms): {} / {} / {}".format(
+                current["d3drm_update_calls"], current["d3drm_update_avg_ms"],
+                current["d3drm_update_worst_ms"]),
+            "Timing scopes are CPU-side and cannot establish visible FPS or GPU utilization.",
         ])
     if "dll_sha256" in summary:
         report.append("Reviewed test DLL SHA256: " + summary["dll_sha256"])

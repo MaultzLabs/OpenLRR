@@ -27,6 +27,7 @@
 #include "Main.h"
 
 #include "Graphics.h"
+#include "util/MenuPerf.h"
 
 
 /**********************************************************************************
@@ -143,6 +144,7 @@ void __cdecl Gods98::Graphics_Finalise3D(void)
 
 	if (!(mainGlobs.flags & MainFlags::MAIN_FLAG_UPDATED)) {
 		Draw_AssertUnlocked("Graphics_Finalise3D");
+		MenuPerf::Scope updateDevice(MenuPerf::Metric::D3DRMDeviceUpdate);
 		mainGlobs.device->Update();
 		mainGlobs.flags |= MainFlags::MAIN_FLAG_UPDATED;
 	}
