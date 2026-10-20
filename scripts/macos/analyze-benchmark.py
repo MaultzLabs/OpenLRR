@@ -173,8 +173,10 @@ def analyze_csv(source):
     phase_available = bool(present_phases)
     game_loop = totals.get("game_mainloop", {})
     d3drm_update = totals.get("d3drm_device_update", {})
-    if phase_available and not game_loop.get("calls"):
-        raise ValueError("No completed game main-loop timing samples")
+    # A Rock Raiders menu may drive frames through Main_LoopUpdate2()
+    # instead of currState.MainLoop(). The hook is then correctly zero
+    # although frame_flip and Direct3DRM update counters are present.
+    # Never turn an unvisited code path into a failed game benchmark.
 
     fps = frames["calls"] / frames["logged_seconds"] if frames["logged_seconds"] else 0
     accepted = dd_accepted + gdi_accepted
@@ -223,6 +225,10 @@ def analyze_csv(source):
         if slow_cpu_samples else None,
         "blit_slow_low_cpu_calls": slow_low_cpu if cpu_probe_present else None,
         "game_phase_diagnostics_available": phase_available,
+        "game_mainloop_observation": (
+            "state_mainloop_observed" if game_loop.get("calls") else
+            "state_mainloop_not_observed"
+        ) if phase_available else "unavailable",
         "game_mainloop_calls": game_loop["calls"] if phase_available else None,
         "game_mainloop_avg_ms": round(game_loop["total_ms"] / game_loop["calls"], 4)
         if phase_available and game_loop["calls"] else None,
@@ -332,12 +338,14 @@ def main():
         ])
     if current["game_phase_diagnostics_available"]:
         report.extend([
+            "MainLoop hook status: {}".format(current["game_mainloop_observation"]),
             "Main-loop timing (calls/avg ms/worst ms): {} / {} / {}".format(
                 current["game_mainloop_calls"], current["game_mainloop_avg_ms"],
                 current["game_mainloop_worst_ms"]),
             "Direct3DRM Update timing (calls/avg ms/worst ms): {} / {} / {}".format(
                 current["d3drm_update_calls"], current["d3drm_update_avg_ms"],
                 current["d3drm_update_worst_ms"]),
+            "A zero MainLoop count can mean the nested Main_LoopUpdate2() menu route is active.",
             "Timing scopes are CPU-side and cannot establish visible FPS or GPU utilization.",
         ])
     if "dll_sha256" in summary:

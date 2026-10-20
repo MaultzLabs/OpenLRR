@@ -39,3 +39,28 @@ successful Win32 workflow run built from the matching source commit.
 
 No Mac test has been conducted with this new DLL. Screenshot/video QA is
 still a separate requirement.
+
+## October 19 Mac run: analyzer rejection corrected
+
+Run `autobenchmark-2026-10-19_22-51-41` reached the benchmark
+analyzer, which rejected the CSV with `No completed game main-loop timing
+samples`. The analyzer had assumed that all menu frames execute
+`currState.MainLoop()`. OpenLRR also has a nested menu path:
+`Main_LoopUpdate2()`, which can call `Graphics_Finalise3D()` and
+`DirectDraw_Flip()` without entering `currState.MainLoop()`.
+
+The analysis-only fix accepts a fully instrumented but zero-call
+`game_mainloop` metric, reports `state_mainloop_not_observed`, and
+preserves real measured `d3drm_device_update` and presentation counts.
+It does not infer missing timing values or declare the render path proven
+from this alone.
+
+The existing run's `menuperf.csv` and `lifecycle.verified` should be
+inspected **locally** before considering any repeat. The supervisor retained
+its safety lock because the analyzer exited nonzero; do not remove that lock
+until the TEST game has independently exited and the previous TEST DLL is
+verified restored. The original working installation is not in scope.
+
+This revision changes **only reporting code, tests, and documentation**.
+The previously built Windows DLL and instrumentation are unchanged, and no
+Mac run is initiated.

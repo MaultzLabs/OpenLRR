@@ -45,6 +45,40 @@ class PhaseProbeTests(unittest.TestCase):
             self.assertEqual(metrics["frame_flips"], 2)
             self.assertEqual(metrics["present_accepted_calls"], 2)
 
+    def test_zero_state_mainloop_with_live_frames_is_valid(self):
+        # A real menu may use Main_LoopUpdate2 (nested UI path) and never
+        # execute currState.MainLoop. Preserve the observed zero, do not
+        # synthesize a main-loop average, and keep D3DRM measurements.
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp) / "menuperf.csv"
+            make_run(run)
+            csvtext = run.read_text()
+            csvtext = csvtext.replace(
+                ",game_mainloop,2,110,90", ",game_mainloop,0,0,0")
+            run.write_text(csvtext)
+            metrics = analyzer.analyze_csv(run)
+            self.assertEqual(metrics["frame_flips"], 2)
+            self.assertTrue(metrics["game_phase_diagnostics_available"])
+            self.assertEqual(metrics["game_mainloop_calls"], 0)
+            self.assertIsNone(metrics["game_mainloop_avg_ms"])
+            self.assertEqual(
+                metrics["game_mainloop_observation"], "state_mainloop_not_observed")
+            self.assertEqual(metrics["d3drm_update_calls"], 2)
+
+    def test_zero_update_and_zero_mainloop_do_not_invent_update_times(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp) / "menuperf.csv"
+            make_run(run)
+            csvtext = run.read_text().replace(
+                ",game_mainloop,2,110,90", ",game_mainloop,0,0,0").replace(
+                ",d3drm_device_update,2,40,29", ",d3drm_device_update,0,0,0")
+            run.write_text(csvtext)
+            metrics = analyzer.analyze_csv(run)
+            self.assertEqual(metrics["game_mainloop_calls"], 0)
+            self.assertEqual(metrics["d3drm_update_calls"], 0)
+            self.assertIsNone(metrics["d3drm_update_avg_ms"])
+            self.assertEqual(metrics["present_path"], "directdraw")
+
     def test_missing_phase_means_unavailable_not_zero(self):
         with tempfile.TemporaryDirectory() as tmp:
             run = Path(tmp) / "menuperf.csv"
