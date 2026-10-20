@@ -28,7 +28,18 @@ class PrivateReceiptTests(unittest.TestCase):
         self.calls = self.root / "gh-calls.txt"
         self.run = self.root / "autobenchmark-2026-10-18_17-24-03"
         self.run.mkdir()
-        (self.run / "menuperf.csv").write_text(HEADER)
+        (self.run / "menuperf.csv").write_text(
+            HEADER
+            + "1.500,0,0,0,frame_flip,4,200.0000,100.0000\n"
+            + "1.500,0,0,0,window_present_blt,4,200.0000,100.0000\n"
+        )
+        (self.run / "summary.json").write_text(
+            '{"schema_version":1,"run":"autobenchmark-2026-10-18_17-24-03",'
+            '"close_requested":true,"metrics":{'
+            '"mode":{"optimization":0,"nowait":0,"gdi":0},'
+            '"frame_flips":4,"present_calls":4,"present_path":"directdraw",'
+            '"logged_duration_s":1.5,"present_avg_ms":50.0}}'
+        )
         self.env = {
             **os.environ,
             "PATH": str(self.bin) + os.pathsep + os.environ["PATH"],
@@ -54,7 +65,7 @@ class PrivateReceiptTests(unittest.TestCase):
     def test_missing_receipt_must_not_upload(self):
         result = self.publish()
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("Missing or invalid verified lifecycle receipt", result.stderr)
+        self.assertIn("PRIVACY STOP", result.stderr)
         self.assertEqual(self.put_calls(), [])
 
     def test_extra_newline_receipt_is_rejected_byte_for_byte(self):
@@ -68,7 +79,8 @@ class PrivateReceiptTests(unittest.TestCase):
         result = self.publish()
         self.assertEqual(result.returncode, 0, result.stderr)
         calls = self.put_calls()
-        self.assertEqual(len(calls), 2, calls)
+        self.assertEqual(len(calls), 3, calls)
+        self.assertTrue(any("summary.json" in line for line in calls))
         self.assertTrue(any("lifecycle.verified" in line for line in calls))
         self.assertTrue(any("menuperf.csv" in line for line in calls))
 

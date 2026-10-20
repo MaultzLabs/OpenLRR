@@ -2,7 +2,7 @@ name: OpenLRR Menu Diagnostics Win32
 
 on:
   push:
-    branches: [lab-approved-worker-v1, lab-wine-isolation-audit-v1, lab-private-research-outbox-v1, lab-paired-research-ticket-v1, lab-research-handoff-v1, lab-supervisor-handoff-v1, lab-blit-cpu-probe-v1, menu-perf-build, automated-benchmark-harness, benchmark-loop-v2, agent-loop-v1, lab-render-diagnostics-v1, lab-mainloop-update-phase-timing-v1]
+    branches: [lab-approved-worker-v1, lab-wine-isolation-audit-v1, lab-private-research-outbox-v1, lab-paired-research-ticket-v1, lab-research-handoff-v1, lab-supervisor-handoff-v1, lab-blit-cpu-probe-v1, menu-perf-build, automated-benchmark-harness, benchmark-loop-v2, agent-loop-v1, lab-render-diagnostics-v1, lab-mainloop-update-phase-timing-v1, lab-private-upload-single-wine-profile-v1]
   workflow_dispatch:
 
 permissions:
@@ -34,6 +34,7 @@ jobs:
           Copy-Item BUILD-AND-TEST.md dist/
           Copy-Item scripts/macos/run-autobenchmark.sh dist/
           Copy-Item scripts/macos/publish-benchmark.sh dist/
+          Copy-Item scripts/macos/privacy-validate-benchmark.py dist/
           Copy-Item scripts/macos/analyze-benchmark.py dist/
           Copy-Item docs/autobenchmark.md dist/
           $digest = (Get-FileHash $dll -Algorithm SHA256).Hash.ToLowerInvariant()

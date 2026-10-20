@@ -43,6 +43,32 @@ class ProfilerSafetyTests(unittest.TestCase):
             for pid, access in entries
         )
 
+    def test_unique_wine_owner_with_test_wrapper_can_be_sampled(self):
+        def commands(args, *, timeout):
+            if args[0] == "/usr/sbin/lsof":
+                return self.lsof_fixture([(107, "w"), (205, "w")])
+            pid = args[2]
+            return ("wine64-preloader\n" if pid == "107"
+                    else str(profiler.APP) + "/Contents/MacOS/WineskinLauncher\n")
+        with mock.patch.object(profiler, "checked_run", side_effect=commands):
+            self.assertEqual(profiler.find_test_wine_pid(), "107")
+            sanitized = profiler.sanitized_test_writer_inspection(
+                profiler.verified_test_writer_roles())
+        self.assertEqual(sanitized["status"], "unique_target_verified")
+        self.assertEqual(sanitized["writer_count"], 2)
+        self.assertNotIn("107", str(sanitized))
+
+    def test_only_wrapper_or_two_wine_owners_fail_closed(self):
+        for roles in (
+            {"107": "isolated_test_wrapper"},
+            {"107": "wine_related", "205": "wine_related"},
+            {"107": "wine_related", "205": "unrecognized"},
+            {"107": "wine_related", "205": "game_executable", "300": "game_executable"},
+        ):
+            with self.subTest(roles=roles):
+                with self.assertRaisesRegex(RuntimeError, "TEST|Multiple"):
+                    profiler.selected_verified_test_pid(roles)
+
     def test_unique_game_executable_disambiguates_writable_wine_helpers(self):
         def commands(args, *, timeout):
             if args[0] == "/usr/sbin/lsof":
@@ -114,7 +140,9 @@ class ProfilerSafetyTests(unittest.TestCase):
                 return str(profiler.APP / "Contents/MacOS/Sikarugir") + "\n"
             raise AssertionError("Unexpected identity request")
         with mock.patch.object(profiler, "checked_run", side_effect=commands):
-            self.assertEqual(profiler.find_test_wine_pid(), "205")
+            # A wrapper-only owner must never be sampled as a game process.
+            with self.assertRaisesRegex(RuntimeError, "not a Wine game process"):
+                profiler.find_test_wine_pid()
 
     def test_unrecognized_unique_writer_stays_blocked(self):
         def commands(argv, *, timeout):
@@ -122,7 +150,7 @@ class ProfilerSafetyTests(unittest.TestCase):
                 return self.lsof_fixture([(205, "w")])
             return "/usr/bin/python3\n"
         with mock.patch.object(profiler, "checked_run", side_effect=commands):
-            with self.assertRaisesRegex(RuntimeError, "unrecognized"):
+            with self.assertRaisesRegex(RuntimeError, "not a Wine game process"):
                 profiler.find_test_wine_pid()
 
     def test_read_only_file_openers_never_produce_target(self):
@@ -228,7 +256,7 @@ class ProfilerSafetyTests(unittest.TestCase):
                 return self.lsof_fixture([(205, "w")])
             return "/usr/bin/python3\n"
         with mock.patch.object(profiler, "checked_run", side_effect=fake):
-            with self.assertRaisesRegex(RuntimeError, "unrecognized game process identity"):
+            with self.assertRaisesRegex(RuntimeError, "not a Wine game process"):
                 profiler.find_test_wine_pid()
 
     def test_stop_and_pause_prevent_preflight(self):

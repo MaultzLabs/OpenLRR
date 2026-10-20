@@ -60,6 +60,21 @@ if [[ $(wc -c < "$RUN_DIR/menuperf.csv") -gt 2000000 ]]; then
   exit 2
 fi
 
+# Validate every proposed payload BEFORE any GitHub write; fail closed.
+# This whitelist rejects arbitrary text, embedded paths, credentials,
+# unexpected JSON keys and unknown operations, not just known secret tokens.
+validator="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/privacy-validate-benchmark.py"
+[ -f "$validator" ] && [ ! -L "$validator" ] || {
+  echo "PRIVACY STOP: reviewed telemetry validator absent" >&2; exit 2;
+}
+privacy_flags=()
+if [[ "${OPENLRR_SUPERVISED:-0}" == "1" ]]; then
+  privacy_flags=(--supervised)
+fi
+python3 "$validator" "$RUN_DIR" "${privacy_flags[@]}" || {
+  echo "PRIVACY STOP: nothing uploaded" >&2; exit 2;
+}
+
 # Check directory existence through successful GitHub directory listings.
 # Do not interpret a 404's JSON "null" .sha as an existing file.
 if ! run_directories="$(gh api --method GET "repos/$REPORT_REPO/contents/runs" --jq '.[].name')"; then
@@ -142,21 +157,17 @@ if [[ "${OPENLRR_SUPERVISED:-0}" == "1" ]]; then
   fi
 fi
 
-# Only benchmark metrics, bounded reports, and a fixed supervisor receipt.
+# Only strict numeric metrics, bounded structured summaries and fixed exit receipts.
 upload "menuperf.csv" "$RUN_DIR/menuperf.csv"
 if [[ "${OPENLRR_SUPERVISED:-0}" == "1" ]]; then
   upload "lifecycle.verified" "$receipt"
 fi
-if [[ -f "$RUN_DIR/report.txt" && $(wc -c < "$RUN_DIR/report.txt") -le 65536 ]]; then
-  if ! grep -Eiq '/Users/|/home/|Token|Authorization|password|gho_|ghp_|github_pat_' "$RUN_DIR/report.txt"; then
-    upload "report.txt" "$RUN_DIR/report.txt"
-  fi
-fi
+# Privacy restriction: free-form report.txt stays on Mac (legacy historical
+# private reports remain unchanged). No raw traces or media are uploaded.
 if [[ -f "$RUN_DIR/summary.json" && $(wc -c < "$RUN_DIR/summary.json") -le 65536 ]]; then
-  if grep -Fq '"schema_version": 1' "$RUN_DIR/summary.json" &&
-     ! grep -Eiq '/Users/|/home/|Token|Authorization|password|gho_|ghp_|github_pat_' "$RUN_DIR/summary.json"; then
-    upload "summary.json" "$RUN_DIR/summary.json"
-  fi
+  # The strict whole-file JSON whitelist above is authoritative. Do not
+  # reject harmless whitespace differences in valid machine-generated JSON.
+  upload "summary.json" "$RUN_DIR/summary.json"
 fi
 
 echo "Uploaded this benchmark to the PRIVATE repository: https://github.com/$REPORT_REPO/tree/main/runs/$run_name"

@@ -42,8 +42,9 @@ DLL_SHA = "1179323074e03caf22f89ecbf05b9234f8ef5e18f2c1d6b8d797c2cf31c5b4ff"
 MODES = {
     1: ("baseline", "baseline"),
     2: ("baseline", "nowait", "baseline", "nowait"),
+    3: ("baseline",),  # targeted single-run Wine CPU-sample proof
 }
-MAX_SESSION_SECONDS = {1: 950, 2: 1650}
+MAX_SESSION_SECONDS = {1: 950, 2: 1650, 3: 700}
 NAME = re.compile(r"^autobenchmark-\d{4}-\d\d-\d\d_\d\d-\d\d-\d\d$")
 REVIEWED_WINE_PROFILE_COUNT = 1
 
@@ -74,7 +75,7 @@ def sha256_file(path: Path) -> str:
 
 def check_environment(session: int, *, os_check: bool = True) -> dict:
     if session not in MODES:
-        raise ValueError("Only diagnostic sessions 1 and 2 are currently authorized")
+        raise ValueError("Only diagnostic sessions 1, 2 and 3 are currently authorized")
     if os_check and sys.platform != "darwin":
         raise RuntimeError("This execution package is macOS-only")
     if os_check:
@@ -470,10 +471,10 @@ def run_session(session: int, *, profile_cpu: bool = True) -> dict:
             started = time.monotonic()
             attempted = False
             previous_notice = -30
-            print("Approved menu session started. TEST app only; "
-                  "two baselines" if session == 1 else
-                  "Approved menu session started. TEST app only; "
-                  "two preliminary graphics A/B pairs", flush=True)
+            labels = {1: "two baselines", 2: "two preliminary graphics A/B pairs",
+                      3: "one baseline and optional local-only Wine CPU sample"}
+            print("Approved menu session started. TEST app only; " +
+                  labels[session], flush=True)
             print("Private benchmark uploads are handled by the existing runner. "
                   "Log:", log, flush=True)
             while proc.poll() is None:
@@ -575,7 +576,7 @@ def run_session(session: int, *, profile_cpu: bool = True) -> dict:
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--session", type=int, choices=(1, 2), default=1)
+    p.add_argument("--session", type=int, choices=(1, 2, 3), default=1)
     p.add_argument("--run", action="store_true", help="Run the reviewed TEST diagnostic; default is no-launch preflight")
     p.add_argument("--no-local-cpu-profile", action="store_true",
                    help="Skip optional native macOS CPU stack sampling")
