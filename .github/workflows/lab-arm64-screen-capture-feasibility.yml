@@ -1,0 +1,91 @@
+name: OpenLRR free macOS 26 screenshot capability
+# Only non-sensitive status metadata; no game assets, binaries, APIs, or paid runner.
+on:
+  push:
+    branches: [lab-arm64-free-runner-capability-v1]
+    paths:
+      - .github/workflows/lab-arm64-screen-capture-feasibility.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: openlrr-free-arm64-screen-capture
+  cancel-in-progress: false
+jobs:
+  capture:
+    if: github.repository == 'MaultzLabs/OpenLRR'
+    runs-on: macos-26
+    timeout-minutes: 7
+    steps:
+      - name: Check real Quartz screen-capture capability
+        shell: bash
+        env:
+          OPENLRR_CAPTURE_REPORT: ${{ runner.temp }}/openlrr-capture-status.json
+        run: |
+          python3 - <<'PY'
+          import json, os, platform, subprocess, tempfile
+          from pathlib import Path
+
+          report = {
+            'schema': 'openlrr-free-macos-screen-capture-v1',
+            'real_macos_arm64': platform.system() == 'Darwin' and platform.machine() == 'arm64',
+            'windowserver_process': 'unverified',
+            'active_quartz_display': 'unverified',
+            'screen_recording_permission': 'unverified',
+            'screencapture_result': 'not_attempted',
+            'screenshot_decodable': False,
+            'real_wine_window_captured': False,
+            'wineskin_engine_matched': False,
+            'visible_fps_verified': False,
+            'user_game_touched': False,
+            'paid_runner_requested': False,
+            'paid_api_calls': False
+          }
+          def run(args, timeout=20):
+            try:
+              return subprocess.run(args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                    stderr=subprocess.DEVNULL, timeout=timeout, check=False)
+            except subprocess.TimeoutExpired:
+              return 'timeout'
+            except OSError:
+              return None
+          try:
+            ws = run(['/usr/bin/pgrep', '-x', 'WindowServer'])
+            report['windowserver_process'] = 'yes' if ws is not None and ws != 'timeout' and ws.returncode == 0 else 'not_detected'
+            with tempfile.TemporaryDirectory(prefix='openlrr-quartz-') as tmp:
+              swift = Path(tmp) / 'capture.swift'
+              swift.write_text('''import CoreGraphics
+          var count: UInt32 = 0
+          let status = CGGetActiveDisplayList(0, nil, &count)
+          print("ACTIVE_DISPLAY=" + ((status == .success && count > 0) ? "yes" : "no"))
+          print("SCREEN_PERMISSION=" + (CGPreflightScreenCaptureAccess() ? "yes" : "no"))
+          ''')
+              p = run(['/usr/bin/swift', str(swift)], timeout=75)
+              if p is not None and p != 'timeout' and p.returncode == 0:
+                s = p.stdout.decode('utf-8', errors='replace')
+                report['active_quartz_display'] = 'yes' if 'ACTIVE_DISPLAY=yes' in s else 'no_or_unavailable'
+                report['screen_recording_permission'] = 'yes' if 'SCREEN_PERMISSION=yes' in s else 'no_or_unavailable'
+              else:
+                report['active_quartz_display'] = 'swift_failed_or_timed_out'
+              image = Path(tmp) / 'screen.png'
+              p = run(['/usr/sbin/screencapture', '-x', '-D', '1', str(image)], timeout=15)
+              if p == 'timeout':
+                report['screencapture_result'] = 'timeout'
+              elif p is None:
+                report['screencapture_result'] = 'unavailable'
+              else:
+                report['screencapture_result'] = 'exit_zero' if p.returncode == 0 else 'exit_nonzero'
+              if image.is_file() and image.stat().st_size > 100:
+                p = run(['/usr/bin/sips', '-g', 'pixelWidth', '-g', 'pixelHeight', str(image)], timeout=15)
+                report['screenshot_decodable'] = p is not None and p != 'timeout' and p.returncode == 0 and b'pixelWidth:' in p.stdout and b'pixelHeight:' in p.stdout
+          finally:
+            Path(os.environ['OPENLRR_CAPTURE_REPORT']).write_text(json.dumps(report, indent=2, sort_keys=True) + '\n')
+            print(json.dumps(report, indent=2, sort_keys=True))
+          PY
+      - name: Upload status metadata only (no images)
+        uses: actions/upload-artifact@v4
+        with:
+          name: openlrr-free-macos-screen-capture-status
+          path: ${{ runner.temp }}/openlrr-capture-status.json
+          if-no-files-found: error
+          retention-days: 1
