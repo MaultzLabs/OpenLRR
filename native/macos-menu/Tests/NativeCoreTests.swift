@@ -37,6 +37,7 @@ private func failure(_ label: String, _ run: () throws -> Void) {
                 FullName Main_Menu
                 Position 100:55
                 DisplayTitle OFF
+                AutoCenter TRUE
                 Anchored 12:17
                 MenuImage Interface\\FrontEnd\\MenuBGpic.bmp
                 ItemCount 3
@@ -70,6 +71,8 @@ private func failure(_ label: String, _ run: () throws -> Void) {
         precondition(menus.menus[0].title == "Main Menu")
         precondition(menus.menus[0].x == 100 && menus.menus[0].y == 55)
         precondition(!menus.menus[0].displayTitle && menus.menus[0].titleAnchorY == 17)
+        precondition(menus.menus[0].autoCenter)
+        precondition(!menus.menus[1].autoCenter)
         precondition(menus.menus[1].displayTitle && menus.menus[1].titleAnchorY == 0)
         precondition(menus.menus[1].internalName.isEmpty) // No invented FullName.
         precondition(menus.menus[0].items.count == 3)
