@@ -20,20 +20,22 @@ not use Wine, the original Windows EXE, DirectDraw, or any injected DLLs.
   `TutorialStartLevel`, and the `NextLevel` chains.
 - Reads original `.map` binary terrain/height/predug arrays without altering
   them, using the documented `MAP ` header and little-endian 16-bit cells.
+- Experimental macOS playback of the **configured original front-end** `AmbientMusicLoop` WAV via AVFoundation, sourced from the selected WADs or adjacent `Data/` files. No Windows music DLLs, audio extraction or bundled tracks. Playback requires macOS testing; the separate CD/OGG *in-level* soundtrack is not yet implemented.
 - Portable tests use **synthetic bytes only**. No copyrighted assets in GitHub.
 
 ## Actual verified scope
 
 The portable archive, config, front-end, map and font decoding tests **compile
-and run on Linux** with Swift 6. No original WADs were available during these
-remote tests. The AppKit code has been parsed, but **has not yet compiled or run
-on real macOS** because GitHub's free Mac jobs were cancelled before acquiring
-runners. Original image rendering, controls, menu positions, audio, performance,
-3D gameplay and missions require testing before any working-game claims.
+and run on Linux** with Swift 6 using synthetic fixtures. The native AppKit
+prototype has been built and launched on an Apple Silicon Mac by the project
+owner using their own original WAD files. The original menu artwork and some
+navigation display, but the layout and controls are incomplete; original audio
+playback is newly added and **not yet verified on a Mac**. Frame rate, 3D
+rendering, gameplay, and missions have not been validated.
 
 The framework for `Next` navigation exists, but the rest of the original menu
 items remain intentionally non-operational; no fake game or save actions.
-Native 3D graphics, AI, level runtime, NERPs and sound have **not** been ported.
+Native 3D graphics, AI, level runtime, and executable NERPs have **not** been ported. WAV decoding and initial native menu audio playback are experimental.
 
 ## Building locally when you are ready
 
