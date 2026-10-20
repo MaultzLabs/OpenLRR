@@ -155,6 +155,53 @@ private func failure(_ label: String, _ run: () throws -> Void) {
             let simple = Data(fontImage.prefix(54))
             _ = try PalettedBMP(data: simple)
         }
-        print("PASS: WAD0/WAD1 precedence, CFG menu definitions, mission order, terrain maps, original bitmap font widths")
+        // Resolve real Samples entries through the original SFX_LoadSampleProperty
+        // modifiers; all bytes here are synthetic and not extracted game audio.
+        let sfxConfig = try LegoConfig(text: """
+        Lego* {
+          Samples {
+            SFX_ButtonPressed Sounds\\UI\\Click
+            SND_Group Sounds\\One,*#-1500#Sounds\\Two,#-15000#Sounds\\Three
+            !SFX_Drip Sounds\\Drip1,Sounds\\Drip2
+            SND_Stream @Sounds\\Ambient,Sounds\\Loop
+            SND_Bad *#-200#@Sounds\\Invalid
+            SND_Invalid #oops#Sounds\\Invalid
+            SND_Empty Sounds\\One,
+          }
+        }
+        """)
+        let sfx = SoundSampleCatalog(config: sfxConfig)
+        let button = try sfx.samples(named: "sfx_buttonpressed")
+        precondition(button.count == 1 && button[0].wavPath == "Sounds\\UI\\Click.wav")
+        precondition(!button[0].simultaneous && !button[0].streamed)
+        let group = try sfx.samples(named: "SND_Group")
+        precondition(group.count == 3 && group[1].simultaneous && group[1].volume == -1500)
+        precondition(group[2].volume == 0) // Invalid DirectSound volume falls back to zero.
+        let reduced = try sfx.samples(named: "SFX_Drip")
+        precondition(reduced.count == 2)
+        failure("reduced sound disabled") {
+            _ = try sfx.samples(named: "SFX_Drip", includeReduced: false)
+        }
+        let streamed = try sfx.samples(named: "SND_Stream")
+        precondition(streamed.count == 2 && streamed[0].streamed && streamed[1].streamed)
+        for id in ["SND_Bad", "SND_Invalid", "SND_Empty"] {
+            failure("malformed sound \(id)") { _ = try sfx.samples(named: id) }
+        }
+        failure("missing sound") { _ = try sfx.samples(named: "NotConfigured") }
+        // Tiny valid PCM RIFF/WAVE in the same WWAD format as the game.
+        let wavBytes: [UInt8] = [82,73,70,70] + le(38) +
+            [87,65,86,69,102,109,116,32] + le(16) +
+            [1,0,1,0] + le(8000) + le(8000) + [1,0,8,0] +
+            [100,97,116,97] + le(2) + [0,255]
+        let soundResources = try GameResources(archives: [
+            (0, archive([("Sounds\\UI\\Click.wav", wavBytes)]))
+        ])
+        let decodedSound = try sfx.pcm(named: "SFX_ButtonPressed", resources: soundResources)
+        precondition(decodedSound.frameCount == 2 && decodedSound.sampleRate == 8000)
+        precondition(decodedSound.sample(frame: 0, channel: 0) == -1)
+        failure("streamed sound cannot use in-memory PCM") {
+            _ = try sfx.pcm(named: "SND_Stream", resources: soundResources)
+        }
+        print("PASS: WAD0/WAD1, CFG, menus, levels, maps, fonts, original SFX sample resolution")
     }
 }
