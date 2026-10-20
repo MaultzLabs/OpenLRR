@@ -66,13 +66,70 @@ def checked_run(args: list[str], *, timeout: int) -> str:
     return proc.stdout
 
 
+def writable_test_csv_owners(raw: str, expected: Path) -> set[str]:
+    """Extract writers by lsof's per-FD access field, not by process name.
+
+    -Fpcfan reports p=PID, c=command, f=descriptor, a=access (r/w/u),
+    n=exact opened pathname. A read-only observer is never a game writer.
+    Reject malformed output rather than treating a process name as evidence.
+    """
+    owners: set[str] = set()
+    owner = None
+    descriptor = None
+    access = None
+    name = None
+
+    def finish() -> None:
+        if descriptor is not None and name == str(expected) and access in ("w", "u"):
+            if owner is None or not PID.fullmatch(owner):
+                raise RuntimeError("Malformed TEST telemetry file owner identity")
+            owners.add(owner)
+
+    if len(raw) > 8192:
+        raise RuntimeError("Oversized TEST telemetry process descriptor response")
+    for line in raw.splitlines():
+        if not line:
+            continue
+        field, value = line[0], line[1:]
+        if field == "p":
+            finish()
+            if not PID.fullmatch(value):
+                raise RuntimeError("Malformed TEST telemetry process identifier")
+            owner, descriptor, access, name = value, None, None, None
+        elif field == "f":
+            finish()
+            if owner is None:
+                raise RuntimeError("File descriptor without TEST process identity")
+            descriptor, access, name = value, None, None
+        elif field == "a":
+            if descriptor is None:
+                raise RuntimeError("File access mode without descriptor")
+            access = value.lower()
+        elif field == "n":
+            if descriptor is None:
+                raise RuntimeError("File name without descriptor")
+            name = value
+        elif field == "c":
+            # Do not use or publish the arbitrary process name from lsof.
+            continue
+        else:
+            raise RuntimeError("Unexpected TEST telemetry descriptor field")
+    finish()
+    return owners
+
+
+def recognizable_test_game_identity(command: str) -> bool:
+    """Accept known Wine naming OR a directly TEST-bundle-bound launcher."""
+    lower = command.lower()
+    return any(token in lower for token in ("wine", "legorr", "rock raiders")) or (
+        str(APP).lower() in lower and
+        any(token in lower for token in ("sikarugir", "wineskin"))
+    )
+
+
 def find_test_wine_pid() -> str:
     stop_check()
     validate_test_target()
-    # The game's CSV is held open while real TEST menu frames are recorded.
-    # Searching +D over the entire Wine game tree also returns helper Wine
-    # processes and can make the old unique-PID check fail. Bind instead to
-    # the ONE file that the instrumented TEST game's writer holds open.
     live = GAME / "menuperf.csv"
     header = "seconds,optimization,nowait,gdi,operation,calls,total_ms,max_ms"
     if live.is_symlink() or not live.is_file() or live.stat().st_size < len(header):
@@ -80,24 +137,27 @@ def find_test_wine_pid() -> str:
     with live.open("r", encoding="utf-8", errors="replace") as stream:
         if stream.readline().strip() != header:
             raise RuntimeError("TEST menu telemetry header is invalid")
-    raw = checked_run(["/usr/sbin/lsof", "-nP", "-t", str(live)], timeout=20)
-    candidates = set(raw.split())
-    if not candidates:
-        raise RuntimeError("No live TEST menu telemetry writer found")
-    if len(candidates) > MAX_DISCOVERED_PIDS:
-        raise RuntimeError("Too many TEST telemetry file owners for safe sampling")
-    if any(not PID.fullmatch(candidate) for candidate in candidates):
-        raise RuntimeError("Untrusted TEST process identifier")
-    wine_pids = []
-    for candidate in sorted(candidates, key=int):
-        description = checked_run(
-            ["/bin/ps", "-p", candidate, "-o", "comm="], timeout=10
-        ).strip().lower()
-        if any(marker in description for marker in ("wine", "legorr", "rock raiders")):
-            wine_pids.append(candidate)
-    if len(wine_pids) != 1:
-        raise RuntimeError("Cannot attribute exactly one Wine writer of TEST menu telemetry")
-    return wine_pids[0]
+
+    # -t reported *all* openers, including readers. The file-descriptor
+    # access field lets us identify who is actually writing TEST telemetry.
+    raw = checked_run(["/usr/sbin/lsof", "-nP", "-Fpcfan", str(live)], timeout=20)
+    writers = writable_test_csv_owners(raw, live)
+    if not writers:
+        raise RuntimeError("No verified writable TEST menu telemetry owner found")
+    if len(writers) > MAX_DISCOVERED_PIDS:
+        raise RuntimeError("Too many TEST telemetry writable owners")
+    if len(writers) != 1:
+        raise RuntimeError("Multiple writable TEST menu telemetry owners")
+    target = next(iter(writers))
+
+    comm = checked_run(["/bin/ps", "-p", target, "-o", "comm="], timeout=10).strip()
+    if not recognizable_test_game_identity(comm):
+        # Wine wrappers sometimes hide the executable identity in 'comm'.
+        # Read the full argv only in memory; never report paths/arguments.
+        argv = checked_run(["/bin/ps", "-p", target, "-o", "command="], timeout=10).strip()
+        if not recognizable_test_game_identity(argv):
+            raise RuntimeError("Writable TEST owner has unrecognized game process identity")
+    return target
 
 
 # All report categories are allowlisted. No discovered symbol, address,

@@ -161,6 +161,14 @@ def check_environment(session: int, *, os_check: bool = True) -> dict:
 
 def classify_cpu_profile_failure(stderr: str) -> str:
     """Store only a fixed diagnostic category, never raw local process output."""
+    if "No verified writable TEST menu telemetry owner found" in stderr:
+        return "unavailable_no_verified_writable_test_owner"
+    if "Multiple writable TEST menu telemetry owners" in stderr:
+        return "unavailable_multiple_writable_test_owners"
+    if "Writable TEST owner has unrecognized game process identity" in stderr:
+        return "unavailable_unrecognized_test_writer_identity"
+    if "Unexpected TEST telemetry descriptor field" in stderr:
+        return "unavailable_unrecognized_mac_lsof_layout"
     if "No live TEST menu telemetry writer found" in stderr:
         return "unavailable_no_live_test_writer"
     if "No verified live TEST menu telemetry file" in stderr:

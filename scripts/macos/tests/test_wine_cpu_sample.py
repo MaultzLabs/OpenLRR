@@ -36,6 +36,58 @@ class ProfilerSafetyTests(unittest.TestCase):
             self.addCleanup(patch.stop)
         profiler.SAMPLE_BINARY.write_bytes(b"mac sample fixture")
 
+    def lsof_fixture(self, entries):
+        live = profiler.GAME / "menuperf.csv"
+        return "".join(
+            f"p{pid}\ncFixture\nf3\na{access}\nn{live}\n"
+            for pid, access in entries
+        )
+
+    def test_reader_does_not_confuse_writable_owner(self):
+        with mock.patch.object(profiler, "checked_run",
+                               side_effect=lambda args, *, timeout: (
+                    self.lsof_fixture([(205, "w"), (999, "r")])
+                    if args[0] == "/usr/sbin/lsof" else "wine64-preloader\n")):
+            self.assertEqual(profiler.find_test_wine_pid(), "205")
+
+    def test_full_command_fallback_recognizes_test_bundle(self):
+        def commands(argv, *, timeout):
+            if argv[0] == "/usr/sbin/lsof":
+                return self.lsof_fixture([(205, "w")])
+            if argv[-1] == "comm=":
+                return "/usr/bin/generic-exec\n"
+            if argv[-1] == "command=":
+                return str(profiler.APP / "Contents/MacOS/Sikarugir") + "\n"
+            raise AssertionError("Unexpected identity request")
+        with mock.patch.object(profiler, "checked_run", side_effect=commands):
+            self.assertEqual(profiler.find_test_wine_pid(), "205")
+
+    def test_unrecognized_unique_writer_stays_blocked(self):
+        def commands(argv, *, timeout):
+            if argv[0] == "/usr/sbin/lsof":
+                return self.lsof_fixture([(205, "w")])
+            return "/usr/bin/python3\n"
+        with mock.patch.object(profiler, "checked_run", side_effect=commands):
+            with self.assertRaisesRegex(RuntimeError, "unrecognized"):
+                profiler.find_test_wine_pid()
+
+    def test_read_only_file_openers_never_produce_target(self):
+        with mock.patch.object(profiler, "checked_run",
+                               return_value=self.lsof_fixture([(205, "r")])):
+            with self.assertRaisesRegex(RuntimeError, "No verified writable"):
+                profiler.find_test_wine_pid()
+
+    def test_reader_writer_multiple_targets_fail_closed(self):
+        with mock.patch.object(profiler, "checked_run",
+                               return_value=self.lsof_fixture([(205, "w"), (300, "u")])):
+            with self.assertRaisesRegex(RuntimeError, "Multiple writable"):
+                profiler.find_test_wine_pid()
+
+    def test_lsof_unrecognized_field_is_blocked(self):
+        with self.assertRaisesRegex(RuntimeError, "Unexpected TEST telemetry"):
+            profiler.writable_test_csv_owners("p205\nf3\nxnot-allowed\n",
+                                               profiler.GAME / "menuperf.csv")
+
     def test_dry_run_never_touches_processes_or_network(self):
         with mock.patch.object(profiler.subprocess, "run",
                                side_effect=AssertionError("process attempted")):
@@ -46,7 +98,8 @@ class ProfilerSafetyTests(unittest.TestCase):
         def commands(argv, *, timeout):
             if argv[0] == "/usr/sbin/lsof":
                 self.assertEqual(argv[-1], str(profiler.GAME / "menuperf.csv"))
-                return "107\n205\n"
+                self.assertEqual(argv[-2], "-Fpcfan")
+                return self.lsof_fixture([(107, "r"), (205, "w")])
             if argv[0] == "/bin/ps":
                 return "wine64-preloader\n" if argv[2] == "205" else "/usr/bin/python\n"
             raise AssertionError("unexpected process lookup")
@@ -55,13 +108,13 @@ class ProfilerSafetyTests(unittest.TestCase):
 
     def test_multiple_test_wine_pids_blocked(self):
         def commands(argv, *, timeout):
-            return "107\n205\n" if argv[0] == "/usr/sbin/lsof" else "wine64-preloader\n"
+            return self.lsof_fixture([(107, "w"), (205, "w")]) if argv[0] == "/usr/sbin/lsof" else "wine64-preloader\n"
         with mock.patch.object(profiler, "checked_run", side_effect=commands):
             with self.assertRaisesRegex(RuntimeError, "exactly one"):
                 profiler.find_test_wine_pid()
 
     def test_untrusted_pid_or_no_test_handles_refused(self):
-        for candidate in ("abc\n", "", "-11\n"):
+        for candidate in ("pabc\nf3\naw\nnx\n", "", "p-11\nf3\naw\nnx\n"):
             with self.subTest(candidate=candidate), \
                  mock.patch.object(profiler, "checked_run", return_value=candidate):
                 with self.assertRaises(RuntimeError):
@@ -103,7 +156,7 @@ class ProfilerSafetyTests(unittest.TestCase):
         with mock.patch.object(profiler.subprocess, "run",
                                return_value=mock.Mock(returncode=1, stdout="", stderr="")):
             self.assertEqual(profiler.checked_run(
-                ["/usr/sbin/lsof", "-nP", "-t", str(profiler.GAME / "menuperf.csv")],
+                ["/usr/sbin/lsof", "-nP", "-Fpcfan", str(profiler.GAME / "menuperf.csv")],
                 timeout=5), "")
 
     def test_lsof_error_cannot_be_misread_as_no_writer(self):
@@ -112,16 +165,16 @@ class ProfilerSafetyTests(unittest.TestCase):
                                                       stderr="permission denied")):
             with self.assertRaisesRegex(RuntimeError, "lookup"):
                 profiler.checked_run(
-                    ["/usr/sbin/lsof", "-nP", "-t",
+                    ["/usr/sbin/lsof", "-nP", "-Fpcfan",
                      str(profiler.GAME / "menuperf.csv")], timeout=5)
 
     def test_other_process_holding_live_file_does_not_grant_capture(self):
         def fake(argv, *, timeout):
             if argv[0] == "/usr/sbin/lsof":
-                return "205\n"
+                return self.lsof_fixture([(205, "w")])
             return "/usr/bin/python3\n"
         with mock.patch.object(profiler, "checked_run", side_effect=fake):
-            with self.assertRaisesRegex(RuntimeError, "exactly one Wine writer"):
+            with self.assertRaisesRegex(RuntimeError, "unrecognized game process identity"):
                 profiler.find_test_wine_pid()
 
     def test_stop_and_pause_prevent_preflight(self):
