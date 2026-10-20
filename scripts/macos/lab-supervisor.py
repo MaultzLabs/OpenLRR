@@ -46,7 +46,7 @@ def fingerprint(path: Path) -> str:
 def parse_plan(value: str) -> list[str]:
     parts = value.split(",")
     if not 1 <= len(parts) <= 4 or parts[0] != "baseline" or any(
-            x not in {"baseline", "nowait", "gdi"} for x in parts):
+            x not in {"baseline", "nowait", "gdi", "dib"} for x in parts):
         raise ValueError("Plan must start with baseline and contain 1..4 approved modes")
     return parts
 
@@ -121,6 +121,8 @@ def verify_result(run_name: str, mode: str, expected_sha: str) -> Path:
     graphics = summary.get("metrics", {}).get("mode")
     wanted = {"optimization": 0, "nowait": int(mode == "nowait"),
               "gdi": int(mode == "gdi")}
+    if mode == "dib":
+        wanted["dib"] = 1
     if graphics != wanted or summary.get("close_requested") is not True:
         raise RuntimeError("Wrong graphics mode or missing close-request evidence")
     metrics = summary["metrics"]
@@ -129,6 +131,13 @@ def verify_result(run_name: str, mode: str, expected_sha: str) -> Path:
             or not isinstance(metrics.get("logged_duration_s"), (float, int))
             or metrics["logged_duration_s"] < 10):
         raise RuntimeError("Incomplete benchmark metrics")
+    if mode == "dib":
+        if (metrics.get("present_path") != "dib_cpu"
+                or type(metrics.get("dib_accepted_calls")) is not int
+                or type(metrics.get("dib_fallback_calls")) is not int
+                or metrics["dib_accepted_calls"] + metrics["dib_fallback_calls"] !=
+                    metrics["present_calls"]):
+            raise RuntimeError("CPU bitmap experiment lacks accepted/fallback evidence")
     verify_upload(run_name, "menuperf.csv")
     verify_upload(run_name, "summary.json")
     verify_upload(run_name, "lifecycle.verified")

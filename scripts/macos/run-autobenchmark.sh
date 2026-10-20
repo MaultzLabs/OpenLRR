@@ -19,7 +19,8 @@ case "$BENCH_MODE" in
   baseline) MODE_MARKER="" ;;
   nowait) MODE_MARKER="menuperf.nowait" ;;
   gdi) MODE_MARKER="menuperf.gdi" ;;
-  *) echo "ERROR: Unsupported benchmark mode: $BENCH_MODE (use baseline, nowait or gdi)." >&2; exit 2 ;;
+  dib) MODE_MARKER="menuperf.dib" ;;
+  *) echo "ERROR: Unsupported benchmark mode: $BENCH_MODE (use baseline, nowait, gdi or dib)." >&2; exit 2 ;;
 esac
 RESULTS="$HOME/Downloads/OpenLRR Benchmark Runs"
 # Read only a repository name, never execute arbitrary commands from a config file.
@@ -52,7 +53,7 @@ if [[ "$SUPERVISED" == "1" ]]; then
     echo "ERROR: TEST game has open file handles; refuse to overwrite its DLL." >&2; exit 2
   fi
 fi
-for name in menuperf.gdi menuperf.nowait menuperf.optimize menuperf.autotest menuperf.stop; do
+for name in menuperf.gdi menuperf.dib menuperf.nowait menuperf.optimize menuperf.autotest menuperf.stop; do
   if [[ -e "$GAME/$name" ]]; then
     echo "ERROR: $name is already active. Stop that experiment first." >&2
     exit 1

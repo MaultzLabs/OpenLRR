@@ -36,7 +36,9 @@ jobs:
           Copy-Item scripts/macos/publish-benchmark.sh dist/
           Copy-Item scripts/macos/analyze-benchmark.py dist/
           Copy-Item docs/autobenchmark.md dist/
-          (Get-FileHash $dll -Algorithm SHA256).Hash | Set-Content dist/SHA256.txt
+          $digest = (Get-FileHash $dll -Algorithm SHA256).Hash.ToLowerInvariant()
+          $digest | Set-Content dist/SHA256.txt
+          Write-Host "REVIEWED_EXPERIMENT_DLL_SHA256=$digest"
       - name: Upload DLL
         uses: actions/upload-artifact@v4
         with:

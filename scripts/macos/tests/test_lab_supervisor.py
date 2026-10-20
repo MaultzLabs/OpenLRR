@@ -15,11 +15,45 @@ spec.loader.exec_module(lab)
 class SupervisorSafetyTests(unittest.TestCase):
     def test_fixed_modes_only_with_bounded_plan(self):
         self.assertEqual(lab.parse_plan("baseline,gdi"), ["baseline", "gdi"])
+        self.assertEqual(lab.parse_plan("baseline,dib"), ["baseline", "dib"])
         for bad in ("gdi", "baseline,evil", "baseline;rm -rf /",
                     "baseline,baseline,baseline,baseline,gdi",
                     "baseline,,nowait", ""):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 lab.parse_plan(bad)
+
+    def test_dib_run_verification_requires_explicit_mode_and_outcome_counters(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_name = "autobenchmark-2026-10-19_22-00-00"
+            folder = root / run_name
+            folder.mkdir()
+            (folder / "lifecycle.verified").write_text(
+                "wrapper_wait_exited=yes\\ntest_game_handles=none\\n")
+            metrics = {
+                "mode": {"optimization": 0, "nowait": 0, "gdi": 0, "dib": 1},
+                "present_path": "dib_cpu", "present_calls": 3,
+                "logged_duration_s": 60.0,
+                "dib_accepted_calls": 3, "dib_fallback_calls": 0,
+            }
+            summary = {
+                "schema_version": 1, "run": run_name,
+                "dll_sha256": "a" * 64,
+                "close_requested": True, "metrics": metrics,
+            }
+            (folder / "summary.json").write_text(json.dumps(summary))
+            with mock.patch.object(lab, "RESULTS", root), \
+                 mock.patch.object(lab, "verify_upload", return_value=None):
+                self.assertEqual(lab.verify_result(run_name, "dib", "a" * 64),
+                                 folder / "menuperf.csv")
+                self.assertRaisesRegex(
+                    RuntimeError, "Wrong graphics mode",
+                    lab.verify_result, run_name, "baseline", "a" * 64)
+                metrics["dib_fallback_calls"] = 1
+                (folder / "summary.json").write_text(json.dumps(summary))
+                self.assertRaisesRegex(
+                    RuntimeError, "accepted/fallback",
+                    lab.verify_result, run_name, "dib", "a" * 64)
 
     def test_dry_run_has_no_process_or_network_or_ai(self):
         sha = "f" * 64
