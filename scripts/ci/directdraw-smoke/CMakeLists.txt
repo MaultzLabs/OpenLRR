@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.20)
+project(OpenLRRDirectDrawSmoke LANGUAGES CXX)
+add_executable(ddraw-smoke directdraw-smoke.cpp)
+target_compile_features(ddraw-smoke PRIVATE cxx_std_17)
+target_link_libraries(ddraw-smoke PRIVATE ddraw dxguid user32)
