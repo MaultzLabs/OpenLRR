@@ -65,18 +65,20 @@ final class OriginalMenuAudio {
 
         // RRU identifies this as the main-menu recording in loose Data/Sounds.
         // Unlike the CD soundtrack it is already a WAV and needs no conversion.
-        if let url = OriginalAudioFileLocator.locate("Sounds/Atmosdel.wav",
-                                    beside: selectedWadURL, additionalRoot: additionalAudioRoot) {
-            attemptedDecoding = true
-            if let audio = try? AVAudioPlayer(contentsOf: url), play(audio) {
-                return "Playing original menu audio: \(url.lastPathComponent)"
+        for candidate in ["Sounds/Streamed/Atmosdel.wav", "Sounds/Atmosdel.wav"] {
+            if let url = OriginalAudioFileLocator.locate(candidate,
+                                     beside: selectedWadURL, additionalRoot: additionalAudioRoot) {
+                attemptedDecoding = true
+                if let audio = try? AVAudioPlayer(contentsOf: url), play(audio) {
+                    return "Playing original menu audio: \(url.lastPathComponent)"
+                }
             }
         }
 
         if attemptedDecoding {
             return "Found original WAV, but macOS cannot decode/play it; check the RRU Atmosdel.wav replacement"
         }
-        let expected = configured?.first?.wavPath ?? "Sounds/Atmosdel.wav"
+        let expected = configured?.first?.wavPath ?? "Sounds/Streamed/Atmosdel.wav"
         return "Missing \(urlFilename(expected)); click Locate Sounds…"
     }
 
