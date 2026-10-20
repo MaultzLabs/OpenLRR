@@ -2,7 +2,9 @@ name: OpenLRR free 32-bit DirectDraw4 Wine smoke
 on:
   push:
     branches: [lab-arm64-free-runner-capability-v1]
-    paths: [.github/workflows/lab-arm64-directdraw-smoke.yml]
+    paths:
+      - .github/workflows/lab-arm64-directdraw-smoke.yml
+      - scripts/ci/directdraw-smoke/**
   workflow_dispatch:
 permissions:
   contents: read
