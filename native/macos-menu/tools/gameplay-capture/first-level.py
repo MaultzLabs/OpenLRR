@@ -92,6 +92,11 @@ def choose_application(explicit: Path | None, discovered: list[Path]) -> Path | 
     if len(discovered) == 1:
         return discovered[0]
     if len(discovered) > 1:
+        # When both retail and OpenLRR wrappers exist, prefer the one the
+        # user requested. Never select an app whose name says TEST/native.
+        openlrr = [app for app in discovered if app.stem.lower() == "openlrr"]
+        if len(openlrr) == 1:
+            return openlrr[0]
         print("More than one normal game app found; not guessing which to start:")
         for app in discovered:
             print("  " + str(app))
