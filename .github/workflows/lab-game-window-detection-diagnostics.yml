@@ -1,0 +1,39 @@
+name: Verify safe Wine game-window diagnostics
+on:
+  push:
+    branches: [lab-game-window-detection-diagnostics-v1]
+    paths:
+      - native/macos-menu/tools/gameplay-capture/**
+      - .github/workflows/lab-game-window-detection-diagnostics.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: openlrr-window-diagnostic-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  diagnostics-unit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: No-Mac regression suite
+        run: |
+          python3 -m py_compile native/macos-menu/tools/gameplay-capture/*.py
+          python3 -m unittest discover -s native/macos-menu/tools/gameplay-capture/tests -v
+  mac-probe-compile:
+    needs: diagnostics-unit
+    runs-on: macos-15
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compile native privacy-safe Screen Recording window diagnostics
+        run: |
+          cd native/macos-menu/tools/gameplay-capture
+          xcrun swiftc -O -target arm64-apple-macos15.0 -framework Cocoa -framework CoreGraphics window_probe.swift -o /tmp/openlrr-window-probe-diag
+          /usr/bin/lipo -archs /tmp/openlrr-window-probe-diag | grep -qx arm64
+          /tmp/openlrr-window-probe-diag diagnose
