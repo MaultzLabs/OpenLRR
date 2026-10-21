@@ -44,6 +44,7 @@ final class OriginalMenuCanvas: NSView {
     var loadedSave: OriginalSaveFile? { didSet { needsDisplay = true } }
     var onNavigation: ((String) -> Void)?
     var onMissionSelected: ((MissionSelection.Node) -> Void)?
+    var onQuitConfirmed: (() -> Void)?
     private var menuIndex = 0
     private var hoverIndex: Int?
     private var imageCache: [String: NSImage] = [:]
@@ -105,6 +106,27 @@ final class OriginalMenuCanvas: NSView {
         if didMove { needsDisplay = true }
     }
 
+
+    /// Present the original ARE YOU SURE menu and its configured Yes/No
+    /// images and fonts, rather than a separate native popup.
+    @discardableResult
+    func showOriginalQuitConfirmation() -> Bool {
+        guard let definitions,
+              let index = definitions.quitConfirmationIndex,
+              definitions.menus.indices.contains(index) else { return false }
+        if menuIndex != index {
+            history.append(menuIndex)
+            menuIndex = index
+            menuScroll.reset()
+            hoverIndex = nil
+            missionHover = nil
+            saveHover = nil
+        }
+        needsDisplay = true
+        onNavigation?("Original menu: \(definitions.menus[index].internalName)")
+        window?.makeFirstResponder(self)
+        return true
+    }
 
     private var currentMissions: [MissionSelection.Node] {
         guard let missionSelection else { return [] }
@@ -273,7 +295,8 @@ final class OriginalMenuCanvas: NSView {
             let x = CGFloat(menu.x + item.x)
             let y = CGFloat(menu.y + item.y)
             let hovered = hoverIndex == i
-            let actionable = item.kind == .next && item.linkedMenu != nil
+            let actionable = (item.kind == .next && item.linkedMenu != nil) ||
+                             item.kind == .trigger
             let assetPath = hovered ? (item.imageHover ?? item.imageNormal) : item.imageNormal
             if let assetPath, let artwork = image(assetPath) {
                 let rect = CGRect(x: x, y: y, width: artwork.size.width,
@@ -454,9 +477,16 @@ final class OriginalMenuCanvas: NSView {
             saveHover = nil
             needsDisplay = true
             onNavigation?("Original menu: \(menus[next].internalName)")
+        } else if selected.kind == .trigger {
+            // In the MainMenuFull confirmation screen the terminal trigger
+            // is bound to triggerQuitApp in the retail Front_LoadMenuSet.
+            if menuIndex == definitions?.quitConfirmationIndex && selected.endsMenu {
+                onQuitConfirmed?()
+            } else {
+                onNavigation?("Original menu trigger not yet implemented: \(selected.caption)")
+            }
         }
-        // Trigger / Select / Slider operations are deliberately not emulated;
-        // displaying menus never launches or modifies the user's game.
+        // Cycle / Select / Slider operations remain separate subsystems.
     }
 
     override func keyDown(with event: NSEvent) {
@@ -499,7 +529,7 @@ private final class NativeMenuHostView: NSView {
 }
 
 /// Creates a real native ARM64 AppKit window and reads only the selected WADs.
-final class NativeMenuApplication: NSObject, NSApplicationDelegate {
+final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var window: NSWindow!
     private var root: NativeMenuHostView!
     private var canvas: OriginalMenuCanvas!
@@ -514,6 +544,7 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate {
     private var activeWadURL: URL?
     private var activeResources: GameResources?
     private var activeConfig: LegoConfig?
+    private var approvedQuit = false
 
     private var selectedAudioFolder: URL? {
         guard let path = UserDefaults.standard.string(forKey: audioFolderDefaultsKey),
@@ -529,6 +560,7 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate {
         window.center()
         window.minSize = NSSize(width: 640, height: 560)
         window.acceptsMouseMovedEvents = true
+        window.delegate = self
         root = NativeMenuHostView(frame: window.contentView!.bounds)
         root.autoresizingMask = [.width, .height]
         root.wantsLayer = true
@@ -543,6 +575,11 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate {
         }
         canvas.onMissionSelected = { [weak self] node in
             self?.openLevel(identifier: node.identifier)
+        }
+        canvas.onQuitConfirmed = { [weak self] in
+            guard let self else { return }
+            self.approvedQuit = true
+            NSApp.terminate(nil)
         }
         root.addSubview(canvas)
 
@@ -607,11 +644,14 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate {
         }
     }
 
-    // AppKit routes both the toolbar Quit button and Cmd-Q through this
-    // delegate. Do not exit immediately: the retail game asks for confirmation.
-    // This native alert is temporary until the original quit menu assets and
-    // trigger behavior are decoded from the user's installed game.
+    // Route Cmd-Q, toolbar Quit and the window's red close button through
+    // the original menu. Only the configured Yes trigger permits termination.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if approvedQuit { return .terminateNow }
+        if missionView != nil { returnToMainMenu() }
+        if canvas?.showOriginalQuitConfirmation() == true { return .terminateCancel }
+
+        // Assets/CFG not available: never quit without affirmative consent.
         let confirmation = NSAlert()
         confirmation.messageText = "Quit LEGO Rock Raiders?"
         confirmation.informativeText = "Are you sure you want to quit the game?"
@@ -620,6 +660,11 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate {
         confirmation.addButton(withTitle: "Yes")
         return confirmation.runModal() == .alertSecondButtonReturn
             ? .terminateNow : .terminateCancel
+    }
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        NSApp.terminate(nil)
+        return false
     }
 
     @objc private func openFirstOriginalLevel() {
