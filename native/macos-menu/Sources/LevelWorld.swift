@@ -164,27 +164,41 @@ struct LevelWorld {
                     predugCode: predug, heightCode: height)
     }
 
-    /// Bilinearly interpolate four original high.map vertices, using the
-    /// same tile-space coordinates as retail OL object xPos/yPos. This is a
-    /// geometry helper, not the original engine's full roughness algorithm.
+    /// Evaluate the same planar HIGH-map triangles as NativeTerrainMesh.
+    /// Bilinear interpolation does not lie on either rendered triangle when
+    /// the four retail height samples are non-coplanar; that made cameras
+    /// and original OL placement markers visibly float or sink into slopes.
+    /// Coordinates are in MAP tile units, including the final border vertex.
+    /// This does not yet reproduce the retail engine's roughness perturbation.
     func elevation(atX x: Double, y: Double) -> Float? {
         guard x.isFinite, y.isFinite,
               x >= 0, y >= 0, x <= Double(width), y <= Double(height) else {
             return nil
         }
-        let x0 = min(width, Int(floor(x)))
-        let y0 = min(height, Int(floor(y)))
-        let x1 = min(width, x0 + 1)
-        let y1 = min(height, y0 + 1)
+        // At the last border vertex use the adjacent playable tile, so
+        // both edge vertices and interior points share the mesh's plane.
+        let x0 = min(width - 1, Int(floor(x)))
+        let y0 = min(height - 1, Int(floor(y)))
         guard let a = surfaceMap.value(x: x0, y: y0),
-              let b = surfaceMap.value(x: x1, y: y0),
-              let c = surfaceMap.value(x: x0, y: y1),
-              let d = surfaceMap.value(x: x1, y: y1) else { return nil }
-        let tx = Float(x - Double(x0))
-        let ty = Float(y - Double(y0))
-        let top = Float(a) * (1 - tx) + Float(b) * tx
-        let bottom = Float(c) * (1 - tx) + Float(d) * tx
-        return top * (1 - ty) + bottom * ty
+              let b = surfaceMap.value(x: x0 + 1, y: y0),
+              let c = surfaceMap.value(x: x0, y: y0 + 1),
+              let d = surfaceMap.value(x: x0 + 1, y: y0 + 1) else { return nil }
+        let u = Float(x - Double(x0))
+        let v = Float(y - Double(y0))
+        if NativeTerrainMesh.usesUpperLeftDiagonal(
+            topLeft: a, topRight: b, bottomLeft: c, bottomRight: d) {
+            // a--d diagonal; split by u == v.
+            if u <= v {
+                return Float(a) * (1 - v) + Float(c) * (v - u) + Float(d) * u
+            }
+            return Float(a) * (1 - u) + Float(d) * v + Float(b) * (u - v)
+        }
+        // b--c diagonal; split by u + v == 1.
+        if u + v <= 1 {
+            return Float(a) * (1 - u - v) + Float(b) * u + Float(c) * v
+        }
+        return Float(b) * (1 - v) + Float(c) * (1 - u) +
+               Float(d) * (u + v - 1)
     }
 
     var initialCameraTile: (x: Int, y: Int) {
