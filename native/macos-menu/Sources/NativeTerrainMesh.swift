@@ -94,6 +94,20 @@ struct NativeTerrainMesh {
             }
         }
 
+        func exposed(_ x: Int, _ z: Int) -> Bool {
+            world.tile(x: x, y: z)?.excavation.isDiscoveredCavern == true
+        }
+
+        func shouldRender(_ x: Int, _ z: Int) -> Bool {
+            // Retail fog of war starts with exposed caverns, rather than
+            // showing the entire map as a giant elevated grey plate. The
+            // first ring of adjacent solid rock forms the cave wall.
+            if exposed(x, z) { return true }
+            guard isSolid(x, z) else { return false }
+            return exposed(x - 1, z) || exposed(x + 1, z) ||
+                   exposed(x, z - 1) || exposed(x, z + 1)
+        }
+
         func material(for tile: LevelWorld.Tile) -> Material {
             switch tile.terrain {
             case .immovable: return .immovable
@@ -120,7 +134,8 @@ struct NativeTerrainMesh {
 
         for z in 0..<world.height {
             for x in 0..<world.width {
-                guard let tile = world.tile(x: x, y: z) else { continue }
+                guard shouldRender(x, z),
+                      let tile = world.tile(x: x, y: z) else { continue }
                 let wall = isSolid(x, z)
                 let lift = wall ? Self.previewWallHeight : 0
                 let a = vertex(x, z, extraHeight: lift)
