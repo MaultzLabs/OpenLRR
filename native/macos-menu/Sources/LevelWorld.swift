@@ -164,6 +164,29 @@ struct LevelWorld {
                     predugCode: predug, heightCode: height)
     }
 
+    /// Bilinearly interpolate four original high.map vertices, using the
+    /// same tile-space coordinates as retail OL object xPos/yPos. This is a
+    /// geometry helper, not the original engine's full roughness algorithm.
+    func elevation(atX x: Double, y: Double) -> Float? {
+        guard x.isFinite, y.isFinite,
+              x >= 0, y >= 0, x <= Double(width), y <= Double(height) else {
+            return nil
+        }
+        let x0 = min(width, Int(floor(x)))
+        let y0 = min(height, Int(floor(y)))
+        let x1 = min(width, x0 + 1)
+        let y1 = min(height, y0 + 1)
+        guard let a = surfaceMap.value(x: x0, y: y0),
+              let b = surfaceMap.value(x: x1, y: y0),
+              let c = surfaceMap.value(x: x0, y: y1),
+              let d = surfaceMap.value(x: x1, y: y1) else { return nil }
+        let tx = Float(x - Double(x0))
+        let ty = Float(y - Double(y0))
+        let top = Float(a) * (1 - tx) + Float(b) * tx
+        let bottom = Float(c) * (1 - tx) + Float(d) * tx
+        return top * (1 - ty) + bottom * ty
+    }
+
     var initialCameraTile: (x: Int, y: Int) {
         // When a level has no explicit camera location, center on the first
         // exposed cavern, not on inaccessible solid rock in a distant corner.
