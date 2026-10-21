@@ -114,6 +114,44 @@ private func failure(_ label: String, _ run: () throws -> Void) {
         precondition(menus.menus[0].items[1].imageNormal == "Interface\\FrontEnd\\ButtonLo.bmp")
         precondition(menus.menus[0].items[1].linkedMenu == 1)
         precondition(menus.menus[1].items[0].linkedMenu == 0)
+        // Retail MainMenuFull: Quit_Game navigates to ARE_YOU_SURE;
+        // the trigger's final 1 confirms quit, Next:No returns to Menu1.
+        let quitConfig = try LegoConfig(text: """
+        Lego* {
+          Menu {
+            MainMenuFull {
+              MenuCount 3
+              Menu1 {
+                Title Main_Menu
+                ItemCount 2
+                Item1 Next:100:80:Quit_Game:Menu3
+                Item2 Trigger:80:140:Credits:0
+              }
+              Menu2 {
+                Title Missions
+                ItemCount 0
+              }
+              Menu3 {
+                Title ARE_YOU_SURE?
+                FullName ARE_YOU_SURE?
+                ItemCount 2
+                Item1 Trigger:210:240:Yes:1
+                Item2 Next:320:240:No:Menu1
+              }
+            }
+          }
+        }
+        """)
+        let confirmationMenus = try MenuDefinition(config: quitConfig)
+        precondition(confirmationMenus.quitConfirmationIndex == 2)
+        precondition(confirmationMenus.menus[0].items[0].linkedMenu == 2)
+        precondition(confirmationMenus.menus[0].items[1].kind == .trigger)
+        precondition(!confirmationMenus.menus[0].items[1].endsMenu)
+        precondition(confirmationMenus.menus[2].items[0].kind == .trigger)
+        precondition(confirmationMenus.menus[2].items[0].endsMenu)
+        precondition(confirmationMenus.menus[2].items[1].linkedMenu == 0)
+        precondition(menus.quitConfirmationIndex == nil)
+
         failure("duplicate archive indexes") { _ = try GameResources(archives:[(0,wad0),(0,wad1)]) }
         failure("missing asset") { _ = try resources.data(at:"missing.bmp") }
         failure("unbalanced braces") { _ = try LegoConfig(text:"Lego* { Menu { x v }") }
