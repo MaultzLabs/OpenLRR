@@ -17,30 +17,68 @@ struct OriginalTerrainTextureCatalog {
             "World/WorldTextures/\(rawValue)Split/\(rawValue)"
         }
 
+        /// Only accept the retail families, not arbitrary paths that happen
+        /// to contain "rock" or "ice" in a directory or filename.
         init?(setting: String) {
-            let normalized = setting.replacingOccurrences(of: "\\", with: "/")
-                .lowercased()
-            if normalized.contains("ice") { self = .ice }
-            else if normalized.contains("lava") { self = .lava }
-            else if normalized.contains("rock") { self = .rock }
-            else { return nil }
+            switch setting.lowercased() {
+            case "rock": self = .rock
+            case "ice": self = .ice
+            case "lava": self = .lava
+            default: return nil
+            }
         }
     }
 
     let family: Family
     let rootPrefix: String
 
-    init?(textureSetSetting: String?, resources: GameResources) {
-        let requested: [Family]
-        if let setting = textureSetSetting, let matched = Family(setting: setting) {
-            requested = [matched]
-        } else {
-            requested = [.rock, .ice, .lava]
+    /// Lego.cfg TextureSet is a texture *prefix* followed by two colon
+    /// fields (for example World\\WorldTextures\\RockSplit\\Rock:0:0).
+    /// The game appends two hex digits to the prefix for individual BMPs.
+    /// Parse the setting rather than guessing a biome from a substring.
+    /// The trailing numeric fields are retained by the configuration layer;
+    /// they are not part of the BMP filename.
+    private static func configuredSet(_ raw: String) -> (Family, String)? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fields = trimmed.split(separator: ":", omittingEmptySubsequences: false)
+        guard fields.count == 1 || fields.count == 3 else { return nil }
+        if fields.count == 3 {
+            guard Int(fields[1]) != nil, Int(fields[2]) != nil else { return nil }
         }
+        let prefix = String(fields[0]).replacingOccurrences(of: "\\", with: "/")
+        guard !prefix.isEmpty, prefix.count <= 256,
+              !prefix.hasPrefix("/"),
+              !prefix.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }),
+              !prefix.split(separator: "/").contains(where: { $0 == "." || $0 == ".." })
+        else { return nil }
 
-        for candidate in requested {
-            let path = Self.imagePath(prefix: candidate.pathPrefix, textureID: 0)
-            if resources.exists(path) {
+        if let family = Family(setting: prefix) {
+            return (family, family.pathPrefix)
+        }
+        for family in Family.allCases where
+            prefix.caseInsensitiveCompare(family.pathPrefix) == .orderedSame {
+            return (family, prefix)
+        }
+        return nil
+    }
+
+    init?(textureSetSetting: String?, resources: GameResources) {
+        if let setting = textureSetSetting, !setting.isEmpty {
+            guard let (chosenFamily, prefix) = Self.configuredSet(setting),
+                  resources.exists(Self.imagePath(prefix: prefix, textureID: 0)) else {
+                // A specified but missing/invalid set must not silently
+                // render the wrong biome with a different family's BMPs.
+                return nil
+            }
+            family = chosenFamily
+            rootPrefix = prefix
+            return
+        }
+        // Some older level configurations omit TextureSet. Only in that
+        // case discover an installed retail family as a preview fallback.
+        for candidate in Family.allCases {
+            if resources.exists(Self.imagePath(prefix: candidate.pathPrefix,
+                                               textureID: 0)) {
                 family = candidate
                 rootPrefix = candidate.pathPrefix
                 return
