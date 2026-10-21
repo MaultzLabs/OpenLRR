@@ -171,6 +171,32 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         precondition(NativeLevelNavigation(world: corridorWorld, maximumTiles: 10)
                       .route(from: origin, to: destination) == nil)
 
+        // Source-grounded original BMP world atlas paths. A synthetic WAD
+        // tests lookup without redistributing a copyrighted actual image.
+        let textureWad = syntheticWad([
+            ("World\\WorldTextures\\RockSplit\\Rock00.BMP", [66,77,1,1]),
+            ("World\\WorldTextures\\RockSplit\\Rock02.BMP", [66,77,2,2]),
+            ("World\\WorldTextures\\RockSplit\\Rock40.BMP", [66,77,3,3]),
+            ("World\\WorldTextures\\IceSplit\\ICE00.BMP", [66,77,4,4])
+        ])
+        let textureResources = try GameResources(archives: [(0,textureWad)])
+        guard let rockTextures = OriginalTerrainTextureCatalog(
+            textureSetSetting: "Rock", resources: textureResources) else {
+            preconditionFailure("Original Rock atlas was not discovered")
+        }
+        precondition(rockTextures.family == .rock)
+        precondition(rockTextures.path(for: 0, resources: textureResources)?
+            .lowercased().hasSuffix("rock00.bmp") == true)
+        precondition(rockTextures.bytes(for: 0x40, resources: textureResources) ==
+                     Data([66,77,3,3]))
+        precondition(rockTextures.path(for: 0x45, resources: textureResources) == nil)
+        precondition(OriginalTerrainTextureCatalog(
+            textureSetSetting: "Ice", resources: textureResources)?.family == .ice)
+        precondition(OriginalTerrainTextureCatalog(
+            textureSetSetting: "Lava", resources: textureResources) == nil)
+        precondition(OriginalTerrainTextureCatalog.representativeID(
+            for: .crystalSeam) == 0x20)
+
         let wrongHeight = syntheticMap([1, 2, 3, 4], width: 2, height: 2)
         let inconsistentWad = syntheticWad([
             ("Levels\\GameLevels\\Level01\\Surf.map", nativeTerrain),
