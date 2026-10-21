@@ -31,9 +31,9 @@ def recover(source: Path, *, chunk_seconds: int = 120) -> int:
     if destination.exists() or destination.is_symlink():
         raise capture.CaptureError(
             "Recovery folder already exists. Inspect it before another attempt.")
-    capture.make_private_dir(destination)
     splitter = video_session.build_swift_video_tool(
         video_session.SPLIT_SWIFT, "game_video_split", main_struct=True)
+    capture.make_private_dir(destination)
     print("Checking the original MP4 container. Its bytes will not be changed.")
     proc = subprocess.run(
         [str(splitter), str(source), str(destination), str(chunk_seconds)],
