@@ -33,7 +33,8 @@ ALLOWED_EVENT_NAMES = {
     "left_down", "left_up", "right_down", "right_up", "mouse_move",
     "scroll", "key_down", "key_up", "game_window_closed"
 }
-ALLOWED_NERPS_FIELDS = {"function", "opcode", "instruction", "args", "pc", "frame"}
+ALLOWED_NERPS_FIELDS = {"function", "function_id", "opcode", "instruction", "args", "pc", "frame",
+                        "kind", "argc", "result", "game_unix_s", "game_tick_ms"}
 MAX_INPUT_LINE = 4096
 
 
@@ -355,6 +356,20 @@ class NerpsFollower:
                 if key == "function":
                     if isinstance(value, str) and len(value) <= 80 and value.replace("_", "").isalnum():
                         cleaned[key] = value
+                elif key == "kind":
+                    if value in ("action", "predicate"):
+                        cleaned[key] = value
+                elif key == "game_unix_s":
+                    # Source clock is a Windows/Wine UTC clock. Retain it
+                    # separately from host log-observation timestamps.
+                    if type(value) in (int, float) and 946684800 < value < 4102444800:
+                        cleaned[key] = value
+                elif key == "game_tick_ms":
+                    if type(value) is int and 0 <= value < 1e14:
+                        cleaned[key] = value
+                elif key == "function_id":
+                    if type(value) is int and 0 <= value < 294:
+                        cleaned[key] = value
                 elif key == "args":
                     if isinstance(value, list) and len(value) <= 8 and all(
                         type(v) in (int, float) and abs(v) < 1e9 for v in value
@@ -366,7 +381,7 @@ class NerpsFollower:
                 continue
             timeline.write({"source": "nerps", "event": "runtime_function",
                             "unix_s": time.time(), "monotonic_s": time.monotonic(),
-                            **cleaned})
+                            "time_basis": "host_log_read", **cleaned})
 
 
 def pump_input_events(pipe: Any, target: GameWindow, timeline: Timeline,
