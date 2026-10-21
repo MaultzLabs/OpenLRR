@@ -1,0 +1,46 @@
+name: Verify opt-in OpenLRR NERPs telemetry in isolation
+on:
+  push:
+    branches: [lab-nerps-trace-optin-v1]
+    paths:
+      - src/openlrr/game/mission/NERPsFile.cpp
+      - native/macos-menu/tools/gameplay-capture/**
+      - .github/workflows/lab-nerps-trace-optin.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: openlrr-lab-nerps-trace-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  portable-telemetry-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify protected private NERPs/Wine/video event exchange
+        run: |
+          python3 -m py_compile native/macos-menu/tools/gameplay-capture/*.py
+          python3 -m unittest discover -s native/macos-menu/tools/gameplay-capture/tests -v
+  compile-lab-nerps:
+    needs: portable-telemetry-tests
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: microsoft/setup-msbuild@v2
+      - name: Compile the Windows x86 OpenLRR DLL with guarded telemetry enabled
+        shell: pwsh
+        run: |
+          $env:CL = "/DOPENLRR_LAB_NERPS_TRACE"
+          msbuild openlrr.sln /t:openlrr /m:2 /p:Configuration=Release /p:Platform=x86 /p:PlatformToolset=v143 /verbosity:minimal
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Test-Path "bin/openlrr.dll")) { throw "Compiled DLL not present" }
+      - name: Do not publish or execute experimental DLL
+        shell: pwsh
+        run: |
+          Write-Output "Source compilation only. No original game files, no launch, no upload."
