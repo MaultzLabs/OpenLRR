@@ -20,11 +20,18 @@ struct WindowRecord {
     let onscreen: Bool
 
     var safeIdentity: Bool {
-        let gameName = title.lowercased() + " " + name.lowercased()
-        let matchesGame = gameName.contains("rock raiders") ||
-                          gameName.contains("legorr") ||
-                          gameName.contains("openlrr")
-        return matchesGame && width >= 320 && height >= 200 &&
+        let gameTitle = title.lowercased()
+        let gameOwner = name.lowercased()
+        let matchesTitle = gameTitle.contains("rock raiders") ||
+                           gameTitle.contains("legorr") ||
+                           gameTitle.contains("openlrr")
+        // A browser tab titled "Rock Raiders" is not a game! Require
+        // both a retail game title AND a Wine/game executable owner.
+        let matchesOwner = ["wine", "wineskin", "whisky", "crossover",
+                            "sikarugir", "rock raiders", "legorr",
+                            "openlrr"].contains(where: gameOwner.contains)
+        return matchesTitle && matchesOwner &&
+               width >= 320 && height >= 200 &&
                width <= 8192 && height <= 8192 && id > 0 && pid > 0
     }
 
