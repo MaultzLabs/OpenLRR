@@ -27,6 +27,7 @@ struct MenuDefinition {
         let x: Int
         let y: Int
         let autoCenter: Bool
+        let canScroll: Bool
         let displayTitle: Bool
         let titleAnchorY: Int
         let backgroundImage: String?
@@ -69,6 +70,8 @@ struct MenuDefinition {
             // Front_LoadMenuSet reads AutoCenter for banner text positions.
             let autoCenter = ["TRUE", "YES", "ON", "1"].contains(
                 (value(path + ["AutoCenter"]) ?? "FALSE").uppercased())
+            let canScroll = ["TRUE", "YES", "ON", "1"].contains(
+                (value(path + ["CanScroll"]) ?? "FALSE").uppercased())
             let displayTitle = !["NO", "FALSE", "OFF"].contains(
                 (value(path + ["DisplayTitle"]) ?? "TRUE").uppercased())
             let anchorParts = (value(path + ["Anchored"]) ?? "")
@@ -129,7 +132,8 @@ struct MenuDefinition {
                                   linkedMenu: linked, raw: raw))
             }
             result.append(Screen(title: title, internalName: fullName,
-                                 x: px, y: py, autoCenter: autoCenter, displayTitle: displayTitle,
+                                 x: px, y: py, autoCenter: autoCenter, canScroll: canScroll,
+                                 displayTitle: displayTitle,
                                  titleAnchorY: titleAnchorY,
                                  backgroundImage: value(path + ["MenuImage"]),
                                  darkBackgroundImage: value(path + ["MenuImageDark"]),
