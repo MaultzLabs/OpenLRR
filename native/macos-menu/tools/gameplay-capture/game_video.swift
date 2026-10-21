@@ -1,7 +1,9 @@
 // Rock Raiders WINDOW-ONLY continuous H.264 video recorder, macOS 15+.
 // Source/format must come from precisely identified CGWindowID + owner PID.
 // The SCContentFilter is desktopIndependentWindow -- NEVER a desktop capture.
-// No app injection, no system audio, no keyboard text, no automatic upload.
+// No app injection, no microphone, no keyboard text, no automatic upload.
+// Audio capture is app-scoped by ScreenCaptureKit; only selected Wine app audio,
+// including its other windows, should be included when the OS associates it.
 import AppKit
 import Foundation
 import CoreGraphics
@@ -124,7 +126,10 @@ final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
             config.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(target.fps))
             config.queueDepth = 5
             config.showsCursor = true
-            config.capturesAudio = false  // No unrelated app/system sound.
+            config.capturesAudio = true  // Single-window filter limits audio by owning app.
+            config.excludesCurrentProcessAudio = true
+            config.sampleRate = 48000
+            config.channelCount = 2
             let file = SCRecordingOutputConfiguration()
             file.outputURL = target.output
             file.outputFileType = .mp4
@@ -136,7 +141,8 @@ final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
             try await stream.startCapture()
             emit("capture_started", extra: [
                 "window_id": target.id, "fps_target": target.fps,
-                "scope": "single_game_window", "audio": false
+                "scope": "single_game_window", "audio_requested": true,
+                "audio_scope": "owning_application", "microphone": false
             ])
 
             let stop = StopControl()
@@ -183,7 +189,13 @@ final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
             }
             try FileManager.default.setAttributes(
                 [.posixPermissions: 0o600], ofItemAtPath: target.output.path)
+            // Presence of an audio track must be checked, not inferred from
+            // capturesAudio=true. Wine may emit sound from a different app.
+            let recordedAsset = AVURLAsset(url: target.output)
+            let audioTracks = try await recordedAsset.loadTracks(withMediaType: .audio)
             emit("video_complete", extra: [
+                "audio_track_present": !audioTracks.isEmpty,
+                "audio_scope": "owning_application",
                 "bytes": bytes.int64Value,
                 "duration_s": CMTimeGetSeconds(output.recordedDuration),
                 "stop_reason": stopReason
