@@ -32,8 +32,10 @@ def main(argv: list[str] | None = None) -> int:
                     help="continuous MP4 requested FPS (default 30)")
     ap.add_argument("--clip-minutes", type=int, default=5,
                     help="target segment length (1–10 min; default 5)")
-    ap.add_argument("--max-minutes", type=int, default=120,
-                    help="safety stop, even if game remains open")
+    ap.add_argument("--session", choices=("menu", "full"), default="full",
+                    help="menu: 15-minute diagnostic recording; full: menu through tutorial (default)")
+    ap.add_argument("--max-minutes", type=int,
+                    help="optional safety limit; defaults to 15 min menu / 120 min full")
     ap.add_argument("--wait-seconds", type=int, default=360)
     ap.add_argument("--wine-log", type=Path,
                     help="optional existing Wine debug log, raw text stays local")
@@ -48,6 +50,8 @@ def main(argv: list[str] | None = None) -> int:
         raise capture.CaptureError("Video FPS must be 1–60")
     if not 1 <= args.clip_minutes <= 10:
         raise capture.CaptureError("Clips must be 1–10 minutes")
+    if args.max_minutes is None:
+        args.max_minutes = 15 if args.session == "menu" else 120
     if not 1 <= args.max_minutes <= 240:
         raise capture.CaptureError("Session duration must be 1–240 minutes")
     if not 10 <= args.wait_seconds <= 900:
@@ -77,9 +81,13 @@ def main(argv: list[str] | None = None) -> int:
                 print("Could not start automatically. Open your original "
                       "Rock Raiders Wine app manually.", flush=True)
 
-    print("Play the first mission normally. Quit the game when finished.",
-          flush=True)
-    print("Video and inputs will stop automatically when the game closes.",
+    if args.session == "menu":
+        print("MENU DIAGNOSTIC: interact with the slow or black main menu.", flush=True)
+        print("No need to reach a mission. Quit normally when finished.", flush=True)
+    else:
+        print("FULL SESSION: menu first, then attempt tutorial/gameplay.", flush=True)
+        print("The slow menu is valuable and is INCLUDED, not skipped.", flush=True)
+    print("Video and inputs stop at game-window closure or the safety limit.",
           flush=True)
     game = first.wait_for_game(finder_probe, args.wait_seconds)
     session = capture.next_session_path(capture.DEFAULT_OUTPUT)
@@ -102,7 +110,7 @@ def main(argv: list[str] | None = None) -> int:
     info = json.loads((clips / "clips.json").read_text())
     archive = session.with_name(session.name + "-timeline-review.zip")
     count = capture.package_review(session, archive, include_frames=False)
-    print("Recorded full video + synchronized inputs.")
+    print("Recorded " + args.session + " video + synchronized inputs.")
     print("Ready-to-share video clips: " + str(clips))
     print("Clip count: " + str(info["clip_count"]))
     print("Timeline review ZIP: " + str(archive))
