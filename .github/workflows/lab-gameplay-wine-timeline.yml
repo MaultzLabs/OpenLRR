@@ -1,0 +1,26 @@
+name: Gameplay capture Wine timeline regression
+on:
+  push:
+    branches: [lab-gameplay-wine-timeline-v1]
+    paths:
+      - native/macos-menu/tools/gameplay-capture/**
+      - .github/workflows/lab-gameplay-wine-timeline.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: openlrr-gameplay-wine-observation-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  test-sanitized-wine-timeline:
+    if: github.repository == 'MaultzLabs/OpenLRR'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify bounded Wine log summaries and window-only capture lifecycle
+        run: |
+          python3 -m py_compile native/macos-menu/tools/gameplay-capture/capture.py
+          python3 -m unittest discover -s native/macos-menu/tools/gameplay-capture/tests -v
