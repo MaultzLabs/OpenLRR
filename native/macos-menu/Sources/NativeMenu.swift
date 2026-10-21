@@ -45,6 +45,7 @@ final class OriginalMenuCanvas: NSView {
     var onNavigation: ((String) -> Void)?
     var onMissionSelected: ((MissionSelection.Node) -> Void)?
     var onQuitConfirmed: (() -> Void)?
+    var onMenuTransition: ((Int) -> Bool)?
     private var menuIndex = 0
     private var hoverIndex: Int?
     private var imageCache: [String: NSImage] = [:]
@@ -106,6 +107,18 @@ final class OriginalMenuCanvas: NSView {
         if didMove { needsDisplay = true }
     }
 
+
+    func navigateDirectly(to next: Int) {
+        guard let definitions, definitions.menus.indices.contains(next) else { return }
+        history.append(menuIndex)
+        menuIndex = next
+        menuScroll.reset()
+        hoverIndex = nil
+        missionHover = nil
+        saveHover = nil
+        needsDisplay = true
+        onNavigation?("Original menu: \(definitions.menus[next].internalName)")
+    }
 
     /// Present the original ARE YOU SURE menu and its configured Yes/No
     /// images and fonts, rather than a separate native popup.
@@ -469,14 +482,9 @@ final class OriginalMenuCanvas: NSView {
         let selected = menus[menuIndex].items[index]
         if selected.kind == .next, let next = selected.linkedMenu,
            menus.indices.contains(next) {
-            history.append(menuIndex)
-            menuIndex = next
-            menuScroll.reset()
-            hoverIndex = nil
-            missionHover = nil
-            saveHover = nil
-            needsDisplay = true
-            onNavigation?("Original menu: \(menus[next].internalName)")
+            // Original LWSC Boulder transition; fall back to instant if the
+            // user's WAD contains no usable mesh/scene combination.
+            if onMenuTransition?(next) != true { navigateDirectly(to: next) }
         } else if selected.kind == .trigger {
             // In the MainMenuFull confirmation screen the terminal trigger
             // is bound to triggerQuitApp in the retail Front_LoadMenuSet.
@@ -509,6 +517,7 @@ final class OriginalMenuCanvas: NSView {
 private final class NativeMenuHostView: NSView {
     weak var gameCanvas: NSView?
     weak var missionView: NSView?
+    weak var rockWipeView: NSView?
     weak var controlBar: NSView?
     private let controlHeight: CGFloat = 80
 
@@ -525,6 +534,7 @@ private final class NativeMenuHostView: NSView {
                                    width: width, height: height)
         missionView?.frame = NSRect(x: 0, y: controlHeight,
                                     width: bounds.width, height: availableHeight)
+        if let gameCanvas { rockWipeView?.frame = gameCanvas.frame }
     }
 }
 
@@ -580,6 +590,9 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
             guard let self else { return }
             self.approvedQuit = true
             NSApp.terminate(nil)
+        }
+        canvas.onMenuTransition = { [weak self] next in
+            self?.playOriginalRockWipe(to: next) ?? false
         }
         root.addSubview(canvas)
 
@@ -665,6 +678,26 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         NSApp.terminate(nil)
         return false
+    }
+
+    private func playOriginalRockWipe(to next: Int) -> Bool {
+        guard root.rockWipeView == nil,
+              let activeConfig, let activeResources,
+              let wipe = NativeRockWipeView(frame: canvas.frame,
+                                           config: activeConfig,
+                                           resources: activeResources) else { return false }
+        root.rockWipeView = wipe
+        root.addSubview(wipe, positioned: .above, relativeTo: canvas)
+        root.needsLayout = true
+        root.layoutSubtreeIfNeeded()
+        wipe.play(midpoint: { [weak self] in
+            self?.canvas.navigateDirectly(to: next)
+        }, completed: { [weak self, weak wipe] in
+            wipe?.removeFromSuperview()
+            self?.root.rockWipeView = nil
+            if let self { self.window.makeFirstResponder(self.canvas) }
+        })
+        return true
     }
 
     @objc private func openFirstOriginalLevel() {
