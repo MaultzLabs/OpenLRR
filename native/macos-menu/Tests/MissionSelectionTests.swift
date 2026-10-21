@@ -63,7 +63,7 @@ import Foundation
         precondition(selection.missions[0].imagePaths[2].hasSuffix("ALocked.bmp"))
         precondition(selection.tutorials.map(\.identifier) ==
                      ["Levels::Tutorial01", "Levels::Tutorial02"])
-        precondition(selection.tutorials.map(\.initiallyAvailable) == [true, false])
+        precondition(selection.tutorials.map(\.initiallyAvailable) == [true, true])
 
         // Missions without a LevelLinks relationship cannot be reached by the
         // original selection traversal. Do not fabricate visible missions.
