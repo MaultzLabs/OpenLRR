@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """One paste: launch original OpenLRR, record real WINDOW VIDEO + game controls.
 
-Keeps complete master MP4 private, automatically splits it into <=180MiB
-5-minute clips, and creates a sanitized timeline ZIP, all local. No upload.
+Finalizes short private MP4 clips DURING gameplay, preserving earlier clips
+when Wine's window closes abruptly. Writes synchronized input review ZIP.
 """
 from __future__ import annotations
 
@@ -32,8 +32,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="report only safe window counts and permission; do not launch or record")
     ap.add_argument("--fps", type=int, default=30,
                     help="continuous MP4 requested FPS (default 30)")
-    ap.add_argument("--clip-minutes", type=int, default=5,
-                    help="target segment length (1–10 min; default 5)")
+    ap.add_argument("--segment-seconds", type=int, default=90,
+                    help="finalize an MP4 while game is open, every 20–300 sec (default 90)")
     ap.add_argument("--session", choices=("menu", "full"), default="full",
                     help="menu: 15-minute diagnostic recording; full: menu through tutorial (default)")
     ap.add_argument("--max-minutes", type=int,
@@ -50,8 +50,8 @@ def main(argv: list[str] | None = None) -> int:
         raise capture.CaptureError("Continuous window video requires macOS")
     if not 1 <= args.fps <= 60:
         raise capture.CaptureError("Video FPS must be 1–60")
-    if not 1 <= args.clip_minutes <= 10:
-        raise capture.CaptureError("Clips must be 1–10 minutes")
+    if not 20 <= args.segment_seconds <= 300:
+        raise capture.CaptureError("MP4 segments must last 20–300 seconds")
     if args.max_minutes is None:
         args.max_minutes = 15 if args.session == "menu" else 120
     if not 1 <= args.max_minutes <= 240:
@@ -112,6 +112,7 @@ def main(argv: list[str] | None = None) -> int:
     result = video_session.continuous_capture(
         finder_probe, game, session, video_binary,
         video_fps=args.fps, max_seconds=args.max_minutes * 60,
+        segment_seconds=args.segment_seconds,
         wine_log=args.wine_log, nerps_log=args.nerps_log,
         input_binary=input_binary)
     if not result["video_complete"]:
@@ -119,19 +120,20 @@ def main(argv: list[str] | None = None) -> int:
               " diagnostic timeline: " + str(session), file=sys.stderr)
         return 2
 
-    print("Full-resolution video saved locally. Splitting into shareable clips…",
-          flush=True)
-    clips = video_session.split_private_video(
-        split_binary, session, seconds=args.clip_minutes * 60)
+    print("Using live-finalized, shareable video clips…", flush=True)
+    clips = video_session.split_private_video(split_binary, session)
     info = json.loads((clips / "clips.json").read_text())
     archive = session.with_name(session.name + "-timeline-review.zip")
     count = capture.package_review(session, archive, include_frames=False)
     print("Recorded " + args.session + " video + synchronized inputs.")
+    if result.get("video_partial"):
+        print("WARNING: The final clip may be incomplete after closing Wine. "
+              "Earlier finalized clips are preserved and ready.")
     print("Ready-to-share video clips: " + str(clips))
     print("Clip count: " + str(info["clip_count"]))
     print("Timeline review ZIP: " + str(archive))
-    print("Original master video remains at: " + str(session))
-    print("Share the clips and timeline ZIP after reviewing them.")
+    print("Private local capture session: " + str(session))
+    print("Share the finished clips and timeline ZIP after reviewing them.")
     # Finder only REVEALS the local clips, never sends any files.
     try:
         subprocess.run(["/usr/bin/open", str(clips)],
