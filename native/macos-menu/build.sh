@@ -28,7 +28,7 @@ xcrun swiftc -O -target arm64-apple-macos12.0 -framework AppKit -framework Image
   Sources/MapFile.swift Sources/LevelRuntimeResources.swift Sources/LevelWorld.swift Sources/NativeTerrainMesh.swift Sources/NativeLevelNavigation.swift Sources/OriginalTerrainTextureCatalog.swift Sources/LightWaveObject.swift Sources/LightWaveScene.swift \
   Sources/PalettedBMP.swift Sources/OriginalFontLayout.swift Sources/OriginalMenuScroll.swift Sources/OriginalPointerAsset.swift Sources/WavePCM.swift \
   Sources/SoundSampleCatalog.swift Sources/NERPsScript.swift Sources/OriginalObjectList.swift Sources/OriginalSaveFile.swift Sources/OriginalAudioFileLocator.swift \
-  Sources/OriginalMenuAudio.swift Sources/OriginalMacCursor.swift Sources/NativeLevelView.swift Sources/NativeLevel3DView.swift Sources/NativeMenu.swift \
+  Sources/OriginalMenuAudio.swift Sources/OriginalMacCursor.swift Sources/NativeRockWipeView.swift Sources/NativeLevelView.swift Sources/NativeLevel3DView.swift Sources/NativeMenu.swift \
   -o "$out/Contents/MacOS/RockRaidersNativeMenu"
 /usr/bin/codesign --force --sign - "$out"
 printf 'Compiled native ARM64 app: %s\n' "$out"
