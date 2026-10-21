@@ -1,0 +1,25 @@
+name: Verify MP4 clip to OpenLRR code/input time correlation
+on:
+  push:
+    branches: [lab-capture-clip-code-index-v1]
+    paths:
+      - native/macos-menu/tools/gameplay-capture/**
+      - .github/workflows/lab-capture-clip-code-index.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: openlrr-clip-index-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  offline-index-and-capture:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Test no-upload capture, protected timeline, and per-clip code correlation
+        run: |
+          python3 -m py_compile native/macos-menu/tools/gameplay-capture/*.py
+          python3 -m unittest discover -s native/macos-menu/tools/gameplay-capture/tests -v
