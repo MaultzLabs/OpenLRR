@@ -96,6 +96,35 @@ class FirstLevelTests(unittest.TestCase):
         with self.assertRaisesRegex(capture.CaptureError, "Multiple"):
             first.wait_for_game(FakeProbe(rows), 20, clock=clock, sleep=clock.sleep)
 
+    def test_wait_reports_missing_screen_permission_without_waiting_six_minutes(self):
+        class DeniedProbe(FakeProbe):
+            def diagnose(self):
+                return {"counts_only": True,
+                        "screen_recording_permission": False,
+                        "eligible_game_windows": 0,
+                        "wine_like_windows": 1,
+                        "wine_like_untitled_windows": 1}
+        clock = FakeClock()
+        with self.assertRaisesRegex(capture.CaptureError, "Screen Recording permission"):
+            first.wait_for_game(DeniedProbe([]), 90, clock=clock,
+                                sleep=clock.sleep)
+        self.assertLess(clock.t - 100.0, 30)
+
+    def test_wait_exits_on_deadline_when_wine_game_window_untitled(self):
+        class UntitledProbe(FakeProbe):
+            def diagnose(self):
+                return {"counts_only": True,
+                        "screen_recording_permission": True,
+                        "eligible_game_windows": 0,
+                        "wine_like_windows": 1,
+                        "wine_like_untitled_windows": 1}
+        clock = FakeClock()
+        with self.assertRaisesRegex(capture.CaptureError, "No verified"):
+            first.wait_for_game(UntitledProbe([]), 45, clock=clock,
+                                sleep=clock.sleep)
+        self.assertGreaterEqual(clock.t - 100.0, 45)
+        self.assertLess(clock.t - 100.0, 48)
+
     def test_timeout_does_not_capture_other_windows(self):
         clock = FakeClock()
         with self.assertRaisesRegex(capture.CaptureError, "Timed out"):
