@@ -32,12 +32,19 @@ not use Wine, the original Windows EXE, DirectDraw, or any injected DLLs.
   `Lego.cfg` section. Reads binary `.map` terrain/height/predug arrays
   without altering them using the documented `MAP ` header and little-endian
   16-bit cells.
-- **First native 3D mission terrain preview:** reads original height,
-  terrain, and predug MAP files and tessellates them into a bounded SceneKit
-  terrain surface and cavern-wall geometry. Click `First Level` or an unlocked
-  mission icon to open it, drag to orbit and scroll to zoom. The `2D MAP`
-  toggle retains the earlier original-data inspector. Material colors and
-  vertical roughness remain provisional; original textures are not ported.
+- **Single-window native mission view:** clicking `First Level` or an
+  unlocked original mission icon replaces the menu inside the **existing
+  native window**, rather than spawning a second Mac window. A visible
+  `← Back to Main Menu` button and Escape return to the menu. Resize to make
+  room for the scene; your previous menu window dimensions are restored.
+- **First 3D cave with original terrain BMPs:** decodes the actual level
+  height, terrain, and predug MAP data, but draws only exposed caverns and
+  adjacent walls (not a full flat plate of hidden rock). Loads the original
+  Rock/Ice/Lava biome `World/WorldTextures/*Split/*##.BMP` images from
+  the user's WAD files and applies per-tile repeating UVs. Uses original
+  default level height and wall scaling as the starting geometry baseline.
+  Switch to `2D MAP` for raw map inspection. Per-wall transitions, roof,
+  shadows and model detail are still incomplete.
 - **Retail OL object placement:** parses the level's original text `.ol`
   file with the actual `ObjectN { type, xPos, yPos, heading }` entries.
   The first TVCamera guides the initial viewport; visible Rock Raiders
@@ -46,8 +53,8 @@ not use Wine, the original Windows EXE, DirectDraw, or any injected DLLs.
   building models. Select an on-foot yellow Raider and click a discovered
   passable cavern tile to preview four-way walking. Solid/hidden terrain
   and lava/water are blocked. This is the first *movement prototype*;
-  collisions, AI, real animations, texture assets, drilling, vehicle
-  movement, resource collection and mission objectives remain unported.
+  collisions, AI, original character animations, model meshes, drilling,
+  vehicle movement, resource collection and mission objectives remain unported.
   All original files and saved games remain read-only.
 - Experimental macOS playback of the original `SFX_AmbientMusicLoop` sound using
   AVFoundation. Resolves configured WAVs from the WADs or loose
@@ -66,21 +73,23 @@ not use Wine, the original Windows EXE, DirectDraw, or any injected DLLs.
 The portable archive, config, front-end, map, save, and mission-link parsing
 tests compile and run on Linux using synthetic fixtures. The native AppKit
 prototype has been launched on the owner's Apple Silicon Mac using their own
-WAD files. A standard hosted macOS Actions runner also **successfully compiled**
-the ARM64 AppKit menu, including the new graphical mission-selection and save
-slot integration, without any original WADs in CI. Runtime behavior of the
-new mission/save screens is still unverified, as are visible FPS, 3D gameplay,
-and actual mission launching.
+WAD files. A standard hosted macOS Actions runner has successfully compiled the ARM64
+AppKit and SceneKit prototype without any original WADs in CI. The owner has
+visually confirmed that the initial 3D debug-map build was far from the retail
+game. Original WAD rendering of the new single-window/bitmap-texture revision
+still needs a screenshot check; 60 visible FPS and gameplay are unverified.
 
 The framework for `Next` navigation exists and the original mission and save
 menus can now present decoded game data. Selecting a save is read-only.
 Selecting a mission opens native 3D terrain from its original MAP files
 and can show original OL spawn positions with prototype click-to-move pathing
 on exposed terrain. The proxies and movement are diagnostic, not retail
-character meshes or simulated Rock Raider gameplay. The original Direct3D
-renderer, terrain textures, authentic minifigure models/animations, collision,
+character meshes or simulated Rock Raider gameplay. The original Direct3D renderer, precise retail material transitions, detailed
+wall/roof meshes, the in-game HUD, minifigure models/animations, collision,
 AI, drilling/building, vehicle systems, inventory, objective completion and
 executable NERPs have **not** been ported. Native menu audio remains experimental.
+See [ORIGINAL_PC_REFERENCE.md](ORIGINAL_PC_REFERENCE.md) for verified Windows
+gameplay recording timestamps and specific restoration criteria.
 
 ## Building locally when you are ready
 
