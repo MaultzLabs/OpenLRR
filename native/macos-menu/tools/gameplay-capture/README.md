@@ -1,5 +1,37 @@
 # Rock Raiders Gameplay Capture Lab — macOS
 
+## Preferred: continuous video + synchronized game controls
+
+**This is now a real 30-FPS ScreenCaptureKit H.264 video recorder, NOT periodic screenshots.**
+It records *only the identified original Rock Raiders game window* for the full
+session. Mouse buttons, wheel events, selected gameplay keycodes (no typed
+characters) and optional existing Wine/NERPs traces go into the same timeline.
+
+Run the one-command `first-level-video.py` launcher from the checked-out video
+branch. It locates/opens the real Wine/OpenLRR app, waits for a single verified
+game window, then records until that window closes. The complete master MP4 stays
+private on your Mac. Built-in AVFoundation divides it into **five-minute MP4
+clips under 180 MiB each** (splitting further if a clip is too large) and
+produces a separate timestamped timeline review ZIP. Finder opens the clip
+folder. No screenshots, desktop captures, unrelated app audio, or automatic
+uploads. Screen Recording and optionally Input Monitoring permission are needed.
+
+~~~bash
+python3 native/macos-menu/tools/gameplay-capture/first-level-video.py
+~~~
+
+You can attach the small MP4 clips and the separate timeline ZIP to ChatGPT.
+The timestamps in the timeline are host observations; the video clip
+`start_s` offsets are relative to the video, not perfect frame-accurate
+game timestamps. Wine API summaries require an *already-running* opt-in Wine
+debug log, and internal NERPs functions require separately instrumented game
+code. Do not mistake missing NERPs calls for no script execution.
+
+The older `first-level.py` and `capture.py record` commands
+**still run the deprecated sampled-PNG experiment**. Use
+`first-level-video.py` for the actual video-based workflow.
+
+
 **Strict privacy boundary: the original LEGO Rock Raiders game WINDOW only.**
 
 The user requested that screen captures never include the desktop or another
