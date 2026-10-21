@@ -25,9 +25,9 @@ jobs:
           swiftc --version
           bash native/macos-menu/test.sh
   compile-native-mac:
-    # Public standard Mac jobs have been cancelled before acquiring a runner.
-    # Keep this available manually, without repeatedly filling the queue on push.
-    if: github.event_name == 'workflow_dispatch'
+    # One hosted compile after fixing Swift fixture's Apple compiler typecheck.
+    # Restored to manual-only in the immediately following commit.
+    if: github.event_name == 'push'
     needs: parser-tests
     runs-on: macos-15
     timeout-minutes: 15
