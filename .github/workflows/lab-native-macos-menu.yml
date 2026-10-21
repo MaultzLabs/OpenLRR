@@ -25,9 +25,9 @@ jobs:
           swiftc --version
           bash native/macos-menu/test.sh
   compile-native-mac:
-    # One hosted compile after fixing Swift fixture's Apple compiler typecheck.
-    # Restored to manual-only in the immediately following commit.
-    if: github.event_name == 'push'
+    # Standard hosted Mac compilation runs only when intentionally dispatched.
+    # Public free runners can queue; do not start one on each source push.
+    if: github.event_name == 'workflow_dispatch'
     needs: parser-tests
     runs-on: macos-15
     timeout-minutes: 15
