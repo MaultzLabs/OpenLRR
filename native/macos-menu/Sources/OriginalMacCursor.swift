@@ -15,7 +15,7 @@ enum OriginalMacCursor {
 
         if let bitmap = try? PalettedBMP(data: data),
            bitmap.width <= 128, bitmap.height <= 128,
-           let cg = imageFromRGBA(bitmap.rgba, width: bitmap.width,
+           let cg = imageFromRGBA(bitmap.blackKeyedRGBA(), width: bitmap.width,
                                   height: bitmap.height) {
             return NSCursor(image: NSImage(cgImage: cg,
                                size: NSSize(width: bitmap.width, height: bitmap.height)),
