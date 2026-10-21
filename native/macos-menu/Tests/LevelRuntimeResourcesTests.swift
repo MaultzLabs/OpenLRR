@@ -88,9 +88,9 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
                                           1, 1, 5,
                                           1, 1, 2], width: 3, height: 3)
         let nativeWad = syntheticWad([
-            ("Levels\\\\GameLevels\\\\Level01\\\\Surf.map", nativeTerrain),
-            ("Levels\\\\GameLevels\\\\Level01\\\\Dugg.map", nativePredug),
-            ("Levels\\\\GameLevels\\\\Level01\\\\High.map", nativeSurface)
+            ("Levels\\GameLevels\\Level01\\Surf.map", nativeTerrain),
+            ("Levels\\GameLevels\\Level01\\Dugg.map", nativePredug),
+            ("Levels\\GameLevels\\Level01\\High.map", nativeSurface)
         ])
         let nativeResources = try GameResources(archives: [(0, nativeWad)])
         let nativeWorld = try LevelWorld(manifest: manifest, resources: nativeResources)
@@ -103,9 +103,9 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
                      nativeWorld.initialCameraTile.y == 0)
         let wrongHeight = syntheticMap([1, 2, 3, 4], width: 2, height: 2)
         let inconsistentWad = syntheticWad([
-            ("Levels\\\\GameLevels\\\\Level01\\\\Surf.map", nativeTerrain),
-            ("Levels\\\\GameLevels\\\\Level01\\\\Dugg.map", nativePredug),
-            ("Levels\\\\GameLevels\\\\Level01\\\\High.map", wrongHeight)
+            ("Levels\\GameLevels\\Level01\\Surf.map", nativeTerrain),
+            ("Levels\\GameLevels\\Level01\\Dugg.map", nativePredug),
+            ("Levels\\GameLevels\\Level01\\High.map", wrongHeight)
         ])
         do {
             _ = try LevelWorld(manifest: manifest,
