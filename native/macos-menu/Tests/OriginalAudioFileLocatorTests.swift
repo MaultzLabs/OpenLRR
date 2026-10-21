@@ -67,6 +67,17 @@ import Foundation
         precondition(OriginalAudioFileLocator.locate("Sounds/Streamed/Stats.wav",
             beside: copiedWad, homeDirectory: home) == rruWav)
 
+        // Keep searching when a nearby CAB-extracted file is corrupted.
+        // The original game often shipped unreadable copies of Atmosdel.wav.
+        let broken = copiedWad.deletingLastPathComponent()
+            .appendingPathComponent("Data/Sounds/Streamed/Atmosdel.wav")
+        try fm.createDirectory(at: broken.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(repeating: 0, count: 44).write(to: broken)
+        let choices = OriginalAudioFileLocator.locateAll("Sounds/Streamed/Atmosdel.wav",
+                    beside: copiedWad, homeDirectory: home)
+        precondition(choices.count >= 2 && choices.first == broken)
+        precondition(choices.contains(wrappedWav))
+
         // Do not follow traversal or arbitrary formats from untrusted CFG.
         precondition(OriginalAudioFileLocator.locate("../Sounds/Atmosdel.wav", beside: wad) == nil)
         precondition(OriginalAudioFileLocator.locate("/etc/passwd.wav", beside: wad) == nil)
