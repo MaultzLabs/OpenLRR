@@ -83,7 +83,7 @@ final class NativeLevel3DView: SCNView {
                 }
                 let horizontal = abs(n.x) > abs(n.z) ? p.z : p.x
                 return CGPoint(x: CGFloat(horizontal),
-                               y: CGFloat(p.y) / NativeTerrainMesh.previewWallHeight)
+                               y: CGFloat(p.y) / CGFloat(NativeTerrainMesh.previewWallHeight))
             }
             let geometry = SCNGeometry(
                 sources: [SCNGeometrySource(vertices: vertices),
