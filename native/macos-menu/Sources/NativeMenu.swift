@@ -45,6 +45,7 @@ final class OriginalMenuCanvas: NSView {
     var onNavigation: ((String) -> Void)?
     var onMissionSelected: ((MissionSelection.Node) -> Void)?
     var onQuitConfirmed: (() -> Void)?
+    var onButtonActivated: (() -> Void)?
     var onMenuTransition: ((Int) -> Bool)?
     private var menuIndex = 0
     private var hoverIndex: Int?
@@ -312,7 +313,9 @@ final class OriginalMenuCanvas: NSView {
                              item.kind == .trigger
             let assetPath = hovered ? (item.imageHover ?? item.imageNormal) : item.imageNormal
             if let assetPath, let artwork = image(assetPath) {
-                let rect = CGRect(x: x, y: y, width: artwork.size.width,
+                // Mirror Front_MenuItem_CreateImageItem centerOffLo/Hi.
+                let drawnX = menu.autoCenter ? x - artwork.size.width / 2 : x
+                let rect = CGRect(x: drawnX, y: y, width: artwork.size.width,
                                   height: artwork.size.height)
                 drawImage(artwork, at: rect)
                 if actionable { hitRects.append((i, rect)) }
@@ -458,6 +461,7 @@ final class OriginalMenuCanvas: NSView {
         if let index = saveRects.first(where: { $0.1.contains(pos) })?.0,
            saveSlots.indices.contains(index) {
             if case .valid(let save) = saveSlots[index].state {
+                onButtonActivated?()
                 loadedSave = save
                 history.append(menuIndex)
                 menuIndex = 1 // OpenLRR loads save then enters mission map.
@@ -471,6 +475,7 @@ final class OriginalMenuCanvas: NSView {
         }
         if let index = missionRects.first(where: { $0.1.contains(pos) })?.0,
            currentMissions.indices.contains(index) {
+            onButtonActivated?()
             // Route the original mission identifier into the native world
             // loader, without modifying saves or pretending to run objectives.
             onMissionSelected?(currentMissions[index])
@@ -480,6 +485,9 @@ final class OriginalMenuCanvas: NSView {
               let menus = definitions?.menus, menus.indices.contains(menuIndex),
               menus[menuIndex].items.indices.contains(index) else { return }
         let selected = menus[menuIndex].items[index]
+        if selected.kind == .next || selected.kind == .trigger {
+            onButtonActivated?()
+        }
         if selected.kind == .next, let next = selected.linkedMenu,
            menus.indices.contains(next) {
             // Original LWSC Boulder transition; fall back to instant if the
@@ -549,6 +557,7 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
     private var backToMenuButton: NSButton!
     private var status: NSTextField!
     private let originalAudio = OriginalMenuAudio()
+    private let buttonAudio = OriginalMenuButtonAudio()
     private let selectedWadDefaultsKey = "OriginalGameWadURL.v1"
     private let audioFolderDefaultsKey = "OriginalGameAudioFolderURL.v1"
     private var activeWadURL: URL?
@@ -593,6 +602,9 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
         }
         canvas.onMenuTransition = { [weak self] next in
             self?.playOriginalRockWipe(to: next) ?? false
+        }
+        canvas.onButtonActivated = { [weak self] in
+            self?.buttonAudio.play()
         }
         root.addSubview(canvas)
 
@@ -871,6 +883,8 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
                 activeResources = resources
                 activeConfig = config
                 restartOriginalAudio()
+                buttonAudio.configure(config: config, resources: resources,
+                                      beside: url, extraAudioRoot: selectedAudioFolder)
             } else {
                 canvas.definitions = nil
                 status.stringValue = "Original background loaded. LegoRR1.wad with Lego.cfg is needed for navigation."
