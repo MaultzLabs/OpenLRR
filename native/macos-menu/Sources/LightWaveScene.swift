@@ -38,7 +38,9 @@ struct LightWaveScene {
                 let divisor = b.frame - a.frame
                 guard divisor > 0 else { return b.channels }
                 let t = (frame - a.frame) / divisor
-                return zip(a.channels, b.channels).map { $0 + ($1 - $0) * t }
+                return zip(a.channels, b.channels).map { pair in
+                    pair.0 + (pair.1 - pair.0) * t
+                }
             }
             return last.channels
         }
