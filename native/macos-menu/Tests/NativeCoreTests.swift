@@ -197,10 +197,17 @@ private func failure(_ label: String, _ run: () throws -> Void) {
         }
         failure("missing sound") { _ = try sfx.samples(named: "NotConfigured") }
         // Tiny valid PCM RIFF/WAVE in the same WWAD format as the game.
-        let wavBytes: [UInt8] = [82,73,70,70] + le(38) +
-            [87,65,86,69,102,109,116,32] + le(16) +
-            [1,0,1,0] + le(8000) + le(8000) + [1,0,8,0] +
-            [100,97,116,97] + le(2) + [0,255]
+        var wavBytes: [UInt8] = [82, 73, 70, 70]
+        wavBytes += le(38)
+        wavBytes += [87, 65, 86, 69, 102, 109, 116, 32]
+        wavBytes += le(16)
+        wavBytes += [1, 0, 1, 0]
+        wavBytes += le(8000)
+        wavBytes += le(8000)
+        wavBytes += [1, 0, 8, 0]
+        wavBytes += [100, 97, 116, 97]
+        wavBytes += le(2)
+        wavBytes += [0, 255]
         let soundResources = try GameResources(archives: [
             (0, archive([("Sounds\\UI\\Click.wav", wavBytes)]))
         ])
