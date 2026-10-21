@@ -6,6 +6,33 @@ The user requested that screen captures never include the desktop or another
 application and that **all recording stops automatically when that game window
 is closed**. These are mandatory operating rules, not optional features.
 
+## One-paste first-level capture
+
+The native one-shot launcher `first-level.py` locates and opens the *normal*
+Wine `OpenLRR.app` where available (never `OpenLRR Menu Test.app`), waits for
+the original game window, and records it while you play the first level.
+When you quit that original game window, it automatically stops, saves a
+private review ZIP containing only game-window frames and safe synchronized
+events, and reveals that ZIP in Finder. It never uploads files on its own.
+
+From an existing checkout of this development branch:
+
+```bash
+python3 native/macos-menu/tools/gameplay-capture/first-level.py
+```
+
+If no recognizable game app exists in Applications, open your normal Wine
+game app manually while the launcher waits. Ambiguous game windows are
+refused rather than allowing another app or desktop to be recorded.
+
+The basic session captures sampled frames and supported game controls.
+Wine API summaries require an *existing* debug log provided with `--wine-log`.
+Original 1999 NERPs function calls require a separately instrumented DLL;
+this recorder does not infer internal calls from screenshots or inject code.
+The ZIP never includes raw Wine logs, whole-desktop screenshots, or other
+apps. Review the ZIP before sharing in ChatGPT or a private research repo.
+macOS might request Screen Recording and Input Monitoring permissions.
+
 ## Run the first capture
 
 Launch the original Windows Rock Raiders/OpenLRR game in your existing Wine
