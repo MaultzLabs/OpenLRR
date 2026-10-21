@@ -89,6 +89,12 @@ def pump_video_stdout(pipe: Any, timeline: capture.Timeline, state: dict) -> Non
             value = obj.get(field)
             if type(value) in (int, float) and abs(value) < 1e14:
                 safe[field] = value
+        for field in ("audio_requested", "audio_track_present", "microphone"):
+            value = obj.get(field)
+            if type(value) is bool:
+                safe[field] = value
+        if obj.get("audio_scope") == "owning_application":
+            safe["audio_scope"] = "owning_application"
         for field in ("scope", "stop_reason"):
             value = obj.get(field)
             if field == "scope" and value == "single_game_window":
@@ -102,6 +108,7 @@ def pump_video_stdout(pipe: Any, timeline: capture.Timeline, state: dict) -> Non
         if event == "video_complete":
             state["video_complete"] = True
             state["video_duration_s"] = safe.get("duration_s", 0.0)
+            state["audio_track_present"] = safe.get("audio_track_present", False)
         if event in ("recording_failed", "stream_failed", "capture_error",
                      "target_missing", "finalization_unverified"):
             state["video_failed"] = True
@@ -253,6 +260,10 @@ def continuous_capture(
             "video_duration_s": state.get("video_duration_s") if good else None,
             "video_start_unix_s": state.get("video_start_unix_s"),
             "video_fps_target": video_fps,
+            "app_audio_requested": True,
+            "app_audio_scope": "owning_application",
+            "audio_track_present": state.get("audio_track_present", False) if good else False,
+            "microphone_recorded": False,
             "input_monitor_requested": input_binary is not None,
             "wine_trace_captured_locally": raw_wine is not None,
             "wine_log_batches": raw_wine.events.batches_written if raw_wine else 0,
