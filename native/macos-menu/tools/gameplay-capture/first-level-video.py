@@ -28,6 +28,8 @@ spec.loader.exec_module(first)
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--app", type=Path, help="explicit original Wine OpenLRR .app")
+    ap.add_argument("--diagnose", action="store_true",
+                    help="report only safe window counts and permission; do not launch or record")
     ap.add_argument("--fps", type=int, default=30,
                     help="continuous MP4 requested FPS (default 30)")
     ap.add_argument("--clip-minutes", type=int, default=5,
@@ -56,6 +58,20 @@ def main(argv: list[str] | None = None) -> int:
         raise capture.CaptureError("Session duration must be 1–240 minutes")
     if not 10 <= args.wait_seconds <= 900:
         raise capture.CaptureError("Game window wait must be 10–900 seconds")
+
+    if args.diagnose:
+        # No video tool compilation, no game launch and no capture.
+        finder = capture.WindowProbe(capture.build_probe())
+        info = finder.diagnose()
+        print(json.dumps(info, sort_keys=True))
+        if info.get("screen_recording_permission") is False:
+            print("Terminal needs Screen Recording permission. "
+                  "See System Settings > Privacy & Security > "
+                  "Screen & System Audio Recording. Then restart Terminal.")
+        elif info.get("wine_like_windows", 0) > 0 and not info.get("eligible_game_windows", 0):
+            print("Wine windows exist, but they have no verified Rock Raiders "
+                  "title. No unrelated window will be recorded.")
+        return 0
 
     # Compile all helpers before launching, avoiding a long compiler pause
     # after the game appears. None modifies the Wine prefix or game files.
