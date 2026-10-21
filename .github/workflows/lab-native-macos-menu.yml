@@ -27,7 +27,7 @@ jobs:
   compile-native-mac:
     # Public hosted Mac compiles are opt-in; parser-tests run on each push.
     # A separately launched job checks AppKit/ARM64 without requiring the user's Mac.
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'push'
     needs: parser-tests
     runs-on: macos-15
     timeout-minutes: 15
