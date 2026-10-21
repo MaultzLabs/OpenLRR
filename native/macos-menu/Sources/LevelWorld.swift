@@ -20,34 +20,60 @@ struct LevelWorld {
         }
     }
 
+    // Source: src/openlrr/game/GameCommon.h Lego_SurfaceType. Preserve
+    // the numeric values of the *retail* terrain MAP rather than guessing
+    // them from tile artwork. Lego_LoadTerrainMap also remaps code 5 to 4.
     enum Terrain: String {
-        case unknown = "Unspecified"
-        case solid = "Solid rock"
+        case tunnel = "Tunnel"
+        case immovable = "Immovable rock"
         case hard = "Hard rock"
-        case loose = "Loose rock"
+        case medium = "Medium rock"
         case dirt = "Dirt"
-        case soil = "Soil"
+        case soil = "Soil (converted to dirt by retail)"
         case lava = "Lava"
-        case waterSheet = "Water sheet"
-        case oreSeam = "Ore seam"
         case water = "Water"
+        case oreSeam = "Ore seam"
+        case lake = "Lake"
         case crystalSeam = "Energy crystal seam"
         case rechargeSeam = "Recharge seam"
+        case rubble = "Rubble"
+        case reinforcement = "Reinforcement"
+        case path = "Power path"
+        case slugHole = "Slimy slug hole"
+        case undiscovered = "Undiscovered"
+        case cavern = "Cavern"
+        case unknown = "Unrecognized terrain"
 
         init(code: UInt16) {
             switch code {
-            case 1: self = .solid
+            case 0: self = .tunnel
+            case 1: self = .immovable
             case 2: self = .hard
-            case 3: self = .loose
+            case 3: self = .medium
             case 4: self = .dirt
             case 5: self = .soil
             case 6: self = .lava
-            case 7: self = .waterSheet
+            case 7: self = .water
             case 8: self = .oreSeam
-            case 9: self = .water
+            case 9: self = .lake
             case 10: self = .crystalSeam
             case 11: self = .rechargeSeam
+            case 12: self = .rubble
+            case 13: self = .reinforcement
+            case 14: self = .path
+            case 15: self = .slugHole
+            case 16: self = .undiscovered
+            case 17: self = .cavern
             default: self = .unknown
+            }
+        }
+
+        var isLiquid: Bool { self == .lava || self == .water || self == .lake }
+        var isMineableWall: Bool {
+            switch self {
+            case .medium, .dirt, .soil, .hard, .oreSeam, .crystalSeam:
+                return true
+            default: return false
             }
         }
     }
