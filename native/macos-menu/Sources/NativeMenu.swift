@@ -37,6 +37,7 @@ private struct OriginalBitmapFont {
 final class OriginalMenuCanvas: NSView {
     var resources: GameResources? { didSet { clearCache(); needsDisplay = true } }
     var definitions: MenuDefinition? { didSet { menuIndex = 0; needsDisplay = true } }
+    var missionSelection: MissionSelection? { didSet { missionHover = nil; needsDisplay = true } }
     var onNavigation: ((String) -> Void)?
     private var menuIndex = 0
     private var hoverIndex: Int?
@@ -45,7 +46,16 @@ final class OriginalMenuCanvas: NSView {
     private var missingFonts = Set<String>()
     private var unavailable = Set<String>()
     private var hitRects: [(Int, CGRect)] = []
+    private var missionRects: [(Int, CGRect)] = []
+    private var missionHover: Int?
     private var history: [Int] = []
+
+    private var currentMissions: [MissionSelection.Node] {
+        guard let missionSelection else { return [] }
+        if menuIndex == 1 { return missionSelection.missions }
+        if menuIndex == 2 { return missionSelection.tutorials }
+        return []
+    }
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
@@ -57,7 +67,9 @@ final class OriginalMenuCanvas: NSView {
         unavailable.removeAll()
         history.removeAll()
         hoverIndex = nil
+        missionHover = nil
         hitRects.removeAll()
+        missionRects.removeAll()
     }
 
     /// AppKit's ImageIO decodes the actual BMP bytes from the archive, without
@@ -147,6 +159,7 @@ final class OriginalMenuCanvas: NSView {
         ctx.cgContext.scaleBy(x: bounds.width / 640.0, y: bounds.height / 480.0)
         ctx.cgContext.interpolationQuality = .none
         hitRects.removeAll()
+        missionRects.removeAll()
 
         let backgroundName = "Interface/FrontEnd/MenuBGpic.bmp"
         if let background = image(backgroundName) {
@@ -193,6 +206,32 @@ final class OriginalMenuCanvas: NSView {
                 if actionable { hitRects.append((i, measured)) }
             }
         }
+
+        // MainMenuFull::Menu2 / Menu3 contain their Select items at runtime,
+        // created by MainMenuFull_AddMissionsDisplay, not by Lego.cfg ItemN.
+        // Draw their original MenuBMP variants using LevelLinks DFS order.
+        // Front_MenuItem_DrawSelectItem: 0=light, 1=dark, 2=locked.
+        let entries = currentMissions
+        for (index, entry) in entries.enumerated() {
+            guard entry.imagePaths.count == 3 else { continue }
+            let isHovered = missionHover == index && entry.initiallyAvailable
+            let imageNumber = !entry.initiallyAvailable ? 2 : (isHovered ? 0 : 1)
+            guard let artwork = image(entry.imagePaths[imageNumber]) else { continue }
+            let x = CGFloat(menu.x + entry.x) -
+                    (menu.autoCenter ? artwork.size.width / 2 : 0)
+            let y = CGFloat(menu.y + entry.y)
+            let frame = CGRect(x: x, y: y, width: artwork.size.width,
+                               height: artwork.size.height)
+            drawImage(artwork, at: frame)
+            if entry.initiallyAvailable { missionRects.append((index, frame)) }
+        }
+        // Like Front_Callback_SelectMissionItem, display the real localized
+        // mission name when the cursor hovers an unlocked wormhole icon.
+        if let missionHover, entries.indices.contains(missionHover) {
+            drawText(entries[missionHover].title, x: 320, y: 390, size: 22,
+                     hovered: false, enabled: true, centered: true,
+                     fontPath: menu.titleFont)
+        }
     }
 
     @discardableResult private func drawText(_ content: String, x: CGFloat, y: CGFloat,
@@ -236,11 +275,24 @@ final class OriginalMenuCanvas: NSView {
     override func mouseMoved(with event: NSEvent) {
         let pos = logicalPoint(event)
         let newHover = hitRects.first(where: { $0.1.contains(pos) })?.0
-        if hoverIndex != newHover { hoverIndex = newHover; needsDisplay = true }
+        let newMissionHover = missionRects.first(where: { $0.1.contains(pos) })?.0
+        if hoverIndex != newHover || missionHover != newMissionHover {
+            hoverIndex = newHover
+            missionHover = newMissionHover
+            needsDisplay = true
+        }
     }
 
     override func mouseDown(with event: NSEvent) {
         let pos = logicalPoint(event)
+        if let index = missionRects.first(where: { $0.1.contains(pos) })?.0,
+           currentMissions.indices.contains(index) {
+            // Only actual working runtime loading can start a level. Until
+            // then, let the original selection be inspected without writing
+            // a fictitious save or claiming a mission has launched.
+            onNavigation?("Mission selected: \(currentMissions[index].title) — gameplay runtime not ported")
+            return
+        }
         guard let index = hitRects.first(where: { $0.1.contains(pos) })?.0,
               let menus = definitions?.menus, menus.indices.contains(menuIndex),
               menus[menuIndex].items.indices.contains(index) else { return }
@@ -250,6 +302,7 @@ final class OriginalMenuCanvas: NSView {
             history.append(menuIndex)
             menuIndex = next
             hoverIndex = nil
+            missionHover = nil
             needsDisplay = true
             onNavigation?("Original menu: \(menus[next].internalName)")
         }
@@ -261,6 +314,7 @@ final class OriginalMenuCanvas: NSView {
         if event.keyCode == 53, let previous = history.popLast() {
             menuIndex = previous
             hoverIndex = nil
+            missionHover = nil
             needsDisplay = true
             return
         }
@@ -434,6 +488,13 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate {
             if resources.exists("Lego.cfg") {
                 let config = try LegoConfig(data: resources.configData())
                 canvas.definitions = try MenuDefinition(config: config)
+                // Source-grounded mission maps using the game's NextLevel
+                // order and LevelLinks, no handwritten mission assets.
+                if let catalog = try? LevelCatalog(config: config) {
+                    canvas.missionSelection = MissionSelection(config: config, catalog: catalog)
+                } else {
+                    canvas.missionSelection = nil
+                }
                 activeWadURL = url
                 activeResources = resources
                 activeConfig = config
@@ -449,6 +510,7 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate {
         } catch {
             canvas.resources = nil
             canvas.definitions = nil
+            canvas.missionSelection = nil
             if automatic {
                 UserDefaults.standard.removeObject(forKey: selectedWadDefaultsKey)
                 status.stringValue = "Previous WAD location unavailable; select the original WAD again."
@@ -466,7 +528,7 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate {
     @objc private func aboutPrototype() {
         let alert = NSAlert()
         alert.messageText = "Original assets, native macOS prototype"
-        alert.informativeText = "Reads your original WADs and Lego.cfg without modifying them. Basic menu navigation and native WAV menu ambience are experimental. Animations, full save/mission functionality, the CD/OGG soundtrack, and gameplay are not yet ported."
+        alert.informativeText = "Reads your original WADs and Lego.cfg without modifying them. Native WAV ambience and initial mission-map graphics are experimental. Selecting a mission does not start gameplay: 3D simulation and saves are not ported."
         alert.beginSheetModal(for: window)
     }
 
