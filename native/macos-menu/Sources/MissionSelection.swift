@@ -50,8 +50,16 @@ struct MissionSelection {
             // or the explicit FrontEndOpen flag until a save is loaded.
             let initiallyAvailable = unlockAll || root || ["true", "yes", "on", "1"].contains(open ?? "")
 
+            // Front_LevelInfo_Callback_AddItem uses Menu::DefaultLevelBMPS
+            // if a particular level omits MenuBMP.
+            let fallbackImages = (config.valueUnderGame(["Menu", "DefaultLevelBMPS"]) ?? "")
+                .split(separator: ",", omittingEmptySubsequences: true)
+                .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            let paths = level.menuBitmapPaths.count == 3 ? level.menuBitmapPaths :
+                        (fallbackImages.count == 3 ? fallbackImages : [])
+
             result.append(Node(identifier: level.identifier, title: level.fullName,
-                               imagePaths: level.menuBitmapPaths,
+                               imagePaths: paths,
                                x: level.positionX ?? 0, y: level.positionY ?? 0,
                                initiallyAvailable: initiallyAvailable,
                                nextIdentifiers: links))
