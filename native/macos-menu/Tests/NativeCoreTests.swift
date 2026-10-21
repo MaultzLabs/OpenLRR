@@ -29,6 +29,9 @@ private func failure(_ label: String, _ run: () throws -> Void) {
         let cfg = """
         ; Mirrors the original Lego.cfg hierarchical group layout
         Lego* {
+          Pointers {
+            Pointer_Standard Interface\\Pointers\\PointerOpen.bmp
+          }
           Menu {
             MainMenuFull {
               MenuCount 2
@@ -47,6 +50,7 @@ private func failure(_ label: String, _ run: () throws -> Void) {
               }
               Menu2 {
                 Title Select_Level
+                CanScroll TRUE
                 Position 55:40
                 ItemCount 1
                 Item1 Next:10:10:Back:Menu1
@@ -57,7 +61,8 @@ private func failure(_ label: String, _ run: () throws -> Void) {
         """
         let wad0 = archive([("Interface\\FrontEnd\\MenuBGpic.bmp", [66,77,0,0])])
         let wad1 = archive([("Lego.cfg", Array(cfg.utf8)),
-                            ("Interface\\FrontEnd\\MenuBGpic.bmp", [66,77,1,1])])
+                            ("Interface\\FrontEnd\\MenuBGpic.bmp", [66,77,1,1]),
+                            ("Interface\\Pointers\\PointerOpen.bmp", [66,77,2,2])])
         let resources = try GameResources(archives: [(0,wad0),(1,wad1)])
         precondition(resources.mountedIndices == [1,0])
         let picked = try resources.data(at: "Interface/FrontEnd/MenuBGpic.bmp")
@@ -72,7 +77,35 @@ private func failure(_ label: String, _ run: () throws -> Void) {
         precondition(menus.menus[0].x == 100 && menus.menus[0].y == 55)
         precondition(!menus.menus[0].displayTitle && menus.menus[0].titleAnchorY == 17)
         precondition(menus.menus[0].autoCenter)
+        precondition(!menus.menus[0].canScroll)
         precondition(!menus.menus[1].autoCenter)
+        precondition(menus.menus[1].canScroll)
+        precondition(OriginalPointerAsset.standardPath(config: parsed,
+                    resources: resources)?.hasSuffix("PointerOpen.bmp") == true)
+        var scroll = OriginalMenuScroll()
+        precondition(scroll.isAtTop)
+        precondition(!scroll.update(imageHeight: 1200, canScroll: true,
+                                    mouseY: 240, buttonsHeld: false, elapsed: 1.0 / 30.0))
+        precondition(scroll.update(imageHeight: 1200, canScroll: true,
+                                   mouseY: 475, buttonsHeld: false, elapsed: 1.0 / 30.0))
+        precondition(scroll.offsetY < 0)
+        let afterDown = scroll.offsetY
+        precondition(!scroll.update(imageHeight: 1200, canScroll: true,
+                                    mouseY: 475, buttonsHeld: true, elapsed: 1.0))
+        precondition(scroll.offsetY == afterDown)
+        precondition(scroll.update(imageHeight: 1200, canScroll: true,
+                                   mouseY: 5, buttonsHeld: false, elapsed: 1.0 / 30.0))
+        precondition(scroll.offsetY > afterDown)
+        precondition(scroll.wheel(deltaY: -1000, imageHeight: 1200, canScroll: true))
+        precondition(scroll.isAtBottom(imageHeight: 1200))
+        precondition(scroll.wheel(deltaY: 1000, imageHeight: 1200, canScroll: true))
+        precondition(scroll.isAtTop)
+        precondition(!scroll.update(imageHeight: 480, canScroll: true,
+                                    mouseY: 475, buttonsHeld: false, elapsed: 1.0 / 30.0))
+        scroll.wheel(deltaY: -30, imageHeight: 1200, canScroll: true)
+        precondition(scroll.update(imageHeight: 1200, canScroll: false,
+                                   mouseY: 475, buttonsHeld: false, elapsed: 1.0 / 30.0))
+        precondition(scroll.offsetY == 0)
         precondition(menus.menus[1].displayTitle && menus.menus[1].titleAnchorY == 0)
         precondition(menus.menus[1].internalName.isEmpty) // No invented FullName.
         precondition(menus.menus[0].items.count == 3)
