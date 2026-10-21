@@ -1,7 +1,7 @@
 import Foundation
 
 /// Read-only model of the real FrontEnd definitions from Lego.cfg.
-/// Supported actions are limited to menu navigation, never game launch.
+/// Supports config-defined navigation and end triggers, never fake gameplay.
 struct MenuDefinition {
     struct Item {
         enum Kind: Equatable { case next, trigger, cycle, slider, select, unknown(String) }
@@ -12,6 +12,7 @@ struct MenuDefinition {
         let imageNormal: String?
         let imageHover: String?
         let linkedMenu: Int?
+        let endsMenu: Bool
         let raw: String
     }
 
@@ -40,6 +41,20 @@ struct MenuDefinition {
     }
 
     let menus: [Screen]
+
+    /// OpenLRR passes triggerQuitApp to the second MainMenuFull trigger.
+    /// In the retail configuration that is the terminal "ARE YOU SURE?"
+    /// Yes item. Prefer matching the actual confirmation screen title.
+    var quitConfirmationIndex: Int? {
+        let candidates = menus.indices.filter { index in
+            menus[index].items.contains(where: { $0.kind == .trigger && $0.endsMenu })
+        }
+        return candidates.first(where: { index in
+            let name = (menus[index].title + " " + menus[index].internalName)
+                .lowercased().replacingOccurrences(of: "_", with: " ")
+            return name.contains("are you sure") || name.contains("quit?")
+        }) ?? candidates.first(where: { $0 > 0 })
+    }
 
     enum MenuError: Error, CustomStringConvertible {
         case invalid(String)
@@ -126,10 +141,15 @@ struct MenuDefinition {
                         }
                     }
                 }
+                // Front_LoadMenuSet: Trigger has 5 or 8 fields, final field
+                // is numeric `end`. Only end==1 may close a menu.
+                let end = kind == .trigger &&
+                          (fields.count == 5 || fields.count == 8) &&
+                          fields.last == "1"
                 items.append(Item(kind: kind, x: x, y: y, caption: caption,
                                   imageNormal: normal?.isEmpty == true ? nil : normal,
                                   imageHover: hovered?.isEmpty == true ? nil : hovered,
-                                  linkedMenu: linked, raw: raw))
+                                  linkedMenu: linked, endsMenu: end, raw: raw))
             }
             result.append(Screen(title: title, internalName: fullName,
                                  x: px, y: py, autoCenter: autoCenter, canScroll: canScroll,
