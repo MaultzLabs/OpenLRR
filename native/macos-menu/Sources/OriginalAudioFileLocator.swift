@@ -58,8 +58,9 @@ struct OriginalAudioFileLocator {
             // RRU's standalone Atmosdel_and_Stats.zip can be extracted to a
             // directory containing WAVs directly. Only allow basename lookup
             // inside the folder that the user explicitly selected.
-            if let additionalRoot, root.standardizedFileURL == additionalRoot.standardizedFileURL,
-               let filename = parts.last {
+            if let filename = parts.last,
+               (root.lastPathComponent.lowercased().contains("atmosdel") ||
+                (additionalRoot != nil && root.standardizedFileURL == additionalRoot?.standardizedFileURL)) {
                 candidates.append([filename])
             }
             let rootName = root.lastPathComponent.lowercased()
@@ -97,8 +98,11 @@ struct OriginalAudioFileLocator {
         func include(_ candidate: URL) {
             let url = candidate.standardizedFileURL
             let path = url.path
-            guard seen.insert(path).inserted,
-                  fileManager.fileExists(atPath: path) else { return }
+            var isDirectory: ObjCBool = false
+            guard !seen.contains(path),
+                  fileManager.fileExists(atPath: path, isDirectory: &isDirectory),
+                  isDirectory.boolValue else { return }
+            seen.insert(path)
             roots.append(url)
         }
 
