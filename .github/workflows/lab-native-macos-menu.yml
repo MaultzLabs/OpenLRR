@@ -25,9 +25,9 @@ jobs:
           swiftc --version
           bash native/macos-menu/test.sh
   compile-native-mac:
-    # Standard hosted Mac compilation runs only when intentionally dispatched.
-    # Public free runners can queue; do not start one on each source push.
-    if: github.event_name == 'workflow_dispatch'
+    # One-shot native ARM64 compile for the finished menu/save integration.
+    # Restore manual-only condition once this particular job is running.
+    if: github.event_name == 'push'
     needs: parser-tests
     runs-on: macos-15
     timeout-minutes: 15
