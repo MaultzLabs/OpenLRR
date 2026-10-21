@@ -410,6 +410,11 @@ extern NERPsFile_Globs & nerpsfileGlobs;
 /// CUSTOM: Interop for hooking NERPs functions without replacing the original calls.
 bool NERPs_HookFunction(const char* name, NERPsFunction function);
 
+#if defined(OPENLRR_LAB_NERPS_TRACE)
+// Passive, test-only record of OpenLRR's Win32 WM_COMMAND menu IDs.
+void NERPsLab_RecordMenuCommand(uint32 menuId);
+#endif
+
 
 /// CUSTOM: Shorthand for checking if we're in a tutorial.
 inline bool NERPs_AnyTutorialFlags() { return nerpsruntimeGlobs.tutorialFlags != TUTORIAL_FLAG_NONE; }
