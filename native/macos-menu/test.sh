@@ -7,7 +7,8 @@ tmp3="$(mktemp /tmp/openlrr-wav-test.XXXXXXXX)"
 tmp4="$(mktemp /tmp/openlrr-nerps-test.XXXXXXXX)"
 tmp5="$(mktemp /tmp/openlrr-audio-file-test.XXXXXXXX)"
 tmp6="$(mktemp /tmp/openlrr-mission-test.XXXXXXXX)"
-trap 'rm -f "$tmp1" "$tmp2" "$tmp3" "$tmp4" "$tmp5" "$tmp6"' EXIT
+tmp7="$(mktemp /tmp/openlrr-save-test.XXXXXXXX)"
+trap 'rm -f "$tmp1" "$tmp2" "$tmp3" "$tmp4" "$tmp5" "$tmp6" "$tmp7"' EXIT
 swiftc -O Sources/WadArchive.swift Tests/WadArchiveTests.swift -o "$tmp1"
 "$tmp1"
 swiftc -O Sources/WadArchive.swift Sources/GameResources.swift \
@@ -33,3 +34,6 @@ bash tools/convert-original-media.sh --help >/dev/null
 swiftc -O Sources/LegoConfig.swift Sources/LevelCatalog.swift \
   Sources/MissionSelection.swift Tests/MissionSelectionTests.swift -o "$tmp6"
 "$tmp6"
+
+swiftc -O Sources/OriginalSaveFile.swift Tests/OriginalSaveFileTests.swift -o "$tmp7"
+"$tmp7"
