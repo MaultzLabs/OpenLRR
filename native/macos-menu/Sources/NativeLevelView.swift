@@ -8,6 +8,13 @@ import Foundation
 final class NativeLevelView: NSView {
     let world: LevelWorld
     var onExit: (() -> Void)?
+    var originalCursor: NSCursor? {
+        didSet { if let window { window.invalidateCursorRects(for: self) } }
+    }
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        addCursorRect(bounds, cursor: originalCursor ?? .arrow)
+    }
     private var cameraX: CGFloat
     private var cameraY: CGFloat
     private var tileSize: CGFloat = 23
