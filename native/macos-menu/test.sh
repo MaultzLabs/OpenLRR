@@ -10,7 +10,8 @@ tmp6="$(mktemp /tmp/openlrr-mission-test.XXXXXXXX)"
 tmp7="$(mktemp /tmp/openlrr-save-test.XXXXXXXX)"
 tmp8="$(mktemp /tmp/openlrr-world-map-test.XXXXXXXX)"
 tmp9="$(mktemp /tmp/openlrr-ol-test.XXXXXXXX)"
-trap 'rm -f "$tmp1" "$tmp2" "$tmp3" "$tmp4" "$tmp5" "$tmp6" "$tmp7" "$tmp8" "$tmp9"' EXIT
+tmp10="$(mktemp /tmp/openlrr-lightwave-test.XXXXXXXX)"
+trap 'rm -f "$tmp1" "$tmp2" "$tmp3" "$tmp4" "$tmp5" "$tmp6" "$tmp7" "$tmp8" "$tmp9" "$tmp10"' EXIT
 swiftc -O Sources/WadArchive.swift Tests/WadArchiveTests.swift -o "$tmp1"
 "$tmp1"
 swiftc -O Sources/WadArchive.swift Sources/GameResources.swift \
@@ -50,3 +51,6 @@ swiftc -O Sources/WadArchive.swift Sources/GameResources.swift \
   Sources/LegoConfig.swift Sources/MapFile.swift Sources/LevelRuntimeResources.swift \
   Sources/OriginalObjectList.swift Tests/OriginalObjectListTests.swift -o "$tmp9"
 "$tmp9"
+
+swiftc -O Sources/LightWaveObject.swift Tests/LightWaveObjectTests.swift -o "$tmp10"
+"$tmp10"
