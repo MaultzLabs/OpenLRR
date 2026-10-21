@@ -12,13 +12,25 @@ struct OriginalAudioFileLocator {
                        additionalRoot: URL? = nil,
                        fileManager: FileManager = .default,
                        homeDirectory: URL? = nil) -> URL? {
+        locateAll(configuredPath, beside: selectedWadURL,
+                  additionalRoot: additionalRoot, fileManager: fileManager,
+                  homeDirectory: homeDirectory).first
+    }
+
+    /// Do not stop at the first WAV. Some LRR installations contain corrupted
+    /// CAB-extracted menu WAVs; a valid CD/RRU WAV may exist in another
+    /// already-installed location. Playback can try each candidate in order.
+    static func locateAll(_ configuredPath: String, beside selectedWadURL: URL,
+                          additionalRoot: URL? = nil,
+                          fileManager: FileManager = .default,
+                          homeDirectory: URL? = nil) -> [URL] {
         let normalized = configuredPath.replacingOccurrences(of: "\\", with: "/")
         let parts = normalized.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
         guard !parts.isEmpty, parts.count <= 32,
               parts.last?.lowercased().hasSuffix(".wav") == true,
               parts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." &&
                                  !$0.contains(":") && !$0.contains("\0") }) else {
-            return nil
+            return []
         }
 
         let wadDirectory = selectedWadURL.deletingLastPathComponent()
@@ -31,6 +43,8 @@ struct OriginalAudioFileLocator {
         let discoveryRoots = automaticAudioRoots(home: home, fileManager: fileManager)
         let roots = nearby + discoveryRoots + (additionalRoot.map { [$0] } ?? [])
 
+        var matches: [URL] = []
+        var seenPaths = Set<String>()
         for root in roots {
             var candidates = [parts]
             // A known game install directory normally keeps loose sounds at
@@ -81,10 +95,12 @@ struct OriginalAudioFileLocator {
                 guard let info = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
                       info.isRegularFile == true, let size = info.fileSize,
                       (44...100_000_000).contains(size) else { continue }
-                return url
+                if seenPaths.insert(url.standardizedFileURL.path).inserted {
+                    matches.append(url)
+                }
             }
         }
-        return nil
+        return matches
     }
 
     /// Bounded discovery of standard user-owned installations. The original
