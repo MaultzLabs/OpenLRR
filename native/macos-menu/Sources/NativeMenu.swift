@@ -847,6 +847,7 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
 
     private func load(_ url: URL, automatic: Bool = false) {
         originalAudio.stop()
+        buttonAudio.stop()
         activeWadURL = nil
         activeResources = nil
         activeConfig = nil
