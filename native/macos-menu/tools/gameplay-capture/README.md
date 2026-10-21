@@ -1,0 +1,131 @@
+# Rock Raiders Gameplay Capture Lab — macOS
+
+**Strict privacy boundary: the original LEGO Rock Raiders game WINDOW only.**
+
+The user requested that screen captures never include the desktop or another
+application and that **all recording stops automatically when that game window
+is closed**. These are mandatory operating rules, not optional features.
+
+## Run the first capture
+
+Launch the original Windows Rock Raiders/OpenLRR game in your existing Wine
+wrapper normally. Once its game window is visible, on your Mac run:
+
+```sh
+cd ~/Downloads/OpenLRR-Native-Live
+git pull --ff-only
+python3 native/macos-menu/tools/gameplay-capture/capture.py list
+python3 native/macos-menu/tools/gameplay-capture/capture.py record --fps 4
+```
+
+The capture script compiles the tiny Swift window probe using **Apple's Xcode
+Command Line Tools**, finds exactly one identifiable game window, then saves
+a private session under `~/Movies/OpenLRR Gameplay Captures/`.
+
+If the window list includes several Rock Raiders windows, use
+`record --window-id <ID>` using the **specific ID returned by list**.
+It refuses ambiguous windows; it never guesses another application or starts
+the game on its own.
+
+Grant macOS **Screen & System Audio Recording** access to Terminal when
+requested for window screenshots. The optional input listener may separately
+require **Input Monitoring** access for Terminal or the Swift helper. A
+missing input permission does **not** authorize recording keystrokes outside
+the game; screenshots can continue with input capture unavailable.
+
+### Precisely what gets captured
+
+- PNG frame samples at the requested cadence (1–10 screenshots per second).
+  Every screenshot is taken through `screencapture -l WINDOW_ID`, never with
+  a full-display or desktop selection switch.
+- Relative cursor clicks, drags, movement and scroll-wheel deltas from that
+  **same window** while its owner application is in front.
+- Only recognized **game-control keycodes** (W/A/S/D, arrows, R, space,
+  return, escape, +/-); never text typed, chat, clipboard or other apps.
+- Monotonic and UTC timestamps in `timeline.jsonl`, suitable for correlating
+  commands with individual game frames.
+
+The recorder validates window ID **and owner PID** both before and after each
+screenshot. If the window vanishes, capture stops, including the input helper,
+and the last PNG is discarded if the identity disappeared mid-capture. It
+never switches to another window or starts recording the desktop. A minimized
+window pauses screenshot capture; close the game to stop the whole session.
+Ctrl-C also stops manually. A separate four-hour safety ceiling exists even
+if the game remains running; default ceiling is two hours.
+
+### Wine and NERPs data
+
+**Optional / passive:** supply `--wine-log /existing/active/wine-trace.log`
+to record new Wine log bytes *only while the game window is alive*. For example,
+Wine's `WINEDEBUG=+timestamp,+ddraw,+d3drm,+relay` can produce graphics/API
+logs, but relay tracing is extremely verbose and can slow the game. Do not
+enable broad relay tracing during normal gameplay unless specifically testing
+that overhead. The capture tool does not change the Wine configuration or
+inject any code; Wine logging must already be enabled by the runner.
+
+```sh
+python3 native/macos-menu/tools/gameplay-capture/capture.py record --fps 4 \
+  --wine-log "/path/to/an/existing/wine-trace.log"
+```
+
+`--nerps-log /existing/structured/nerps-events.jsonl` also supports an
+**instrumented** NERPs event source, provided a custom Windows OpenLRR DLL
+has been built to emit it. Vanilla LegoRR.exe does **not** emit detailed NERPs
+function-call traces. This tool only follows an existing source, filters
+function name/numeric arguments and correlates them with capture timestamps;
+it never claims to infer invisible internal game calls from screenshots.
+
+### Recording lifecycle and privacy
+
+- All capture products are private (`0700` directories, `0600` files).
+- Raw Wine traces remain `wine_raw.local.log` in the local session, never
+  included in the sanitized research package. Wine relay often includes
+  machine paths and other sensitive data.
+- **No automatic GitHub upload.** Export is separately reviewed and initiated
+  manually:
+
+```sh
+python3 native/macos-menu/tools/gameplay-capture/capture.py package \
+  "/path/to/rock-raiders-SESSION" "/path/to/review.zip" --include-frames
+```
+
+This package contains a manifest, filtered event timeline and optionally the
+**game-window-only** frames. Inspect its contents before uploading to a
+**private** GitHub research repository. Never publish raw screen recordings
+or Wine traces into the public source repository. The package command makes
+no network requests.
+
+For a local MP4 made from **only those window frames** (optional, requires
+FFmpeg):
+
+```sh
+ffmpeg -framerate 4 -i frames/frame-%06d.png -c:v libx264 \
+  -pix_fmt yuv420p gameplay-window-only.mp4
+```
+
+This produces a sampled-time video, not a continuous 60 FPS recording. The
+original Windows game's high-frequency visual or audio activity cannot be
+inferred from the PNG samples alone. A later ScreenCaptureKit-only-window
+streaming backend may capture native video and audio if testing needs it.
+
+## What this lab is / is not
+
+This is **phase 1** of a synchronized research recorder that can collect
+visible gameplay and passive diagnostic streams without touching the original
+game. It can coexist with the older `lab-menu-phase-forensics-v1` CPU/menu
+profiling tools; it does not launch the approved diagnostic worker or modify
+that lab's test configuration.
+
+It does **not** yet automatically instrument Windows NERPs execution,
+reconstruct every game command, reproduce mouse input or upload any capture.
+Internal NERPs calls require a separate instrumented DLL or debugger; using
+Wine alone cannot reveal arbitrary intra-executable function calls.
+
+## CI and safety regression coverage
+
+Linux unit tests use synthetic windows and fake screenshot executors. They
+assert that `screencapture -l` is always present; desktop capture switches
+never appear; closure stops recording; racing closure discards images; and
+packaging excludes private Wine logs. Native macOS CI also compiles the Swift
+window probe but cannot confirm Screen Recording permissions or actual Wine
+window rendering without running on the user's Mac.
