@@ -10,7 +10,8 @@ import Foundation
 struct OriginalAudioFileLocator {
     static func locate(_ configuredPath: String, beside selectedWadURL: URL,
                        additionalRoot: URL? = nil,
-                       fileManager: FileManager = .default) -> URL? {
+                       fileManager: FileManager = .default,
+                       homeDirectory: URL? = nil) -> URL? {
         let normalized = configuredPath.replacingOccurrences(of: "\\", with: "/")
         let parts = normalized.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
         guard !parts.isEmpty, parts.count <= 32,
@@ -21,12 +22,23 @@ struct OriginalAudioFileLocator {
         }
 
         let wadDirectory = selectedWadURL.deletingLastPathComponent()
-        let roots = [wadDirectory, wadDirectory.appendingPathComponent("Data", isDirectory: true),
-                     wadDirectory.deletingLastPathComponent().appendingPathComponent("Data", isDirectory: true)] +
-                    (additionalRoot.map { [$0] } ?? [])
+        let home = homeDirectory ?? fileManager.homeDirectoryForCurrentUser
+        let nearby = [wadDirectory, wadDirectory.appendingPathComponent("Data", isDirectory: true),
+                      wadDirectory.deletingLastPathComponent().appendingPathComponent("Data", isDirectory: true)]
+        // A typical Rock Raiders install has its original sound outside the WADs.
+        // Search only known game-install and RRU download locations, not the
+        // user's entire home folder. Do not require a second file picker.
+        let discoveryRoots = automaticAudioRoots(home: home, fileManager: fileManager)
+        let roots = nearby + discoveryRoots + (additionalRoot.map { [$0] } ?? [])
 
         for root in roots {
             var candidates = [parts]
+            // A known game install directory normally keeps loose sounds at
+            // Data/Sounds/Streamed, not in its root.
+            if root.lastPathComponent.lowercased() != "data" &&
+               parts.first?.lowercased() == "sounds" {
+                candidates.append(["Data"] + parts)
+            }
             // A user may select the game installation itself, Data/, Sounds/,
             // Streamed/, or a ZIP extraction folder. Probe only beneath that
             // explicitly selected directory; never walk arbitrary parents.
@@ -72,6 +84,68 @@ struct OriginalAudioFileLocator {
             }
         }
         return nil
+    }
+
+    /// Bounded discovery of standard user-owned installations. The original
+    /// Windows sound assets often exist in a Wineskin/Wine wrapper, even when
+    /// the user opened a copied WAD from Downloads. We inspect directory names
+    /// only; game files are opened by locate() when their exact path matches.
+    static func automaticAudioRoots(home: URL, fileManager: FileManager = .default) -> [URL] {
+        var roots: [URL] = []
+        var seen = Set<String>()
+
+        func include(_ candidate: URL) {
+            let url = candidate.standardizedFileURL
+            let path = url.path
+            guard seen.insert(path).inserted,
+                  fileManager.fileExists(atPath: path) else { return }
+            roots.append(url)
+        }
+
+        let downloads = home.appendingPathComponent("Downloads", isDirectory: true)
+        include(downloads)
+        if let names = try? fileManager.contentsOfDirectory(atPath: downloads.path) {
+            // Extracted copies of RRU's menu-audio download.
+            for name in names.prefix(256) where name.lowercased().contains("atmosdel") {
+                include(downloads.appendingPathComponent(name, isDirectory: true))
+            }
+        }
+
+        let wrapperContainers = [home.appendingPathComponent("Applications/Sikarugir", isDirectory: true),
+                                 home.appendingPathComponent("Applications", isDirectory: true)]
+        // Official Wine's default drive_C path, for installs not inside an app.
+        let wineDrive = home.appendingPathComponent(".wine/drive_c", isDirectory: true)
+        for programFiles in ["Program Files", "Program Files (x86)"] {
+            let programs = wineDrive.appendingPathComponent(programFiles, isDirectory: true)
+            addGameDirectories(in: programs, to: &roots, seen: &seen, fileManager: fileManager)
+        }
+
+        // Limit scan depth to .app -> Contents/SharedSupport -> prefix/drive_c
+        // -> Program Files -> Rock Raiders *. Never traverse arbitrary trees.
+        for wrapperContainer in wrapperContainers {
+            guard let names = try? fileManager.contentsOfDirectory(atPath: wrapperContainer.path) else { continue }
+            for name in names.prefix(96) where name.lowercased().hasSuffix(".app") {
+                let bundle = wrapperContainer.appendingPathComponent(name, isDirectory: true)
+                let drive = bundle.appendingPathComponent("Contents/SharedSupport/prefix/drive_c", isDirectory: true)
+                for programFiles in ["Program Files", "Program Files (x86)"] {
+                    addGameDirectories(in: drive.appendingPathComponent(programFiles, isDirectory: true),
+                                       to: &roots, seen: &seen, fileManager: fileManager)
+                }
+            }
+        }
+        return roots
+    }
+
+    private static func addGameDirectories(in programs: URL, to roots: inout [URL],
+                                          seen: inout Set<String>, fileManager: FileManager) {
+        guard let names = try? fileManager.contentsOfDirectory(atPath: programs.path) else { return }
+        for name in names.prefix(128) {
+            let normalized = name.lowercased().replacingOccurrences(of: " ", with: "")
+            guard normalized.contains("rockraiders") || normalized.contains("legorr") else { continue }
+            let root = programs.appendingPathComponent(name, isDirectory: true).standardizedFileURL
+            let path = root.path
+            if seen.insert(path).inserted { roots.append(root) }
+        }
     }
 
     private static func resolveCaseInsensitive(root: URL, components: [String],
