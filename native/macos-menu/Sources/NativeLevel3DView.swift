@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import ImageIO
 import SceneKit
 
 /// Native Apple Silicon 3D inspection of real retail MAP terrain.
@@ -10,6 +11,8 @@ final class NativeLevel3DView: SCNView {
     let world: LevelWorld
     let terrainMesh: NativeTerrainMesh
     let originalObjects: OriginalObjectList?
+    let textureSummary: String
+    var onExit: (() -> Void)?
     private let navigation: NativeLevelNavigation
     private var raiderMarkers: [String: SCNNode] = [:]
     private var selectedRaider: String?
@@ -18,11 +21,33 @@ final class NativeLevel3DView: SCNView {
 
     override var acceptsFirstResponder: Bool { true }
 
-    init(frame: NSRect, world: LevelWorld, objects: OriginalObjectList?) throws {
+    init(frame: NSRect, world: LevelWorld, objects: OriginalObjectList?,
+         resources: GameResources, textureSet: String?) throws {
         self.world = world
         self.terrainMesh = try NativeTerrainMesh(world: world)
         self.originalObjects = objects
         self.navigation = NativeLevelNavigation(world: world)
+
+        let textureCatalog = OriginalTerrainTextureCatalog(
+            textureSetSetting: textureSet, resources: resources)
+        var imageCache: [UInt8: NSImage] = [:]
+        func originalBitmap(_ id: UInt8) -> NSImage? {
+            if let cached = imageCache[id] { return cached }
+            guard let bytes = textureCatalog?.bytes(for: id, resources: resources),
+                  let source = CGImageSourceCreateWithData(bytes as CFData, nil),
+                  let bitmap = CGImageSourceCreateImageAtIndex(source, 0, nil),
+                  bitmap.width > 0, bitmap.height > 0 else { return nil }
+            let result = NSImage(cgImage: bitmap,
+                                 size: CGSize(width: bitmap.width, height: bitmap.height))
+            imageCache[id] = result
+            return result
+        }
+        // Validate a genuine ground texture before declaring the world textured.
+        let groundTexture = originalBitmap(0)
+        self.textureSummary = groundTexture == nil ?
+            "Original terrain texture not found; showing diagnostic materials" :
+            "Original \(textureCatalog?.family.rawValue ?? "world") BMP terrain textures"
+
         super.init(frame: frame, options: nil)
         backgroundColor = NSColor(calibratedRed: 0.06, green: 0.075, blue: 0.09, alpha: 1)
         autoenablesDefaultLighting = true
@@ -32,6 +57,9 @@ final class NativeLevel3DView: SCNView {
 
         let scene = SCNScene()
         scene.background.contents = backgroundColor
+        scene.fogColor = NSColor(calibratedRed: 0.06, green: 0.075, blue: 0.09, alpha: 1)
+        scene.fogStartDistance = 18
+        scene.fogEndDistance = 48
 
         for surface in terrainMesh.surfaces {
             // A few material-grouped triangle meshes replace thousands of
@@ -44,13 +72,35 @@ final class NativeLevel3DView: SCNView {
             }
             guard vertices.count <= Int(UInt32.max) else { continue }
             let indices = (0..<vertices.count).map { UInt32($0) }
+            // UVs repeat original wall/ground bitmaps once per tile. For
+            // vertical walls use their horizontal axis and height rather
+            // than projecting the same flat color over the entire level.
+            let uv: [CGPoint] = zip(surface.vertices, surface.normals).map { p, n in
+                if abs(n.y) >= 0.5 {
+                    return CGPoint(x: CGFloat(p.x), y: CGFloat(p.z))
+                }
+                let horizontal = abs(n.x) > abs(n.z) ? p.z : p.x
+                return CGPoint(x: CGFloat(horizontal),
+                               y: CGFloat(p.y) / NativeTerrainMesh.previewWallHeight)
+            }
             let geometry = SCNGeometry(
                 sources: [SCNGeometrySource(vertices: vertices),
-                          SCNGeometrySource(normals: normals)],
+                          SCNGeometrySource(normals: normals),
+                          SCNGeometrySource(textureCoordinates: uv)],
                 elements: [SCNGeometryElement(indices: indices,
                                               primitiveType: .triangles)])
             let material = SCNMaterial()
             material.diffuse.contents = Self.color(surface.material)
+            if let textured = textureCatalog,
+               let id = Self.textureID(for: surface.material),
+               let image = originalBitmap(id) ?? groundTexture {
+                material.diffuse.contents = image
+                material.diffuse.wrapS = .repeat
+                material.diffuse.wrapT = .repeat
+                material.diffuse.magnificationFilter = .linear
+                material.diffuse.minificationFilter = .linear
+                _ = textured  // original source family was validated above
+            }
             material.lightingModel = .blinn
             material.isDoubleSided = true
             material.specular.contents = NSColor(calibratedWhite: 0.14, alpha: 1)
@@ -76,8 +126,8 @@ final class NativeLevel3DView: SCNView {
         camera.camera?.zFar = max(400, Double(max(world.width, world.height) * 3))
         camera.camera?.fieldOfView = 60
         camera.position = SCNVector3(centerX,
-                                     centerY + 16,
-                                     centerZ + 19)
+                                     centerY + 10,
+                                     centerZ + 12)
         camera.look(at: SCNVector3(centerX, centerY, centerZ))
         scene.rootNode.addChildNode(camera)
 
@@ -120,6 +170,24 @@ final class NativeLevel3DView: SCNView {
 
     required init?(coder: NSCoder) { nil }
 
+    /// These are the original SurfaceTexture identifiers, not arbitrary
+    /// diagnostic colors (src/openlrr/game/GameCommon.h). Transition variants
+    /// and wall orientation are still under development.
+    private static func textureID(for material: NativeTerrainMesh.Material) -> UInt8? {
+        switch material {
+        case .cavernFloor: return 0x00
+        case .dirt, .wallFace: return 0x02
+        case .mediumRock: return 0x03
+        case .hardRock: return 0x04
+        case .immovable, .hidden: return 0x05
+        case .crystal: return 0x20
+        case .ore: return 0x40
+        case .water: return 0x45
+        case .lava: return 0x46
+        case .recharge: return 0x67
+        }
+    }
+
     private static func color(_ material: NativeTerrainMesh.Material) -> NSColor {
         switch material {
         case .cavernFloor: return NSColor(calibratedRed: 0.30, green: 0.39, blue: 0.35, alpha: 1)
@@ -135,6 +203,11 @@ final class NativeLevel3DView: SCNView {
         case .hidden: return NSColor(calibratedRed: 0.13, green: 0.16, blue: 0.19, alpha: 1)
         case .wallFace: return NSColor(calibratedRed: 0.32, green: 0.28, blue: 0.26, alpha: 1)
         }
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 53 { onExit?(); return }
+        super.keyDown(with: event)
     }
 
     private func worldPosition(x: Double, z: Double) -> SCNVector3 {
@@ -226,9 +299,18 @@ final class NativeMissionWorkspace: NSView {
     private let level2D: NativeLevelView
     private let mode: NSSegmentedControl
     private let status: NSTextField
+    var onBack: (() -> Void)? {
+        didSet {
+            level3D.onExit = { [weak self] in self?.onBack?() }
+            level2D.onExit = { [weak self] in self?.onBack?() }
+        }
+    }
 
-    init(frame: NSRect, world: LevelWorld, objects: OriginalObjectList?) throws {
-        self.level3D = try NativeLevel3DView(frame: frame, world: world, objects: objects)
+    init(frame: NSRect, world: LevelWorld, objects: OriginalObjectList?,
+         resources: GameResources, textureSet: String?) throws {
+        self.level3D = try NativeLevel3DView(
+            frame: frame, world: world, objects: objects,
+            resources: resources, textureSet: textureSet)
         self.level2D = NativeLevelView(frame: frame, world: world)
         self.mode = NSSegmentedControl(labels: ["3D Terrain", "2D MAP"],
                                        trackingMode: .selectOne, target: nil, action: nil)
@@ -257,9 +339,9 @@ final class NativeMissionWorkspace: NSView {
             self?.status.stringValue = message
         }
         if let objects {
-            status.stringValue = "\(objects.placements.count) original OL placements, \(objects.rockRaiders.count) Rock Raiders. Click a yellow Raider proxy to select."
+            status.stringValue = "\(objects.rockRaiders.count) Rock Raiders • \(level3D.textureSummary) • click a Raider to select"
         } else {
-            status.stringValue = "OL objects unavailable; terrain inspection only."
+            status.stringValue = "\(level3D.textureSummary) • original OL objects unavailable"
         }
     }
 
