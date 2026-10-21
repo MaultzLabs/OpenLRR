@@ -109,6 +109,40 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         // semantics invented by a renderer.
         let mesh = try NativeTerrainMesh(world: nativeWorld)
         precondition(mesh.tileCount == 4)
+        // The original Map3D chooses the least-distorted diagonal from
+        // four height samples, rather than using one diagonal for all tiles.
+        precondition(NativeTerrainMesh.usesUpperLeftDiagonal(
+            topLeft: 1, topRight: 9, bottomLeft: 2, bottomRight: 1))
+        precondition(!NativeTerrainMesh.usesUpperLeftDiagonal(
+            topLeft: 1, topRight: 1, bottomLeft: 2, bottomRight: 2))
+        precondition(!NativeTerrainMesh.usesUpperLeftDiagonal(
+            topLeft: 4, topRight: 4, bottomLeft: 4, bottomRight: 4))
+
+        let triangleWad = syntheticWad([
+            ("Levels\\GameLevels\\Level01\\Surf.map",
+             syntheticMap([0, 0, 0, 0], width: 2, height: 2)),
+            ("Levels\\GameLevels\\Level01\\Dugg.map",
+             syntheticMap([1, 1, 1, 1], width: 2, height: 2)),
+            ("Levels\\GameLevels\\Level01\\High.map",
+             syntheticMap([1, 9, 2, 1], width: 2, height: 2))
+        ])
+        let triangleWorld = try LevelWorld(
+            manifest: manifest,
+            resources: GameResources(archives: [(0, triangleWad)]))
+        let triangleMesh = try NativeTerrainMesh(world: triangleWorld)
+        guard let floor = triangleMesh.surfaces.first(where: {
+            $0.material == .cavernFloor
+        }) else {
+            preconditionFailure("Missing original cave floor triangles")
+        }
+        precondition(floor.vertices.count == 6)
+        // Adaptive diagonal spans a(-0.5,-0.5) to d(+0.5,+0.5).
+        precondition(floor.vertices[0].x == floor.vertices[3].x &&
+                     floor.vertices[0].z == floor.vertices[3].z)
+        precondition(floor.vertices[2].x == floor.vertices[4].x &&
+                     floor.vertices[2].z == floor.vertices[4].z)
+        precondition(floor.normals.allSatisfy { $0.y > 0.5 })
+
         precondition(mesh.triangleCount > 8)  // four tile tops + exposed wall sides
         precondition(mesh.surfaces.contains { $0.material == .crystal })
         precondition(mesh.surfaces.contains { $0.material == .wallFace })
