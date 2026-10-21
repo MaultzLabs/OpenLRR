@@ -203,5 +203,63 @@ class CaptureSafetyTests(unittest.TestCase):
         self.assertNotIn("-c", cmd)
 
 
+    def test_privacy_filtered_wine_calls_join_same_frame_input_timeline(self):
+        wine_log = self.root / "already-running-wine.log"
+        wine_log.write_bytes(b"")
+        follower = capture.BoundedTraceFollower(
+            wine_log, self.root / "wine_raw.local.log")
+        timeline = capture.Timeline(self.root / "wine-timeline.jsonl")
+        with wine_log.open("ab") as writer:
+            writer.write(
+                b"0032:trace:ddraw:ddraw_surface7_Blt src /Users/private/secret 0x1234\n"
+                b"0032:trace:ddraw:DirectDrawSurface4::Blt other private-file\n"
+                b"0033:trace:d3drm:IDirect3DRM3_Update /Users/private/secret\n"
+                b"0034:trace:relay:password=should-never-be-exported\n"
+                b"0035:fixme:dsound:PlaySound save tokens=private\n"
+                b"0036:trace:ddraw:directdraw_surface7_Fl"
+            )
+        follower.sample(timeline)
+        with wine_log.open("ab") as writer:
+            writer.write(b"ip\n")
+        follower.sample(timeline)
+        timeline.close()
+        follower.close()
+        records = [json.loads(row) for row in
+                   (self.root / "wine-timeline.jsonl").read_text().splitlines()]
+        self.assertEqual(sum(row["count"] for row in records), 5)
+        self.assertEqual(follower.events.matched_calls, 5)
+        self.assertEqual(follower.events.batches_written, 2)
+        self.assertEqual(
+            sum(row["count"] for row in records if
+                row["channel"] == "ddraw" and row["operation"] == "blt"), 2)
+        self.assertEqual(
+            sum(row["count"] for row in records if row["operation"] == "flip"), 1)
+        self.assertTrue(all(row["time_basis"] == "host_log_read" for row in records))
+        safe = json.dumps(records)
+        for secret in ("private", "/Users", "password", "0x1234", "tokens="):
+            self.assertNotIn(secret, safe)
+        self.assertIn(b"/Users/private/secret",
+                      (self.root / "wine_raw.local.log").read_bytes())
+
+    def test_wine_parser_ignores_oversize_and_unknown_channel(self):
+        log = self.root / "wine-extra.log"
+        log.write_bytes(b"")
+        follower = capture.BoundedTraceFollower(log, self.root / "raw.local.log")
+        timeline = capture.Timeline(self.root / "summary.jsonl")
+        with log.open("ab") as stream:
+            stream.write(
+                b"trace:ddraw:" + b"x" * 6000 + b"BlT\n"
+                b"trace:custom:password Blt\n"
+                b"garbage-line\n"
+                b"0030:trace:dinput:GetDeviceState()\n"
+            )
+        follower.sample(timeline)
+        timeline.close()
+        follower.close()
+        rows = (self.root / "summary.jsonl").read_text().splitlines()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(json.loads(rows[0])["operation"], "getdevicestate")
+
+
 if __name__ == "__main__":
     unittest.main()
