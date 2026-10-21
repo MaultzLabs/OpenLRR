@@ -72,12 +72,17 @@ class FirstLevelTests(unittest.TestCase):
         result = first.find_normal_game_apps(home=self.root)
         self.assertEqual([x.name for x in result], ["OpenLRR.app"])
 
-    def test_multiple_apps_not_autolaunched(self):
+    def test_prefer_openlrr_over_separate_original_retail_wrapper(self):
         a = self.app("OpenLRR.app")
-        b = self.app("LEGO Rock Raiders.app")
-        self.assertIsNone(first.choose_application(None, [a, b]))
+        b = self.app("Lego Rock Raiders.app")
+        self.assertEqual(first.choose_application(None, [b, a]), a)
         with self.assertRaisesRegex(capture.CaptureError, "not a recognized"):
             first.choose_application(self.app("OpenLRR Menu Test.app"), [a])
+
+    def test_multiple_unclear_original_apps_are_not_guessed(self):
+        a = self.app("Lego Rock Raiders.app")
+        b = self.app("Rock Raiders Retail.app")
+        self.assertIsNone(first.choose_application(None, [a, b]))
 
     def test_wait_returns_exact_single_window(self):
         clock = FakeClock()
