@@ -75,7 +75,9 @@ final class NativeLevel3DView: SCNView {
             // UVs repeat original wall/ground bitmaps once per tile. For
             // vertical walls use their horizontal axis and height rather
             // than projecting the same flat color over the entire level.
-            let uv: [CGPoint] = zip(surface.vertices, surface.normals).map { p, n in
+            let uv: [CGPoint] = zip(surface.vertices, surface.normals).map { pair in
+                let p = pair.0
+                let n = pair.1
                 if abs(n.y) >= 0.5 {
                     return CGPoint(x: CGFloat(p.x), y: CGFloat(p.z))
                 }
@@ -91,7 +93,7 @@ final class NativeLevel3DView: SCNView {
                                               primitiveType: .triangles)])
             let material = SCNMaterial()
             material.diffuse.contents = Self.color(surface.material)
-            if let textured = textureCatalog,
+            if textureCatalog != nil,
                let id = Self.textureID(for: surface.material),
                let image = originalBitmap(id) ?? groundTexture {
                 material.diffuse.contents = image
@@ -99,7 +101,6 @@ final class NativeLevel3DView: SCNView {
                 material.diffuse.wrapT = .repeat
                 material.diffuse.magnificationFilter = .linear
                 material.diffuse.minificationFilter = .linear
-                _ = textured  // original source family was validated above
             }
             material.lightingModel = .blinn
             material.isDoubleSided = true
