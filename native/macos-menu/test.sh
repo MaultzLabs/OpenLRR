@@ -12,7 +12,8 @@ tmp8="$(mktemp /tmp/openlrr-world-map-test.XXXXXXXX)"
 tmp9="$(mktemp /tmp/openlrr-ol-test.XXXXXXXX)"
 tmp10="$(mktemp /tmp/openlrr-lightwave-test.XXXXXXXX)"
 tmp11="$(mktemp /tmp/openlrr-lightwave-scene-test.XXXXXXXX)"
-trap 'rm -f "$tmp1" "$tmp2" "$tmp3" "$tmp4" "$tmp5" "$tmp6" "$tmp7" "$tmp8" "$tmp9" "$tmp10" "$tmp11"' EXIT
+tmp12="$(mktemp /tmp/openlrr-texture-set-test.XXXXXXXX)"
+trap 'rm -f "$tmp1" "$tmp2" "$tmp3" "$tmp4" "$tmp5" "$tmp6" "$tmp7" "$tmp8" "$tmp9" "$tmp10" "$tmp11" "$tmp12"' EXIT
 swiftc -O Sources/WadArchive.swift Tests/WadArchiveTests.swift -o "$tmp1"
 "$tmp1"
 swiftc -O Sources/WadArchive.swift Sources/GameResources.swift \
@@ -58,3 +59,10 @@ swiftc -O Sources/LightWaveObject.swift Tests/LightWaveObjectTests.swift -o "$tm
 
 swiftc -O Sources/LightWaveScene.swift Tests/LightWaveSceneTests.swift -o "$tmp11"
 "$tmp11"
+
+swiftc -O Sources/WadArchive.swift Sources/GameResources.swift \
+  Sources/OriginalTerrainTextureCatalog.swift Sources/LevelWorld.swift \
+  Sources/LevelRuntimeResources.swift Sources/LegoConfig.swift \
+  Sources/LevelCatalog.swift Sources/MapFile.swift \
+  Tests/OriginalTerrainTextureCatalogTests.swift -o "$tmp12"
+"$tmp12"
