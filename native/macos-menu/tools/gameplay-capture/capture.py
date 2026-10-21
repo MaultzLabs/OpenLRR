@@ -350,6 +350,25 @@ class NerpsFollower:
                 continue
             if not isinstance(payload, dict):
                 continue
+            # Win32 menu messages remain observable even if the DirectDraw
+            # canvas is black or level scripts have not started yet.
+            if payload.get("event") == "menu_command":
+                menu_id = payload.get("menu_id")
+                if type(menu_id) is int and 0 <= menu_id <= 65535:
+                    safe_menu = {"source": "openlrr_menu",
+                                 "event": "win32_menu_command",
+                                 "menu_id": menu_id,
+                                 "unix_s": time.time(),
+                                 "monotonic_s": time.monotonic(),
+                                 "time_basis": "host_log_read"}
+                    clock = payload.get("game_unix_s")
+                    if type(clock) in (int, float) and 946684800 < clock < 4102444800:
+                        safe_menu["game_unix_s"] = clock
+                    tick = payload.get("game_tick_ms")
+                    if type(tick) is int and 0 <= tick < 1e14:
+                        safe_menu["game_tick_ms"] = tick
+                    timeline.write(safe_menu)
+                continue
             cleaned = {}
             for key in ALLOWED_NERPS_FIELDS:
                 value = payload.get(key)
@@ -616,7 +635,7 @@ def package_review(session: Path, output: Path, *, include_frames: bool) -> int:
     for line in (session / "timeline.jsonl").read_text().splitlines():
         record = json.loads(line)
         if record.get("source") not in (
-            "frame", "mac_input", "capture_control", "nerps", "wine_api", "video"
+            "frame", "mac_input", "capture_control", "nerps", "openlrr_menu", "wine_api", "video"
         ):
             continue
         if record.get("source") == "mac_input" and record.get("event") not in ALLOWED_EVENT_NAMES:
