@@ -130,6 +130,47 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         precondition(LevelWorld.Terrain(code: 9) == .lake)
         precondition(LevelWorld.Terrain(code: 10) == .crystalSeam)
         precondition(LevelWorld.Terrain(code: 18) == .unknown)
+        // A corridor around original predug walls, with lava impassable.
+        let corridor: [UInt16] = [
+            1, 1, 1, 0, 0,
+            0, 0, 1, 0, 0,
+            1, 1, 1, 0, 0,
+            1, 0, 1, 1, 0,
+            0, 0, 0, 0, 0
+        ]
+        var surfaces = [UInt16](repeating: 4, count: 25)
+        surfaces[1] = 6  // Lava blocks the shortcut east of (0,0).
+        let terrainData = syntheticMap(surfaces, width: 5, height: 5)
+        let predugData = syntheticMap(corridor, width: 5, height: 5)
+        let highData = syntheticMap([UInt16](repeating: 2, count: 25),
+                                    width: 5, height: 5)
+        let pathWad = syntheticWad([
+            ("Levels\\GameLevels\\Level01\\Surf.map", terrainData),
+            ("Levels\\GameLevels\\Level01\\Dugg.map", predugData),
+            ("Levels\\GameLevels\\Level01\\High.map", highData)
+        ])
+        let corridorWorld = try LevelWorld(
+            manifest: manifest, resources: GameResources(archives: [(0, pathWad)]))
+        let routing = NativeLevelNavigation(world: corridorWorld)
+        let origin = NativeLevelNavigation.Position(x: 2, y: 0)
+        let destination = NativeLevelNavigation.Position(x: 0, y: 2)
+        precondition(routing.route(from: origin, to: destination) == [
+            origin,
+            NativeLevelNavigation.Position(x: 2, y: 1),
+            NativeLevelNavigation.Position(x: 2, y: 2),
+            NativeLevelNavigation.Position(x: 1, y: 2),
+            destination
+        ])
+        precondition(routing.route(from: origin, to: origin) == [origin])
+        precondition(routing.route(from: NativeLevelNavigation.Position(x: 0, y: 0),
+                                   to: destination) == nil)
+        precondition(!routing.canWalk(NativeLevelNavigation.Position(x: 1, y: 0)))
+        precondition(!routing.canWalk(NativeLevelNavigation.Position(x: -1, y: 0)))
+        precondition(routing.route(from: origin,
+                                   to: NativeLevelNavigation.Position(x: 1, y: 0)) == nil)
+        precondition(NativeLevelNavigation(world: corridorWorld, maximumTiles: 10)
+                      .route(from: origin, to: destination) == nil)
+
         let wrongHeight = syntheticMap([1, 2, 3, 4], width: 2, height: 2)
         let inconsistentWad = syntheticWad([
             ("Levels\\GameLevels\\Level01\\Surf.map", nativeTerrain),
