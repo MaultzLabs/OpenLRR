@@ -26,7 +26,7 @@ xcrun swiftc -O -target arm64-apple-macos12.0 -framework AppKit -framework Image
   Sources/WadArchive.swift Sources/GameResources.swift Sources/LegoConfig.swift \
   Sources/MenuDefinition.swift Sources/LevelCatalog.swift Sources/MissionSelection.swift Sources/MapFile.swift \
   Sources/PalettedBMP.swift Sources/OriginalFontLayout.swift Sources/WavePCM.swift \
-  Sources/SoundSampleCatalog.swift Sources/NERPsScript.swift Sources/OriginalAudioFileLocator.swift \
+  Sources/SoundSampleCatalog.swift Sources/NERPsScript.swift Sources/OriginalSaveFile.swift Sources/OriginalAudioFileLocator.swift \
   Sources/OriginalMenuAudio.swift Sources/NativeMenu.swift \
   -o "$out/Contents/MacOS/RockRaidersNativeMenu"
 /usr/bin/codesign --force --sign - "$out"
