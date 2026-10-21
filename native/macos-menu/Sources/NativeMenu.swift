@@ -366,7 +366,8 @@ final class OriginalMenuCanvas: NSView {
     override func updateTrackingAreas() {
         for tracking in trackingAreas { removeTrackingArea(tracking) }
         addTrackingArea(NSTrackingArea(rect: bounds,
-                                      options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect],
+                                      options: [.mouseMoved, .mouseEnteredAndExited,
+                                                .activeInKeyWindow, .inVisibleRect],
                                       owner: self, userInfo: nil))
         super.updateTrackingAreas()
     }
@@ -376,8 +377,7 @@ final class OriginalMenuCanvas: NSView {
         return CGPoint(x: p.x * 640.0 / bounds.width, y: p.y * 480.0 / bounds.height)
     }
 
-    override func mouseMoved(with event: NSEvent) {
-        let pos = logicalPoint(event)
+    private func updateHover(at pos: CGPoint) {
         let newHover = hitRects.first(where: { $0.1.contains(pos) })?.0
         let newMissionHover = missionRects.first(where: { $0.1.contains(pos) })?.0
         let newSaveHover = saveRects.first(where: { $0.1.contains(pos) })?.0
@@ -390,7 +390,40 @@ final class OriginalMenuCanvas: NSView {
         }
     }
 
+    override func mouseMoved(with event: NSEvent) {
+        let pos = logicalPoint(event)
+        pointerY = Double(pos.y)
+        updateHover(at: pos)
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        let pos = logicalPoint(event)
+        pointerY = Double(pos.y)
+        updateHover(at: pos)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        pointerY = nil
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        guard let definitions, definitions.menus.indices.contains(menuIndex) else {
+            return super.scrollWheel(with: event)
+        }
+        let screen = definitions.menus[menuIndex]
+        if menuScroll.wheel(deltaY: Double(event.scrollingDeltaY),
+                            imageHeight: activeScrollableImageHeight(),
+                            canScroll: screen.canScroll) {
+            needsDisplay = true
+        }
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        isMousePressed = false
+    }
+
     override func mouseDown(with event: NSEvent) {
+        isMousePressed = true
         let pos = logicalPoint(event)
         if let index = saveRects.first(where: { $0.1.contains(pos) })?.0,
            saveSlots.indices.contains(index) {
@@ -398,6 +431,7 @@ final class OriginalMenuCanvas: NSView {
                 loadedSave = save
                 history.append(menuIndex)
                 menuIndex = 1 // OpenLRR loads save then enters mission map.
+                menuScroll.reset()
                 saveHover = nil
                 missionHover = nil
                 needsDisplay = true
@@ -420,6 +454,7 @@ final class OriginalMenuCanvas: NSView {
            menus.indices.contains(next) {
             history.append(menuIndex)
             menuIndex = next
+            menuScroll.reset()
             hoverIndex = nil
             missionHover = nil
             saveHover = nil
@@ -433,6 +468,7 @@ final class OriginalMenuCanvas: NSView {
     override func keyDown(with event: NSEvent) {
         if event.keyCode == 53, let previous = history.popLast() {
             menuIndex = previous
+            menuScroll.reset()
             hoverIndex = nil
             missionHover = nil
             saveHover = nil
@@ -498,6 +534,7 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate {
         window.title = "Rock Raiders — Native Mac Prototype"
         window.center()
         window.minSize = NSSize(width: 640, height: 560)
+        window.acceptsMouseMovedEvents = true
         root = NativeMenuHostView(frame: window.contentView!.bounds)
         root.autoresizingMask = [.width, .height]
         root.wantsLayer = true
@@ -722,6 +759,7 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate {
             if resources.exists("Lego.cfg") {
                 let config = try LegoConfig(data: resources.configData())
                 canvas.definitions = try MenuDefinition(config: config)
+                canvas.configurePointer(config: config)
                 // Source-grounded mission maps using the game's NextLevel
                 // order and LevelLinks, no handwritten mission assets.
                 if let catalog = try? LevelCatalog(config: config) {
