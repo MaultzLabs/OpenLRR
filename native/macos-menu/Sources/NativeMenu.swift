@@ -35,8 +35,8 @@ private struct OriginalBitmapFont {
 }
 
 final class OriginalMenuCanvas: NSView {
-    var resources: GameResources? { didSet { clearCache(); needsDisplay = true } }
-    var definitions: MenuDefinition? { didSet { menuIndex = 0; needsDisplay = true } }
+    var resources: GameResources? { didSet { clearCache(); gameCursor = nil; needsDisplay = true } }
+    var definitions: MenuDefinition? { didSet { menuIndex = 0; menuScroll.reset(); needsDisplay = true } }
     var missionSelection: MissionSelection? { didSet { missionHover = nil; needsDisplay = true } }
     var levelCatalog: LevelCatalog?
     var saveSlots: [OriginalSaveCatalog.Slot] = [] { didSet { needsDisplay = true } }
@@ -56,6 +56,56 @@ final class OriginalMenuCanvas: NSView {
     private var missionHover: Int?
     private var saveHover: Int?
     private var history: [Int] = []
+    private var menuScroll = OriginalMenuScroll()
+    private var pointerY: Double?
+    private var isMousePressed = false
+    private var scrollTimer: Timer?
+    private(set) var gameCursor: NSCursor? {
+        didSet { if let window { window.invalidateCursorRects(for: self) } }
+    }
+
+    func configurePointer(config: LegoConfig) {
+        gameCursor = resources.flatMap {
+            OriginalMacCursor.load(config: config, resources: $0)
+        }
+    }
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: gameCursor ?? .arrow)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        scrollTimer?.invalidate()
+        scrollTimer = nil
+        guard window != nil else { return }
+        scrollTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0,
+                                           repeats: true) { [weak self] _ in
+            self?.advanceMissionScroll()
+        }
+    }
+
+    deinit { scrollTimer?.invalidate() }
+
+    private func activeScrollableImageHeight() -> Double {
+        guard let definitions, definitions.menus.indices.contains(menuIndex) else { return 0 }
+        let menu = definitions.menus[menuIndex]
+        guard menu.canScroll else { return 0 }
+        let imagePath = menu.backgroundImage ?? menu.darkBackgroundImage
+        return imagePath.flatMap { image($0)?.size.height }.map(Double.init) ?? 0
+    }
+
+    private func advanceMissionScroll() {
+        guard !isHidden, let definitions,
+              definitions.menus.indices.contains(menuIndex) else { return }
+        let didMove = menuScroll.update(
+            imageHeight: activeScrollableImageHeight(),
+            canScroll: definitions.menus[menuIndex].canScroll,
+            mouseY: pointerY, buttonsHeld: isMousePressed,
+            elapsed: 1.0 / 30.0)
+        if didMove { needsDisplay = true }
+    }
+
 
     private var currentMissions: [MissionSelection.Node] {
         guard let missionSelection else { return [] }
@@ -91,6 +141,8 @@ final class OriginalMenuCanvas: NSView {
         missingFonts.removeAll()
         unavailable.removeAll()
         history.removeAll()
+        menuScroll.reset()
+        pointerY = nil
         hoverIndex = nil
         missionHover = nil
         saveHover = nil
@@ -196,8 +248,10 @@ final class OriginalMenuCanvas: NSView {
         guard let definitions, definitions.menus.indices.contains(menuIndex) else { return }
         let menu = definitions.menus[menuIndex]
         if let source = menu.backgroundImage, let img = image(source) {
-            drawImage(img, at: imageFrame(for: source,
-                                          fallback: CGRect(origin: .zero, size: img.size)))
+            let frame = imageFrame(for: source,
+                                   fallback: CGRect(origin: .zero, size: img.size))
+            drawImage(img, at: frame.offsetBy(
+                dx: 0, dy: menu.canScroll ? menuScroll.offsetY : 0))
         }
         // Show only known BMP overlays. Original FLIC/AVI/LWS animations must be
         // handled by dedicated decoders, not by inventing placeholder animations.
@@ -248,7 +302,8 @@ final class OriginalMenuCanvas: NSView {
             guard let artwork = image(entry.imagePaths[imageNumber]) else { continue }
             let x = CGFloat(menu.x + entry.x) -
                     (menu.autoCenter ? artwork.size.width / 2 : 0)
-            let y = CGFloat(menu.y + entry.y)
+            let y = CGFloat(menu.y + entry.y) +
+                    CGFloat(menu.canScroll ? menuScroll.offsetY : 0)
             let frame = CGRect(x: x, y: y, width: artwork.size.width,
                                height: artwork.size.height)
             drawImage(artwork, at: frame)
