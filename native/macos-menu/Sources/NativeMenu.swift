@@ -522,6 +522,7 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate {
         do {
             let manifest = try LevelRuntimeResources(config: config, identifier: identifier)
             let world = try LevelWorld(manifest: manifest, resources: resources)
+            let placements = try? OriginalObjectList(manifest: manifest, resources: resources)
             let levelWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 960, height: 720),
                                        styleMask: [.titled, .closable, .miniaturizable, .resizable],
                                        backing: .buffered, defer: false)
@@ -531,7 +532,7 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate {
             // Display the actual height-map geometry in a native 3D scene,
             // with the previous 2D MAP inspector available in a toggle.
             let viewer = try NativeMissionWorkspace(frame: levelWindow.contentView!.bounds,
-                                                    world: world)
+                                                    world: world, objects: placements)
             viewer.autoresizingMask = [.width, .height]
             levelWindow.contentView = viewer
             levelWindow.center()
@@ -539,7 +540,7 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate {
             viewer.focusActiveView()
             NSApp.activate(ignoringOtherApps: true)
             levelWindows.append(levelWindow)
-            status.stringValue = "Opened 3D original \(world.title): \(world.width) × \(world.height) tiles (terrain preview)"
+            status.stringValue = "Opened original \(world.title): \(world.width) × \(world.height) tiles; \(placements?.rockRaiders.count ?? 0) OL Rock Raiders"
             status.toolTip = status.stringValue
         } catch {
             presentLevelError("\(identifier): \(error)")
