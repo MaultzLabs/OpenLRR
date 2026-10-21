@@ -1,5 +1,42 @@
 # Rock Raiders Gameplay Capture Lab — macOS
 
+
+## Interruption recovery and first-tutorial capture (October 21)
+
+The earlier single-file recorder successfully wrote **557 MB / ~10m30s**
+of capture data, but the owner's in-game Quit caused ScreenCaptureKit to
+report a stream failure before it finalized the MP4. The source remains
+on the Mac under \`Movies/OpenLRR Gameplay Captures\`. A large MP4 can lack
+its final movie index; file size alone **does not prove it is playable**.
+
+Try to open that file in QuickTime. If QuickTime plays it, the safe recovery
+script can split it into small MP4 files **without modifying the original**:
+
+~~~bash
+python3 native/macos-menu/tools/gameplay-capture/recover-existing.py \
+"$HOME/Movies/OpenLRR Gameplay Captures/rock-raiders-20261021-231925-00/game-window-master.mp4"
+~~~
+
+If the MP4 is missing its index and Apple's built-in AVFoundation cannot
+read it, the recovery tool reports failure without deleting or changing
+the original. This tool is not a low-level repair for a missing \`moov\`
+atom. Keep the file for possible forensic reconstruction.
+
+For the *next* full recording use:
+
+~~~bash
+python3 native/macos-menu/tools/gameplay-capture/first-level-video.py --session full
+~~~
+
+The default \`--segment-seconds 90\` produces *separately finalized clips
+during recording*. The last seconds can still fail to finalize when Wine
+closes its window, but earlier successful segments are retained and
+packaged normally. **No footage from the prior interrupted file is
+invented or silently discarded.** Clipping and NERPs telemetry are
+independent: plain Wine capture does not give internal NERPs calls without
+the explicitly isolated instrumented TEST build.
+
+
 ## Preferred: continuous video + synchronized game controls
 
 **This is now a real 30-FPS ScreenCaptureKit H.264 video recorder, NOT periodic screenshots.**
@@ -9,10 +46,13 @@ characters) and optional existing Wine/NERPs traces go into the same timeline.
 
 Run the one-command `first-level-video.py` launcher from the checked-out video
 branch. It locates/opens the real Wine/OpenLRR app, waits for a single verified
-game window, then records until that window closes. The complete master MP4 stays
-private on your Mac. Built-in AVFoundation divides it into **five-minute MP4
-clips under 180 MiB each** (splitting further if a clip is too large) and
-produces a separate timestamped timeline review ZIP. Finder opens the clip
+game window, then records until that window closes. **This recovery branch
+finalizes short H.264 segments every 90 seconds while gameplay is active.**
+This protects earlier clips if the Wine window closes before the final clip
+can be finalized (as observed in a 557 MB interrupted October 21 capture).
+The finished clips and a separate synchronized timeline review ZIP remain
+private on your Mac. Each individual segment is checked for size before
+offering it for upload. Finder opens the clip
 folder. No screenshots, desktop captures, microphone recording, or automatic
 uploads. **Game audio is requested by default** with ScreenCaptureKit and the
 recorded MP4 is checked for an audio track. macOS filters audio at the owning
