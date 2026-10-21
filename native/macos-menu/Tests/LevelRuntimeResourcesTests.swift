@@ -143,6 +143,37 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
                      floor.vertices[2].z == floor.vertices[4].z)
         precondition(floor.normals.allSatisfy { $0.y > 0.5 })
 
+        // Original high.map triangulation must also govern object and camera
+        // elevations: bilinear sampling diverges on non-coplanar quads.
+        // This synthetic tile selects the upper-left/lower-right diagonal.
+        precondition(abs((triangleWorld.elevation(atX: 0.75, y: 0.25) ?? -1)
+                         - 5.0) < 0.0001)
+        precondition(abs((triangleWorld.elevation(atX: 0.25, y: 0.75) ?? -1)
+                         - 1.5) < 0.0001)
+        precondition(triangleWorld.elevation(atX: 0.5, y: 0.5) == 1)
+        precondition(triangleWorld.elevation(atX: 1, y: 1) == 1)
+        precondition(triangleWorld.elevation(atX: -0.1, y: 0.5) == nil)
+        precondition(triangleWorld.elevation(atX: .infinity, y: 0.5) == nil)
+
+        // Opposite diagonal (b--c), including both triangle halves and
+        // the right/bottom MAP border vertices.
+        let defaultDiagonalWad = syntheticWad([
+            ("Levels\\GameLevels\\Level01\\Surf.map",
+             syntheticMap([0, 0, 0, 0], width: 2, height: 2)),
+            ("Levels\\GameLevels\\Level01\\Dugg.map",
+             syntheticMap([1, 1, 1, 1], width: 2, height: 2)),
+            ("Levels\\GameLevels\\Level01\\High.map",
+             syntheticMap([1, 1, 2, 9], width: 2, height: 2))
+        ])
+        let defaultWorld = try LevelWorld(
+            manifest: manifest,
+            resources: GameResources(archives: [(0, defaultDiagonalWad)]))
+        precondition(defaultWorld.elevation(atX: 0.25, y: 0.25) == 1.25)
+        precondition(defaultWorld.elevation(atX: 0.75, y: 0.75) == 5.25)
+        precondition(defaultWorld.elevation(atX: 1, y: 0) == 1)
+        precondition(defaultWorld.elevation(atX: 0, y: 1) == 2)
+
+
         precondition(mesh.triangleCount > 8)  // four tile tops + exposed wall sides
         precondition(mesh.surfaces.contains { $0.material == .crystal })
         precondition(mesh.surfaces.contains { $0.material == .wallFace })
