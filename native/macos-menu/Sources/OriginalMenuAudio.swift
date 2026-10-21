@@ -88,4 +88,48 @@ final class OriginalMenuAudio {
             .map(String.init) ?? raw
     }
 }
+
+/// Plays the retail SFX_Okay cue when a front-end item is activated.
+/// Front_Menu_UpdateMenuItemsInput calls SFX_Random_PlaySoundNormal(SFX_Okay)
+/// on selection, independent of the looping AmbientMusicLoop stream.
+/// Original bytes are loaded from the user's WAD or existing installation,
+/// not generated or bundled with the app.
+final class OriginalMenuButtonAudio {
+    private var player: AVAudioPlayer?
+
+    func configure(config: LegoConfig, resources: GameResources,
+                   beside wadURL: URL, extraAudioRoot: URL? = nil) {
+        player?.stop()
+        player = nil
+        let samples = try? SoundSampleCatalog(config: config).samples(named: "SFX_Okay")
+        guard let sample = samples?.first else { return }
+        let filename = sample.wavPath
+        let decibels = Float(pow(10.0, Double(sample.volume) / 2000.0))
+        let urls = OriginalAudioFileLocator.locateAll(filename,
+                        beside: wadURL, additionalRoot: extraAudioRoot)
+        for url in urls {
+            if let audio = try? AVAudioPlayer(contentsOf: url) {
+                audio.volume = decibels
+                audio.numberOfLoops = 0
+                audio.prepareToPlay()
+                player = audio
+                return
+            }
+        }
+        guard resources.exists(filename),
+              let data = try? resources.data(at: filename, maximumBytes: 5_000_000),
+              let audio = try? AVAudioPlayer(data: data) else { return }
+        audio.volume = decibels
+        audio.numberOfLoops = 0
+        audio.prepareToPlay()
+        player = audio
+    }
+
+    func play() {
+        guard let player else { return }
+        player.currentTime = 0
+        player.play()
+    }
+}
+
 #endif
