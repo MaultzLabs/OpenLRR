@@ -26,9 +26,12 @@ class VideoSessionTests(unittest.TestCase):
         lines = [
             {"source": "video", "event": "capture_started",
              "unix_s": 12345, "monotonic_s": 100, "scope": "single_game_window",
-             "window_id": 51, "secret": "private tokens", "filename": "/Users/name"},
+             "window_id": 51, "audio_requested": True, "microphone": False,
+             "audio_scope": "owning_application",
+             "secret": "private tokens", "filename": "/Users/name"},
             {"source": "video", "event": "video_complete",
              "bytes": 98000, "duration_s": 23.1,
+             "audio_track_present": True, "audio_scope": "owning_application",
              "stop_reason": "game_window_closed", "raw_path": "/Users/name"},
             {"source": "video", "event": "hacked",
              "message": "password", "filename": "/Users/name"}
@@ -46,6 +49,10 @@ class VideoSessionTests(unittest.TestCase):
         self.assertTrue(state["capture_started"])
         self.assertTrue(state["video_complete"])
         self.assertEqual(state["video_duration_s"], 23.1)
+        self.assertTrue(state["audio_track_present"])
+        self.assertTrue(recs[0]["audio_requested"])
+        self.assertFalse(recs[0]["microphone"])
+        self.assertEqual(recs[1]["audio_scope"], "owning_application")
         self.assertEqual(recs[-1]["stop_reason"], "game_window_closed")
 
     def test_private_review_export_includes_safe_segment_metadata_not_video(self):
