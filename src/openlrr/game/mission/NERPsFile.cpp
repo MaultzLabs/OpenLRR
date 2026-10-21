@@ -114,6 +114,29 @@ static sint32 LabNERPs_Invoke(uint32 functionId, sint32* args, uint32 argumentCo
 }
 } // namespace
 
+
+// Called from OpenLRR's WM_COMMAND callback, including BEFORE Lego_IsInit().
+// This helps distinguish an alive native Win32 menu from a frozen game canvas.
+void LegoRR::NERPsLab_RecordMenuCommand(uint32 menuId) {
+    if (menuId > 65535 || s_labNerpsRecordCount >= kLabNerpsMaxRecords) return;
+    FILE* out = LabNERPs_GetTraceFile();
+    if (out == nullptr) return;
+    FILETIME stamp = {};
+    ::GetSystemTimeAsFileTime(&stamp);
+    ULARGE_INTEGER value = {};
+    value.LowPart = stamp.dwLowDateTime;
+    value.HighPart = stamp.dwHighDateTime;
+    const double unixSeconds =
+        (static_cast<double>(value.QuadPart) - 116444736000000000.0) /
+        10000000.0;
+    std::fprintf(out,
+        "{\"event\":\"menu_command\",\"menu_id\":%u,\"game_unix_s\":%.6f,"
+        "\"game_tick_ms\":%llu}\n", menuId, unixSeconds,
+        static_cast<unsigned long long>(::GetTickCount64()));
+    ++s_labNerpsRecordCount;
+    std::fflush(out); // Menu commands are infrequent; preserve them on crash.
+}
+
 #define LAB_NERPS_INVOKE(id, stack, argc, pc, action) \
     LabNERPs_Invoke((id), (stack), (argc), (pc), (action))
 #define LAB_NERPS_START_TICK() (++s_labNerpsFrame)
