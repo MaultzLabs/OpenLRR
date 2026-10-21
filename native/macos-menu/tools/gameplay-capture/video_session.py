@@ -299,7 +299,7 @@ def continuous_capture(
             with os.fdopen(os.open(output, os.O_WRONLY | os.O_CREAT | os.O_EXCL,
                                    0o600), "w", encoding="utf-8") as listing:
                 json.dump(contents, listing, sort_keys=True, indent=2)
-                listing.write("\\n")
+                listing.write("\n")
         result = {
             "schema_version": 2,
             "scope": "game_window_only",
