@@ -22,6 +22,9 @@
 #include "game/interface/hud/Bubbles.h"
 #include "game/interface/HelpWindow.h"
 #include "game/interface/InfoMessages.h"
+#if defined(OPENLRR_LAB_NERPS_TRACE)
+#include "game/mission/NERPsFile.h"
+#endif
 #include "game/object/Dependencies.h"
 #include "game/world/Camera.h"
 #include "game/world/Map3D.h"
@@ -897,6 +900,9 @@ void __cdecl OpenLRR_WindowCallback(HWND hWnd, UINT message, WPARAM wParam, LPAR
     case WM_COMMAND: {
             uint16 wmId  = LOWORD(wParam);
             uint16 wmSrc = HIWORD(wParam);
+#if defined(OPENLRR_LAB_NERPS_TRACE)
+            LegoRR::NERPsLab_RecordMenuCommand(wmId);
+#endif
             OpenLRR_HandleCommand(hWnd, wmId, wmSrc);
         }
         break;
