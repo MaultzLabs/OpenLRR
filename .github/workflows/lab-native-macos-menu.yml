@@ -8,9 +8,11 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+# Keep the portable Swift tests moving even if an older optional macOS
+# runner job is stuck queued. Only the newest push needs its parser results.
 concurrency:
-  group: native-rock-raiders-menu-prototype
-  cancel-in-progress: false
+  group: native-rock-raiders-portable-v2-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
 jobs:
   parser-tests:
     if: github.repository == 'MaultzLabs/OpenLRR'
