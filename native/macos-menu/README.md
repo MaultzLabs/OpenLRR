@@ -32,13 +32,18 @@ not use Wine, the original Windows EXE, DirectDraw, or any injected DLLs.
   `Lego.cfg` section. Reads binary `.map` terrain/height/predug arrays
   without altering them using the documented `MAP ` header and little-endian
   16-bit cells.
-- **First interactive mission terrain inspection:** a native AppKit tile map
-  using the original level's three essential MAP files. Click `First Level`
-  or an unlocked original mission-map icon; pan by dragging/WASD/arrow keys,
-  scroll or +/- to zoom, inspect original tile types and heights by clicking,
-  press R to recenter and Escape to close. This diagnostic top-down scene is
-  **not yet a playable 3D level**: it has no object/unit rendering, drilling,
-  goals, camera engine, or original terrain textures. Original files stay read-only.
+- **First native 3D mission terrain preview:** reads the level's original
+  height, terrain, and predug MAP files and tessellates them into a bounded
+  3D SceneKit scene, including raised wall faces around discovered caverns.
+  The initial camera aims at the first exposed cavern. Click `First Level`
+  or an unlocked mission icon to open the preview, drag to orbit and scroll
+  to zoom, and click a block to inspect its original values. Use the in-window
+  `2D MAP` control to switch to the prior 2D debug map with keyboard panning.
+  Material colors and vertical roughness scaling are *provisional* while the
+  retail renderer and original texture atlas are still being ported.
+  This is 3D **inspection**, not yet a playable mission: original objects,
+  units, drilling, objectives, textures and AI are not implemented. No game
+  files are modified.
 - Experimental macOS playback of the original `SFX_AmbientMusicLoop` sound using
   AVFoundation. Resolves configured WAVs from the WADs or loose
   `Data/Sounds/Streamed/` files; falls back to the original `Atmosdel.wav`
@@ -63,12 +68,13 @@ new mission/save screens is still unverified, as are visible FPS, 3D gameplay,
 and actual mission launching.
 
 The framework for `Next` navigation exists and the original mission and save
-menus can now present decoded game data. Selecting a save is read-only. Clicking
-a mission opens its authentic terrain files in the new overhead inspection
-window; it cannot launch gameplay yet. Native 3D graphics,
-camera/movement, AI, drilling/building, object simulation, objectives and
+menus can now present decoded game data. Selecting a save is read-only.
+Selecting a mission opens native 3D terrain derived from the original three
+MAPs, not from handwritten level artwork. This early SceneKit preview cannot
+launch gameplay. Original Direct3D rendering/texture details, player-controlled
+units, AI, drilling/building, object simulation, objective completion and
 executable NERPs have **not** been ported. WAV decoding and native menu audio
-playback are experimental.
+playback remain experimental.
 
 ## Building locally when you are ready
 
