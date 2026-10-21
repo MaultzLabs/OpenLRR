@@ -32,18 +32,23 @@ not use Wine, the original Windows EXE, DirectDraw, or any injected DLLs.
   `Lego.cfg` section. Reads binary `.map` terrain/height/predug arrays
   without altering them using the documented `MAP ` header and little-endian
   16-bit cells.
-- **First native 3D mission terrain preview:** reads the level's original
-  height, terrain, and predug MAP files and tessellates them into a bounded
-  3D SceneKit scene, including raised wall faces around discovered caverns.
-  The initial camera aims at the first exposed cavern. Click `First Level`
-  or an unlocked mission icon to open the preview, drag to orbit and scroll
-  to zoom, and click a block to inspect its original values. Use the in-window
-  `2D MAP` control to switch to the prior 2D debug map with keyboard panning.
-  Material colors and vertical roughness scaling are *provisional* while the
-  retail renderer and original texture atlas are still being ported.
-  This is 3D **inspection**, not yet a playable mission: original objects,
-  units, drilling, objectives, textures and AI are not implemented. No game
-  files are modified.
+- **First native 3D mission terrain preview:** reads original height,
+  terrain, and predug MAP files and tessellates them into a bounded SceneKit
+  terrain surface and cavern-wall geometry. Click `First Level` or an unlocked
+  mission icon to open it, drag to orbit and scroll to zoom. The `2D MAP`
+  toggle retains the earlier original-data inspector. Material colors and
+  vertical roughness remain provisional; original textures are not ported.
+- **Retail OL object placement:** parses the level's original text `.ol`
+  file with the actual `ObjectN { type, xPos, yPos, heading }` entries.
+  The first TVCamera guides the initial viewport; visible Rock Raiders
+  (type `Pilot`) are shown as **yellow debug capsules**, and other exposed
+  placements as turquoise debug spheres, **not** original character or
+  building models. Select an on-foot yellow Raider and click a discovered
+  passable cavern tile to preview four-way walking. Solid/hidden terrain
+  and lava/water are blocked. This is the first *movement prototype*;
+  collisions, AI, real animations, texture assets, drilling, vehicle
+  movement, resource collection and mission objectives remain unported.
+  All original files and saved games remain read-only.
 - Experimental macOS playback of the original `SFX_AmbientMusicLoop` sound using
   AVFoundation. Resolves configured WAVs from the WADs or loose
   `Data/Sounds/Streamed/` files; falls back to the original `Atmosdel.wav`
@@ -69,12 +74,13 @@ and actual mission launching.
 
 The framework for `Next` navigation exists and the original mission and save
 menus can now present decoded game data. Selecting a save is read-only.
-Selecting a mission opens native 3D terrain derived from the original three
-MAPs, not from handwritten level artwork. This early SceneKit preview cannot
-launch gameplay. Original Direct3D rendering/texture details, player-controlled
-units, AI, drilling/building, object simulation, objective completion and
-executable NERPs have **not** been ported. WAV decoding and native menu audio
-playback remain experimental.
+Selecting a mission opens native 3D terrain from its original MAP files
+and can show original OL spawn positions with prototype click-to-move pathing
+on exposed terrain. The proxies and movement are diagnostic, not retail
+character meshes or simulated Rock Raider gameplay. The original Direct3D
+renderer, terrain textures, authentic minifigure models/animations, collision,
+AI, drilling/building, vehicle systems, inventory, objective completion and
+executable NERPs have **not** been ported. Native menu audio remains experimental.
 
 ## Building locally when you are ready
 
