@@ -11,7 +11,8 @@ tmp7="$(mktemp /tmp/openlrr-save-test.XXXXXXXX)"
 tmp8="$(mktemp /tmp/openlrr-world-map-test.XXXXXXXX)"
 tmp9="$(mktemp /tmp/openlrr-ol-test.XXXXXXXX)"
 tmp10="$(mktemp /tmp/openlrr-lightwave-test.XXXXXXXX)"
-trap 'rm -f "$tmp1" "$tmp2" "$tmp3" "$tmp4" "$tmp5" "$tmp6" "$tmp7" "$tmp8" "$tmp9" "$tmp10"' EXIT
+tmp11="$(mktemp /tmp/openlrr-lightwave-scene-test.XXXXXXXX)"
+trap 'rm -f "$tmp1" "$tmp2" "$tmp3" "$tmp4" "$tmp5" "$tmp6" "$tmp7" "$tmp8" "$tmp9" "$tmp10" "$tmp11"' EXIT
 swiftc -O Sources/WadArchive.swift Tests/WadArchiveTests.swift -o "$tmp1"
 "$tmp1"
 swiftc -O Sources/WadArchive.swift Sources/GameResources.swift \
@@ -54,3 +55,6 @@ swiftc -O Sources/WadArchive.swift Sources/GameResources.swift \
 
 swiftc -O Sources/LightWaveObject.swift Tests/LightWaveObjectTests.swift -o "$tmp10"
 "$tmp10"
+
+swiftc -O Sources/LightWaveScene.swift Tests/LightWaveSceneTests.swift -o "$tmp11"
+"$tmp11"
