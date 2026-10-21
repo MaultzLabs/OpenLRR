@@ -25,9 +25,9 @@ jobs:
           swiftc --version
           bash native/macos-menu/test.sh
   compile-native-mac:
-    # One-shot native ARM64 compile for the finished menu/save integration.
-    # Restore manual-only condition once this particular job is running.
-    if: github.event_name == 'push'
+    # Public hosted Mac compiles are opt-in; parser-tests run on each push.
+    # A separately launched job checks AppKit/ARM64 without requiring the user's Mac.
+    if: github.event_name == 'workflow_dispatch'
     needs: parser-tests
     runs-on: macos-15
     timeout-minutes: 15
