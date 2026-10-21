@@ -39,19 +39,19 @@ class ClipIndexTests(unittest.TestCase):
 
     def test_align_inputs_wine_functions_and_win32_menu_to_code(self):
         self.write_events([
-            {"source": "video", "event": "capture_started", "unix_s": 1000},
-            {"source": "mac_input", "event": "left_down", "unix_s": 1012,
+            {"source": "video", "event": "capture_started", "unix_s": 1792620000},
+            {"source": "mac_input", "event": "left_down", "unix_s": 1792620012,
              "typed_password": "DO NOT COPY", "x": 15, "y": 20},
             {"source": "wine_api", "event": "sampled_log_batch",
              "channel": "ddraw", "operation": "blt",
-             "unix_s": 1014, "private_path": "/Users/secret"},
+             "unix_s": 1792620014, "private_path": "/Users/secret"},
             {"source": "openlrr_menu", "event": "win32_menu_command",
-             "menu_id": 603, "unix_s": 1095},
+             "menu_id": 603, "unix_s": 1792620095},
             {"source": "nerps", "event": "runtime_function",
              "function": "GetCrystals", "function_id": 55,
-             "unix_s": 1100, "raw_private": "DO NOT COPY"},
-            {"source": "malicious", "event": "do_not_emit", "unix_s": 1101},
-            {"source": "mac_input", "event": "right_down", "unix_s": 1150}
+             "unix_s": 1792620100, "raw_private": "DO NOT COPY"},
+            {"source": "malicious", "event": "do_not_emit", "unix_s": 1792620101},
+            {"source": "mac_input", "event": "right_down", "unix_s": 1792620150}
         ])
         result = index_clips.build_index(self.root, self.clips, source_root=self.root)
         self.assertEqual(result["events_aligned"], 5)
