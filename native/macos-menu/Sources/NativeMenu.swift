@@ -393,6 +393,7 @@ final class OriginalMenuCanvas: NSView {
 /// the toolbar, even when the window is resized.
 private final class NativeMenuHostView: NSView {
     weak var gameCanvas: NSView?
+    weak var missionView: NSView?
     weak var controlBar: NSView?
     private let controlHeight: CGFloat = 80
 
@@ -407,13 +408,20 @@ private final class NativeMenuHostView: NSView {
         gameCanvas?.frame = NSRect(x: (bounds.width - width) / 2,
                                    y: controlHeight + (availableHeight - height) / 2,
                                    width: width, height: height)
+        missionView?.frame = NSRect(x: 0, y: controlHeight,
+                                    width: bounds.width, height: availableHeight)
     }
 }
 
 /// Creates a real native ARM64 AppKit window and reads only the selected WADs.
 final class NativeMenuApplication: NSObject, NSApplicationDelegate {
     private var window: NSWindow!
+    private var root: NativeMenuHostView!
     private var canvas: OriginalMenuCanvas!
+    private var missionView: NativeMissionWorkspace?
+    private var savedMenuWindowFrame: NSRect?
+    private var toolbarButtons: NSStackView!
+    private var backToMenuButton: NSButton!
     private var status: NSTextField!
     private let originalAudio = OriginalMenuAudio()
     private let selectedWadDefaultsKey = "OriginalGameWadURL.v1"
@@ -421,7 +429,6 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate {
     private var activeWadURL: URL?
     private var activeResources: GameResources?
     private var activeConfig: LegoConfig?
-    private var levelWindows: [NSWindow] = []
 
     private var selectedAudioFolder: URL? {
         guard let path = UserDefaults.standard.string(forKey: audioFolderDefaultsKey),
@@ -436,7 +443,8 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate {
         window.title = "Rock Raiders — Native Mac Prototype"
         window.center()
         window.minSize = NSSize(width: 640, height: 560)
-        let root = NativeMenuHostView(frame: window.contentView!.bounds)
+        root = NativeMenuHostView(frame: window.contentView!.bounds)
+        root.autoresizingMask = [.width, .height]
         root.wantsLayer = true
         root.layer?.backgroundColor = NSColor.black.cgColor
         window.contentView = root
@@ -474,6 +482,13 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate {
         let quit = NSButton(title: "Quit", target: NSApp,
                             action: #selector(NSApplication.terminate(_:)))
         let buttons = NSStackView(views: [preview, open, restoreAudio, locateSounds, about, quit])
+        toolbarButtons = buttons
+        backToMenuButton = NSButton(title: "← Back to Main Menu",
+                                    target: self, action: #selector(backToMenu))
+        backToMenuButton.toolTip = "Return to the original menu in this window."
+        backToMenuButton.isHidden = true
+        backToMenuButton.translatesAutoresizingMaskIntoConstraints = false
+        toolbar.addSubview(backToMenuButton)
         buttons.orientation = .horizontal
         buttons.alignment = .centerY
         buttons.spacing = 12
@@ -487,6 +502,8 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate {
         NSLayoutConstraint.activate([
             buttons.leadingAnchor.constraint(equalTo: toolbar.leadingAnchor, constant: 16),
             buttons.topAnchor.constraint(equalTo: toolbar.topAnchor, constant: 9),
+            backToMenuButton.leadingAnchor.constraint(equalTo: toolbar.leadingAnchor, constant: 16),
+            backToMenuButton.topAnchor.constraint(equalTo: toolbar.topAnchor, constant: 9),
             status.leadingAnchor.constraint(equalTo: toolbar.leadingAnchor, constant: 16),
             status.trailingAnchor.constraint(lessThanOrEqualTo: toolbar.trailingAnchor, constant: -16),
             status.topAnchor.constraint(equalTo: buttons.bottomAnchor, constant: 7)
@@ -523,28 +540,64 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate {
             let manifest = try LevelRuntimeResources(config: config, identifier: identifier)
             let world = try LevelWorld(manifest: manifest, resources: resources)
             let placements = try? OriginalObjectList(manifest: manifest, resources: resources)
-            let levelWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 960, height: 720),
-                                       styleMask: [.titled, .closable, .miniaturizable, .resizable],
-                                       backing: .buffered, defer: false)
-            levelWindow.title = "Rock Raiders — \(world.title) (Native 3D MAP Preview)"
-            levelWindow.minSize = NSSize(width: 640, height: 480)
-            levelWindow.isReleasedWhenClosed = false
-            // Display the actual height-map geometry in a native 3D scene,
-            // with the previous 2D MAP inspector available in a toggle.
-            let viewer = try NativeMissionWorkspace(frame: levelWindow.contentView!.bounds,
-                                                    world: world, objects: placements)
-            viewer.autoresizingMask = [.width, .height]
-            levelWindow.contentView = viewer
-            levelWindow.center()
-            levelWindow.makeKeyAndOrderFront(nil)
+
+            // Mission selection changes the scene in the existing window, as
+            // the retail game does. Never spawn another NSWindow per mission.
+            let viewer = try NativeMissionWorkspace(
+                frame: root.bounds, world: world, objects: placements,
+                resources: resources, textureSet: manifest.textureSetSetting)
+            viewer.onBack = { [weak self] in self?.returnToMainMenu() }
+            missionView?.removeFromSuperview()
+            missionView = viewer
+            root.missionView = viewer
+            root.addSubview(viewer, positioned: .above, relativeTo: canvas)
+            canvas.isHidden = true
+            toolbarButtons.isHidden = true
+            backToMenuButton.isHidden = false
+
+            if savedMenuWindowFrame == nil {
+                savedMenuWindowFrame = window.frame
+                let current = window.contentView?.bounds.size ?? .zero
+                let preferred = NSSize(width: max(current.width, 960),
+                                       height: max(current.height, 760))
+                if preferred != current {
+                    window.setContentSize(preferred)
+                    window.center()
+                }
+            }
+            root.needsLayout = true
+            root.layoutSubtreeIfNeeded()
+            window.title = "Rock Raiders — \(world.title)"
             viewer.focusActiveView()
-            NSApp.activate(ignoringOtherApps: true)
-            levelWindows.append(levelWindow)
-            status.stringValue = "Opened original \(world.title): \(world.width) × \(world.height) tiles; \(placements?.rockRaiders.count ?? 0) OL Rock Raiders"
+            window.makeKeyAndOrderFront(nil)
+            status.stringValue = "\(world.title) • \(world.width)×\(world.height) blocks • \(placements?.rockRaiders.count ?? 0) Rock Raiders"
             status.toolTip = status.stringValue
         } catch {
             presentLevelError("\(identifier): \(error)")
         }
+    }
+
+    @objc private func backToMenu() {
+        returnToMainMenu()
+    }
+
+    private func returnToMainMenu() {
+        missionView?.removeFromSuperview()
+        missionView = nil
+        root.missionView = nil
+        canvas.isHidden = false
+        toolbarButtons.isHidden = false
+        backToMenuButton.isHidden = true
+        if let saved = savedMenuWindowFrame {
+            window.setFrame(saved, display: true, animate: false)
+            savedMenuWindowFrame = nil
+        }
+        window.title = "Rock Raiders — Original Menu"
+        root.needsLayout = true
+        root.layoutSubtreeIfNeeded()
+        window.makeFirstResponder(canvas)
+        status.stringValue = "Original menu • select a mission to continue"
+        status.toolTip = status.stringValue
     }
 
     private func presentLevelError(_ message: String) {
