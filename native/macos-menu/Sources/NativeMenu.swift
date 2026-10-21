@@ -525,18 +525,21 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate {
             let levelWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 960, height: 720),
                                        styleMask: [.titled, .closable, .miniaturizable, .resizable],
                                        backing: .buffered, defer: false)
-            levelWindow.title = "Rock Raiders — \(world.title) (Native Terrain Inspection)"
+            levelWindow.title = "Rock Raiders — \(world.title) (Native 3D MAP Preview)"
             levelWindow.minSize = NSSize(width: 640, height: 480)
             levelWindow.isReleasedWhenClosed = false
-            let viewer = NativeLevelView(frame: levelWindow.contentView!.bounds, world: world)
+            // Display the actual height-map geometry in a native 3D scene,
+            // with the previous 2D MAP inspector available in a toggle.
+            let viewer = try NativeMissionWorkspace(frame: levelWindow.contentView!.bounds,
+                                                    world: world)
             viewer.autoresizingMask = [.width, .height]
             levelWindow.contentView = viewer
             levelWindow.center()
             levelWindow.makeKeyAndOrderFront(nil)
-            levelWindow.makeFirstResponder(viewer)
+            viewer.focusActiveView()
             NSApp.activate(ignoringOtherApps: true)
             levelWindows.append(levelWindow)
-            status.stringValue = "Opened original \(world.title): \(world.width) × \(world.height) tiles (terrain inspection)"
+            status.stringValue = "Opened 3D original \(world.title): \(world.width) × \(world.height) tiles (terrain preview)"
             status.toolTip = status.stringValue
         } catch {
             presentLevelError("\(identifier): \(error)")
@@ -665,7 +668,7 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate {
     @objc private func aboutPrototype() {
         let alert = NSAlert()
         alert.messageText = "Original assets, native macOS prototype"
-        alert.informativeText = "Reads your original WADs and Lego.cfg without modifying them. Native WAV ambience and initial mission-map graphics are experimental. Selecting a mission does not start gameplay: 3D simulation and saves are not ported."
+        alert.informativeText = "Reads your original WADs and Lego.cfg without modifying them. The 3D terrain preview uses original MAP geometry with diagnostic materials, but units, drilling, textures and objectives are not yet ported. Original saves are read-only."
         alert.beginSheetModal(for: window)
     }
 
