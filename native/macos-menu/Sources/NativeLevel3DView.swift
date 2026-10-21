@@ -17,6 +17,13 @@ final class NativeLevel3DView: SCNView {
     private var raiderMarkers: [String: SCNNode] = [:]
     private var selectedRaider: String?
     var onTileSelected: ((LevelWorld.Tile) -> Void)?
+    var originalCursor: NSCursor? {
+        didSet { if let window { window.invalidateCursorRects(for: self) } }
+    }
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        addCursorRect(bounds, cursor: originalCursor ?? .arrow)
+    }
     var onInteractionMessage: ((String) -> Void)?
 
     override var acceptsFirstResponder: Bool { true }
@@ -300,6 +307,12 @@ final class NativeMissionWorkspace: NSView {
     private let level2D: NativeLevelView
     private let mode: NSSegmentedControl
     private let status: NSTextField
+    var originalCursor: NSCursor? {
+        didSet {
+            level3D.originalCursor = originalCursor
+            level2D.originalCursor = originalCursor
+        }
+    }
     var onBack: (() -> Void)? {
         didSet {
             level3D.onExit = { [weak self] in self?.onBack?() }
