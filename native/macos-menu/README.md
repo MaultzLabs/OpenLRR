@@ -23,6 +23,20 @@ not use Wine, the original Windows EXE, DirectDraw, or any injected DLLs.
   Uses `Pointers::Pointer_Standard` BMP from the installed original WAD
   as a custom transparent cursor in menus and both mission views, with a
   system-arrow fallback when the original asset is absent.
+- **Original Quit Game Yes/No behavior:** original `MainMenuFull` quit
+  confirmation screen is found from the installed Lego.cfg, with its normal
+  image/text buttons. The configured terminal Yes trigger quits; No navigates
+  back. Cmd-Q, toolbar Quit and Mac window close also request in-game
+  confirmation. If the WAD isn't loaded, a standard Mac Yes/No alert is used.
+- **Retail Boulder rock wipe (experimental):** interprets the original
+  `Menu::MenuWipe` LWSC1 scene, animates its real `.lwo` Boulder parts in
+  SceneKit from the user's WAD, and changes menu pages halfway through the
+  original wipe. If a supported scene/mesh isn't available, navigation
+  remains functional without a made-up substitute animation. Original
+  motion smoothing, material mapping and WAD rendering remain unverified.
+- **More authentic button input:** original BMP button positions respect
+  `AutoCenter`, and selections play the actual configured `SFX_Okay` WAV
+  when available, without interrupting the looping front-end ambience.
 - Original sprite-font format: indexed 8-bit BMP, 10 columns by 19 rows,
   pen-zero transparency and pen-255 trailing width markers, following
   `src/openlrr/engine/drawing/Fonts.cpp`. Native system font is only a fallback.
@@ -59,9 +73,9 @@ not use Wine, the original Windows EXE, DirectDraw, or any injected DLLs.
   and malformed-filename protection.
 - **Read-only classic LightWave `.lwo` decoder:** validates the original
   `FORM/LWOB` format with `PNTS`, `SRFS`, and `POLS` chunks, bounds checks,
-  triangle fan conversion and basic detail polygons. This begins the work
-  of importing actual original character/building model parts but does
-  **not** assemble `.lws` animations or display character meshes yet.
+  triangle fan conversion and basic detail polygons. The new `LWSC 1` parser
+  reads scene objects and motion channels for the original menu rock wipe.
+  Assembly and animation of full character/building models are not yet ported.
 - **Retail OL object placement:** parses the level's original text `.ol`
   file with the actual `ObjectN { type, xPos, yPos, heading }` entries.
   The first TVCamera guides the initial viewport; visible Rock Raiders
@@ -87,8 +101,11 @@ not use Wine, the original Windows EXE, DirectDraw, or any injected DLLs.
 
 ## Actual verified scope
 
-The portable archive, config, front-end, map, save, and mission-link parsing
-tests compile and run on Linux using synthetic fixtures. The native AppKit
+Most portable archive, config, front-end, map, save and mission-link
+parsing tests have previously passed on Linux with synthetic fixtures.
+The newest quit/rock-wipe batch exposed a zero-item menu iteration trap, which
+has been fixed in source; a passing combined run for the *current* revision
+has not yet been confirmed. The native AppKit
 prototype has been launched on the owner's Apple Silicon Mac using their own
 WAD files. A standard hosted macOS Actions runner has successfully compiled the ARM64
 AppKit and SceneKit prototype without any original WADs in CI. The owner has
