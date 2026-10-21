@@ -1,0 +1,29 @@
+name: Native NERPs interpreter source-grounded regression
+on:
+  push:
+    branches: [lab-native-nerps-runtime-v1]
+    paths:
+      - native/macos-menu/Sources/NERPsRuntime.swift
+      - native/macos-menu/Sources/NERPsScript.swift
+      - native/macos-menu/Tests/NERPsRuntimeTests.swift
+      - native/macos-menu/test.sh
+      - .github/workflows/lab-native-nerps-runtime.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: openlrr-native-nerps-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  swift-native-nerps:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify native Swift interpreter on Linux without Mac or proprietary assets
+        run: |
+          swift --version
+          swiftc -O native/macos-menu/Sources/NERPsScript.swift native/macos-menu/Sources/WadArchive.swift native/macos-menu/Sources/GameResources.swift native/macos-menu/Sources/LegoConfig.swift native/macos-menu/Sources/NERPsRuntime.swift native/macos-menu/Tests/NERPsRuntimeTests.swift -o /tmp/openlrr-nerps-runtime
+          /tmp/openlrr-nerps-runtime
