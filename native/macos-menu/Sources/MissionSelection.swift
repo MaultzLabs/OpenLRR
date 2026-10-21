@@ -23,10 +23,10 @@ struct MissionSelection {
 
     init(config: LegoConfig, catalog: LevelCatalog) {
         self.missions = Self.build(config: config, levels: catalog.missions)
-        self.tutorials = Self.build(config: config, levels: catalog.tutorials)
+        self.tutorials = Self.build(config: config, levels: catalog.tutorials, unlockAll: true)
     }
 
-    private static func build(config: LegoConfig, levels: [LevelCatalog.Level]) -> [Node] {
+    private static func build(config: LegoConfig, levels: [LevelCatalog.Level], unlockAll: Bool = false) -> [Node] {
         guard let first = levels.first else { return [] }
         let byID = Dictionary(uniqueKeysWithValues: levels.map { ($0.identifier.lowercased(), $0) })
         var visited = Set<String>()
@@ -45,7 +45,10 @@ struct MissionSelection {
                 .filter { !$0.isEmpty }
             let open = config.valueUnderGame(segments + ["FrontEndOpen"])?
                 .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            let initiallyAvailable = root || ["true", "yes", "on", "1"].contains(open ?? "")
+            // Front_Levels_UpdateAvailable passes keepLocked=false for tutorials,
+            // so every tutorial is available. New missions unlock from root
+            // or the explicit FrontEndOpen flag until a save is loaded.
+            let initiallyAvailable = unlockAll || root || ["true", "yes", "on", "1"].contains(open ?? "")
 
             result.append(Node(identifier: level.identifier, title: level.fullName,
                                imagePaths: level.menuBitmapPaths,
