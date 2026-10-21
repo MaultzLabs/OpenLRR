@@ -58,7 +58,6 @@ final class OriginalMenuCanvas: NSView {
     private var history: [Int] = []
     private var menuScroll = OriginalMenuScroll()
     private var pointerY: Double?
-    private var isMousePressed = false
     private var scrollTimer: Timer?
     private(set) var gameCursor: NSCursor? {
         didSet { if let window { window.invalidateCursorRects(for: self) } }
@@ -101,7 +100,7 @@ final class OriginalMenuCanvas: NSView {
         let didMove = menuScroll.update(
             imageHeight: activeScrollableImageHeight(),
             canScroll: definitions.menus[menuIndex].canScroll,
-            mouseY: pointerY, buttonsHeld: isMousePressed,
+            mouseY: pointerY, buttonsHeld: NSEvent.pressedMouseButtons != 0,
             elapsed: 1.0 / 30.0)
         if didMove { needsDisplay = true }
     }
@@ -418,12 +417,7 @@ final class OriginalMenuCanvas: NSView {
         }
     }
 
-    override func mouseUp(with event: NSEvent) {
-        isMousePressed = false
-    }
-
     override func mouseDown(with event: NSEvent) {
-        isMousePressed = true
         let pos = logicalPoint(event)
         if let index = saveRects.first(where: { $0.1.contains(pos) })?.0,
            saveSlots.indices.contains(index) {
