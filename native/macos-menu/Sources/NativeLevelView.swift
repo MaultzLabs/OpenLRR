@@ -7,6 +7,7 @@ import Foundation
 /// does not impersonate the original 3D engine or invent functional units.
 final class NativeLevelView: NSView {
     let world: LevelWorld
+    var onExit: (() -> Void)?
     private var cameraX: CGFloat
     private var cameraY: CGFloat
     private var tileSize: CGFloat = 23
@@ -199,7 +200,7 @@ final class NativeLevelView: NSView {
             let initial = world.initialCameraTile
             cameraX = CGFloat(initial.x) + 0.5
             cameraY = CGFloat(initial.y) + 0.5
-        case 53: window?.close() // Escape
+        case 53: onExit?() // Escape returns to the menu, never exits the app
         default:
             super.keyDown(with: event)
             return
