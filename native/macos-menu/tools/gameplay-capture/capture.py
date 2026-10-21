@@ -95,6 +95,13 @@ class WindowProbe:
     def list_games(self) -> list[dict]:
         return self._run("list")
 
+    def diagnose(self) -> dict:
+        """Only aggregate window counts and Screen Recording permission state."""
+        rows = self._run("diagnose")
+        if len(rows) != 1 or rows[0].get("counts_only") is not True:
+            raise CaptureError("Window diagnostic returned an invalid summary")
+        return rows[0]
+
     def inspect(self, target: GameWindow) -> dict:
         rows = self._run("inspect", str(target.id), str(target.pid))
         if len(rows) != 1:
