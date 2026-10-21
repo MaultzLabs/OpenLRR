@@ -68,10 +68,18 @@ import Foundation
         // Missions without a LevelLinks relationship cannot be reached by the
         // original selection traversal. Do not fabricate visible missions.
         let noLinks = try LegoConfig(text: """
-        Lego* { Main { StartLevel Levels::Level01 }
+        Lego* {
+          Main {
+            StartLevel Levels::Level01
+          }
           Levels {
-            Level01 { NextLevel Levels::Level02 FullName One }
-            Level02 { FullName Two }
+            Level01 {
+              NextLevel Levels::Level02
+              FullName One
+            }
+            Level02 {
+              FullName Two
+            }
           }
         }
         """)
