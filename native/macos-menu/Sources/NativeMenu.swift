@@ -340,10 +340,13 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate {
         let locateSounds = NSButton(title: "Locate Sounds…", target: self,
                                     action: #selector(chooseOriginalSoundsFolder))
         locateSounds.toolTip = "Select an original Data, Sounds or Streamed folder (only if audio is missing)."
+        let restoreAudio = NSButton(title: "Get Original Audio…", target: self,
+                                    action: #selector(openOriginalAudioResource))
+        restoreAudio.toolTip = "Open Rock Raiders United's original menu WAV page; review its download terms."
         let about = NSButton(title: "About", target: self, action: #selector(aboutPrototype))
         let quit = NSButton(title: "Quit", target: NSApp,
                             action: #selector(NSApplication.terminate(_:)))
-        let buttons = NSStackView(views: [open, locateSounds, about, quit])
+        let buttons = NSStackView(views: [open, restoreAudio, locateSounds, about, quit])
         buttons.orientation = .horizontal
         buttons.alignment = .centerY
         buttons.spacing = 12
@@ -382,6 +385,14 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate {
         panel.message = "Choose your own LegoRR0.wad or LegoRR1.wad. Nothing is copied or uploaded."
         panel.beginSheetModal(for: window) { [weak self] response in
             if response == .OK, let url = panel.url { self?.load(url) }
+        }
+    }
+
+    @objc private func openOriginalAudioResource() {
+        // RRU requires the user to review and agree to its download terms.
+        // Never automatically download or redistribute the original tracks.
+        if let page = URL(string: "https://rockraidersunited.com/files/lego_rock_raiders/resources/atmosdel-and-statswav-r323/") {
+            NSWorkspace.shared.open(page)
         }
     }
 
@@ -457,6 +468,12 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate {
         alert.messageText = "Original assets, native macOS prototype"
         alert.informativeText = "Reads your original WADs and Lego.cfg without modifying them. Basic menu navigation and native WAV menu ambience are experimental. Animations, full save/mission functionality, the CD/OGG soundtrack, and gameplay are not yet ported."
         alert.beginSheetModal(for: window)
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        // When someone downloads/extracts the RRU audio and comes back to
+        // the app, silently retry discovery; never interrupt playing audio.
+        if !originalAudio.isPlaying { restartOriginalAudio() }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
