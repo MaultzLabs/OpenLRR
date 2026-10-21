@@ -601,7 +601,7 @@ def package_review(session: Path, output: Path, *, include_frames: bool) -> int:
     for line in (session / "timeline.jsonl").read_text().splitlines():
         record = json.loads(line)
         if record.get("source") not in (
-            "frame", "mac_input", "capture_control", "nerps", "wine_api"
+            "frame", "mac_input", "capture_control", "nerps", "wine_api", "video"
         ):
             continue
         if record.get("source") == "mac_input" and record.get("event") not in ALLOWED_EVENT_NAMES:
@@ -614,6 +614,33 @@ def package_review(session: Path, output: Path, *, include_frames: bool) -> int:
                          compresslevel=6) as archive:
         archive.writestr("manifest.json", json.dumps(summary, indent=2))
         archive.writestr("timeline.jsonl", "".join(json_line(row) for row in safe_records))
+        # Only small, numeric/safe clip metadata goes into review ZIP.
+        # The actual MP4s remain separate files for upload size limits.
+        clip_manifest = session / "clips" / "clips.json"
+        if clip_manifest.is_file() and not clip_manifest.is_symlink():
+            raw = json.loads(clip_manifest.read_text())
+            if raw.get("schema") == "openlrr-window-video-clips-v1":
+                clips = raw.get("clips", [])
+                cleaned_clips = []
+                if isinstance(clips, list) and len(clips) <= 500:
+                    for item in clips:
+                        if not isinstance(item, dict):
+                            continue
+                        name = item.get("file")
+                        if not isinstance(name, str) or not __import__("re").fullmatch(r"part-[0-9]{4}\\.mp4", name):
+                            continue
+                        numbers = [item.get(key) for key in ("start_s", "duration_s", "bytes")]
+                        if not all(type(x) in (int, float) and 0 <= x < 1e12 for x in numbers):
+                            continue
+                        cleaned_clips.append({
+                            "file": name, "start_s": numbers[0],
+                            "duration_s": numbers[1], "bytes": numbers[2]
+                        })
+                    archive.writestr("clips.json", json.dumps({
+                        "schema": "openlrr-window-video-clips-v1",
+                        "time_basis": "relative_to_video_start",
+                        "clips": cleaned_clips
+                    }, sort_keys=True))
         if include_frames:
             for frame in sorted((session / "frames").glob("frame-*.png")):
                 if frame.is_symlink():
