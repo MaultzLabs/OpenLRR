@@ -13,8 +13,14 @@ game window, then records until that window closes. The complete master MP4 stay
 private on your Mac. Built-in AVFoundation divides it into **five-minute MP4
 clips under 180 MiB each** (splitting further if a clip is too large) and
 produces a separate timestamped timeline review ZIP. Finder opens the clip
-folder. No screenshots, desktop captures, unrelated app audio, or automatic
-uploads. Screen Recording and optionally Input Monitoring permission are needed.
+folder. No screenshots, desktop captures, microphone recording, or automatic
+uploads. **Game audio is requested by default** with ScreenCaptureKit and the
+recorded MP4 is checked for an audio track. macOS filters audio at the owning
+application level, not by individual window: other sounds from the *same Wine
+application* may be present; audio produced by other Wine processes may be
+missing. `manifest.json` reports `audio_track_present` rather than claiming
+sound was captured if no track exists. Screen Recording and optionally Input
+Monitoring permission are needed.
 
 ~~~bash
 python3 native/macos-menu/tools/gameplay-capture/first-level-video.py
