@@ -107,7 +107,9 @@ struct MenuDefinition {
                                         y: Int(parts[3]) ?? 0))
             }
             var items: [Item] = []
-            for itemNumber in 1...declaredItems {
+            // An original menu may legitimately contain zero items.
+            // 1...0 traps in optimized Swift; 1..<1 is an empty range.
+            for itemNumber in 1..<(declaredItems + 1) {
                 guard let raw = value(path + ["Item\(itemNumber)"]) else { continue }
                 let fields = raw.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
                 guard fields.count >= 3 else { continue }
