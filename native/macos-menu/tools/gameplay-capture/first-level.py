@@ -180,6 +180,13 @@ def main(argv: list[str] | None = None) -> int:
     print("Raw Wine log stays local and is NOT included in the ZIP.",
           flush=True)
     print("Share the review ZIP in ChatGPT after checking its contents.")
+    # Finder only selects the already-created local ZIP; it never uploads.
+    try:
+        subprocess.run(["/usr/bin/open", "-R", str(archive)],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                       timeout=12, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        pass  # The location above is still printed for manual selection.
     return 0
 
 
