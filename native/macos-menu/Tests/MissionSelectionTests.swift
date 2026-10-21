@@ -8,6 +8,9 @@ import Foundation
             StartLevel Levels::Level01
             TutorialStartLevel Levels::Tutorial01
           }
+          Menu {
+            DefaultLevelBMPS Interface\\FrontEnd\\DefaultHi.bmp,Interface\\FrontEnd\\DefaultDark.bmp,Interface\\FrontEnd\\DefaultLocked.bmp
+          }
           Levels {
             Level01 {
               FullName Driller_Night
@@ -21,7 +24,6 @@ import Foundation
               FullName Locked_Level
               NextLevel Levels::Level03
               LevelLinks Levels::Level03
-              MenuBMP Interface\\FrontEnd\\BHi.bmp,Interface\\FrontEnd\\BDark.bmp,Interface\\FrontEnd\\BLocked.bmp
               FrontEndX -80
             }
             Level03 {
@@ -61,6 +63,8 @@ import Foundation
         precondition(selection.missions[0].imagePaths[0].hasSuffix("AHi.bmp"))
         precondition(selection.missions[0].imagePaths[1].hasSuffix("ADark.bmp"))
         precondition(selection.missions[0].imagePaths[2].hasSuffix("ALocked.bmp"))
+        precondition(selection.missions[2].imagePaths.count == 3)
+        precondition(selection.missions[2].imagePaths[2].hasSuffix("DefaultLocked.bmp"))
         precondition(selection.tutorials.map(\.identifier) ==
                      ["Levels::Tutorial01", "Levels::Tutorial02"])
         precondition(selection.tutorials.map(\.initiallyAvailable) == [true, true])
