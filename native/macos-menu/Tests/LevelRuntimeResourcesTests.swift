@@ -36,6 +36,7 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
           Levels {
             Level01 {
               FullName Driller_Night
+              TextureSet World\\WorldTextures\\RockSplit\\Rock:0:0
               TerrainMap Levels\\GameLevels\\Level01\\Surf.map
               PredugMap Levels\\GameLevels\\Level01\\Dugg.map
               SurfaceMap Levels\\GameLevels\\Level01\\High.map
@@ -48,6 +49,9 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         """)
         let manifest = try LevelRuntimeResources(config: cfg, identifier: "Levels::Level01")
         precondition(manifest.title == "Driller Night")
+        // TextureSet contains retail ':' fields and must never pass through
+        // relative-file path validation (regression: mission loading crash).
+        precondition(manifest.textureSetSetting?.contains(":0:0") == true)
         precondition(manifest.mapPaths.count == 3)
         precondition(manifest.objectListPath?.hasSuffix("Objects.ol") == true)
         precondition(manifest.scriptPath?.hasSuffix("Level01.npl") == true)
