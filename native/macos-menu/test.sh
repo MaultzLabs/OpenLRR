@@ -41,5 +41,5 @@ swiftc -O Sources/OriginalSaveFile.swift Tests/OriginalSaveFileTests.swift -o "$
 
 swiftc -O Sources/WadArchive.swift Sources/GameResources.swift \
   Sources/LegoConfig.swift Sources/MapFile.swift Sources/LevelRuntimeResources.swift \
-  Sources/LevelWorld.swift Tests/LevelRuntimeResourcesTests.swift -o "$tmp8"
+  Sources/LevelWorld.swift Sources/NativeTerrainMesh.swift Tests/LevelRuntimeResourcesTests.swift -o "$tmp8"
 "$tmp8"
