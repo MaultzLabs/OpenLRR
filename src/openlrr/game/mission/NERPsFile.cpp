@@ -19,6 +19,111 @@
 #include "NERPsFunctions.h"
 
 
+
+// Isolated lab telemetry: never enabled in the ordinary OpenLRR build.
+// To activate, BOTH compile with OPENLRR_LAB_NERPS_TRACE and set
+// OPENLRR_NERPS_TRACE_PATH to a private local path explicitly at launch.
+// Does not change game logic, patch executable addresses, or inject new DLLs.
+#if defined(OPENLRR_LAB_NERPS_TRACE)
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+
+namespace {
+constexpr uint32 kLabNerpsFunctionCount = 294;
+constexpr uint32 kLabNerpsMaxRecords = 100000;
+static FILE* s_labNerpsFile = nullptr;
+static bool s_labNerpsFileChecked = false;
+static uint32 s_labNerpsRecordCount = 0;
+static uint32 s_labNerpsFrame = 0;
+static DWORD64 s_labNerpsLastTick[kLabNerpsFunctionCount] = {};
+static sint32 s_labNerpsLastValue[kLabNerpsFunctionCount] = {};
+static bool s_labNerpsHasValue[kLabNerpsFunctionCount] = {};
+
+static FILE* LabNERPs_GetTraceFile() {
+    if (!s_labNerpsFileChecked) {
+        s_labNerpsFileChecked = true;
+        const char* path = std::getenv("OPENLRR_NERPS_TRACE_PATH");
+        // A missing explicit path means no recording, even in the lab binary.
+        if (path != nullptr && std::strlen(path) > 0 && std::strlen(path) < 1024) {
+            FILE* out = nullptr;
+            if (fopen_s(&out, path, "wb") == 0) {
+                s_labNerpsFile = out;
+                std::setvbuf(s_labNerpsFile, nullptr, _IOFBF, 16384);
+            }
+        }
+    }
+    return s_labNerpsFile;
+}
+
+static sint32 LabNERPs_Invoke(uint32 functionId, sint32* args, uint32 argumentCount,
+                              uint32 instructionIndex, bool isAction) {
+    // Keep *precisely* the same dispatch target and argument memory.
+    if (functionId >= kLabNerpsFunctionCount) return 0;
+    sint32 values[3] = { 0, 0, 0 };
+    const uint32 safeCount = (args != nullptr && argumentCount <= 3) ? argumentCount : 0;
+    for (uint32 i = 0; i < safeCount; ++i) values[i] = args[i];
+    const sint32 result = LegoRR::c_nerpsFunctions[functionId].function(args);
+
+    // The interpreter evaluates predicates repeatedly on every update.
+    // Record actions, predicate value changes and one heartbeat/id/second,
+    // instead of millions of identical queries distorting game performance.
+    if (s_labNerpsRecordCount >= kLabNerpsMaxRecords) return result;
+    const DWORD64 tick = ::GetTickCount64();
+    const bool changed = (!s_labNerpsHasValue[functionId] ||
+                          result != s_labNerpsLastValue[functionId]);
+    const bool due = tick - s_labNerpsLastTick[functionId] >= 1000;
+    if (!isAction && !changed && !due) return result;
+    s_labNerpsLastTick[functionId] = tick;
+    s_labNerpsLastValue[functionId] = result;
+    s_labNerpsHasValue[functionId] = true;
+    FILE* out = LabNERPs_GetTraceFile();
+    if (out == nullptr) return result;
+
+    FILETIME stamp = {};
+    ::GetSystemTimeAsFileTime(&stamp);
+    ULARGE_INTEGER precise = {};
+    precise.LowPart = stamp.dwLowDateTime;
+    precise.HighPart = stamp.dwHighDateTime;
+    const double unixSeconds = (static_cast<double>(precise.QuadPart) -
+                                116444736000000000.0) / 10000000.0;
+
+    // The function table is data inside the game EXE. Emit a strict safe
+    // identifier alphabet; never include file paths, literal text or pointers.
+    char name[81] = {};
+    const char* raw = LegoRR::c_nerpsFunctions[functionId].name;
+    if (raw != nullptr) {
+        for (uint32 i = 0; i < 80 && raw[i]; ++i) {
+            const unsigned char c = static_cast<unsigned char>(raw[i]);
+            if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                  (c >= '0' && c <= '9') || c == '_')) break;
+            name[i] = static_cast<char>(c);
+        }
+    }
+    std::fprintf(out, "{\"function\":\"%s\",\"function_id\":%u,"
+                     "\"pc\":%u,\"frame\":%u,\"kind\":\"%s\","
+                     "\"args\":[%d,%d,%d],\"argc\":%u,\"result\":%d,"
+                     "\"game_unix_s\":%.6f,\"game_tick_ms\":%llu}\n",
+                 name, functionId, instructionIndex, s_labNerpsFrame,
+                 isAction ? "action" : "predicate",
+                 values[0], values[1], values[2], safeCount, result,
+                 unixSeconds, static_cast<unsigned long long>(tick));
+    ++s_labNerpsRecordCount;
+    if (s_labNerpsRecordCount % 64 == 0) std::fflush(out);
+    return result;
+}
+} // namespace
+
+#define LAB_NERPS_INVOKE(id, stack, argc, pc, action) \
+    LabNERPs_Invoke((id), (stack), (argc), (pc), (action))
+#define LAB_NERPS_START_TICK() (++s_labNerpsFrame)
+#else
+#define LAB_NERPS_INVOKE(id, stack, argc, pc, action) \
+    (LegoRR::c_nerpsFunctions[(id)].function((stack)))
+#define LAB_NERPS_START_TICK() ((void)0)
+#endif
+
+
 /**********************************************************************************
  ******** Globals
  **********************************************************************************/
@@ -338,7 +443,7 @@ void __cdecl LegoRR::NERPsRuntime_LoadLiteral(IN OUT NERPsInstruction* instructi
 		// The wonkey assignment here is because of how NERPs treats instructions as a whole DWORD.
 		// Loading integer literals only supports 0x0-0xffff, but functions can potentially
 		// return anything from 0x0-0xffffffff.
-		*(sint32*)instruction = c_nerpsFunctions[instruction->operand].function(nullptr);
+		*(sint32*)instruction = LAB_NERPS_INVOKE(instruction->operand, nullptr, 0, 0, false);
 	}
 }
 
@@ -347,6 +452,7 @@ void __cdecl LegoRR::NERPsRuntime_Execute(real32 elapsedAbs)
 {
 	if (nerpsfileGlobs.instructions == nullptr)
 		return; // No NERPs file loaded.
+	LAB_NERPS_START_TICK();
 
 
 	char logBuff[512];
@@ -412,13 +518,13 @@ void __cdecl LegoRR::NERPsRuntime_Execute(real32 elapsedAbs)
 
 				switch (nargs) {
 				case NERPS_ARGS_0:
-					regB = c_nerpsFunctions[funcId].function(nullptr); // 0 stack arguments
+					regB = LAB_NERPS_INVOKE(funcId, nullptr, 0, instrIdx, false); // 0 stack arguments
 					break;
 
 				case NERPS_ARGS_1:
 					argsStack[0] = instructions[instrIdx + 1];
 					NERPsRuntime_LoadLiteral(&argsStack[0]);
-					regB = c_nerpsFunctions[funcId].function((sint32*)argsStack);
+					regB = LAB_NERPS_INVOKE(funcId, (sint32*)argsStack, 1, instrIdx, false);
 					instrIdx += 1;
 					break;
 
@@ -427,7 +533,7 @@ void __cdecl LegoRR::NERPsRuntime_Execute(real32 elapsedAbs)
 					argsStack[1] = instructions[instrIdx + 2];
 					NERPsRuntime_LoadLiteral(&argsStack[0]);
 					NERPsRuntime_LoadLiteral(&argsStack[1]);
-					regB = c_nerpsFunctions[funcId].function((sint32*)argsStack);
+					regB = LAB_NERPS_INVOKE(funcId, (sint32*)argsStack, 2, instrIdx, false);
 					instrIdx += 2;
 					break;
 				}
@@ -479,7 +585,7 @@ void __cdecl LegoRR::NERPsRuntime_Execute(real32 elapsedAbs)
 				switch (nargs) {
 				case NERPS_ARGS_0_NORETURN:
 					if (regA) { // Action if expression is true
-						c_nerpsFunctions[funcId].function(nullptr); // 0 stack arguments
+						LAB_NERPS_INVOKE(funcId, nullptr, 0, instrIdx, true); // 0 stack arguments
 					}
 					break;
 
@@ -487,7 +593,7 @@ void __cdecl LegoRR::NERPsRuntime_Execute(real32 elapsedAbs)
 					if (regA) { // Action if expression is true
 						argsStack[0] = instructions[instrIdx + 1];
 						NERPsRuntime_LoadLiteral(&argsStack[0]);
-						c_nerpsFunctions[funcId].function((sint32*)argsStack);
+						LAB_NERPS_INVOKE(funcId, (sint32*)argsStack, 1, instrIdx, true);
 					}
 					instrIdx += 1;
 					break;
@@ -497,7 +603,7 @@ void __cdecl LegoRR::NERPsRuntime_Execute(real32 elapsedAbs)
 						argsStack[1] = instructions[instrIdx + 2];
 						NERPsRuntime_LoadLiteral(&argsStack[0]);
 						NERPsRuntime_LoadLiteral(&argsStack[1]);
-						c_nerpsFunctions[funcId].function((sint32*)argsStack);
+						LAB_NERPS_INVOKE(funcId, (sint32*)argsStack, 2, instrIdx, true);
 					}
 					instrIdx += 2;
 					break;
@@ -509,7 +615,7 @@ void __cdecl LegoRR::NERPsRuntime_Execute(real32 elapsedAbs)
 						NERPsRuntime_LoadLiteral(&argsStack[0]);
 						NERPsRuntime_LoadLiteral(&argsStack[1]);
 						NERPsRuntime_LoadLiteral(&argsStack[2]);
-						c_nerpsFunctions[funcId].function((sint32*)argsStack);
+						LAB_NERPS_INVOKE(funcId, (sint32*)argsStack, 3, instrIdx, true);
 					}
 					instrIdx += 3;
 					break;
