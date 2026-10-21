@@ -50,11 +50,12 @@ struct NativeTerrainMesh {
     let tileCount: Int
     let triangleCount: Int
 
-    /// Height differences are taken from the original unsigned high.map
-    /// vertices. The vertical scaling here is intentionally provisional
-    /// pending verification against the original Map3D roughness algorithm.
-    static let previewHeightScale: Float = 0.045
-    static let previewWallHeight: Float = 2.1
+    /// Retail Lego.cfg default level units (RRU config documentation):
+    /// BlockSize 40; RoughLevel 6; DigDepth 40. We normalize block width
+    /// to 1 in SceneKit so heights scale 6/40 and rock faces 40/40.
+    /// Original Map3D roughness and roof details are still being ported.
+    static let previewHeightScale: Float = 6.0 / 40.0
+    static let previewWallHeight: Float = 40.0 / 40.0
 
     init(world: LevelWorld, maxTiles: Int = 150_000) throws {
         let count = world.width * world.height
