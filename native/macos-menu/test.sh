@@ -9,7 +9,8 @@ tmp5="$(mktemp /tmp/openlrr-audio-file-test.XXXXXXXX)"
 tmp6="$(mktemp /tmp/openlrr-mission-test.XXXXXXXX)"
 tmp7="$(mktemp /tmp/openlrr-save-test.XXXXXXXX)"
 tmp8="$(mktemp /tmp/openlrr-world-map-test.XXXXXXXX)"
-trap 'rm -f "$tmp1" "$tmp2" "$tmp3" "$tmp4" "$tmp5" "$tmp6" "$tmp7" "$tmp8"' EXIT
+tmp9="$(mktemp /tmp/openlrr-ol-test.XXXXXXXX)"
+trap 'rm -f "$tmp1" "$tmp2" "$tmp3" "$tmp4" "$tmp5" "$tmp6" "$tmp7" "$tmp8" "$tmp9"' EXIT
 swiftc -O Sources/WadArchive.swift Tests/WadArchiveTests.swift -o "$tmp1"
 "$tmp1"
 swiftc -O Sources/WadArchive.swift Sources/GameResources.swift \
@@ -41,5 +42,9 @@ swiftc -O Sources/OriginalSaveFile.swift Tests/OriginalSaveFileTests.swift -o "$
 
 swiftc -O Sources/WadArchive.swift Sources/GameResources.swift \
   Sources/LegoConfig.swift Sources/MapFile.swift Sources/LevelRuntimeResources.swift \
-  Sources/LevelWorld.swift Sources/NativeTerrainMesh.swift Tests/LevelRuntimeResourcesTests.swift -o "$tmp8"
+  Sources/LevelWorld.swift Sources/NativeTerrainMesh.swift Sources/NativeLevelNavigation.swift Tests/LevelRuntimeResourcesTests.swift -o "$tmp8"
 "$tmp8"
+
+swiftc -O Sources/LegoConfig.swift Sources/OriginalObjectList.swift \
+  Tests/OriginalObjectListTests.swift -o "$tmp9"
+"$tmp9"
