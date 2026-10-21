@@ -46,6 +46,27 @@ import Foundation
         precondition(OriginalAudioFileLocator.locate("Sounds/Streamed/OriginalAmbient.wav",
                   beside: copiedWad, additionalRoot: installed) == streamWav)
 
+        // When someone opens a copied WAD, the original audio may already
+        // exist in their Wineskin wrapper. No second user selection is needed.
+        let home = temp.appendingPathComponent("ExampleHome", isDirectory: true)
+        let game = home.appendingPathComponent(
+            "Applications/Sikarugir/Rock Raiders.app/Contents/SharedSupport/prefix/drive_c/Program Files/Rock Raiders Original",
+            isDirectory: true)
+        let wrappedSounds = game.appendingPathComponent("Data/Sounds/Streamed", isDirectory: true)
+        try fm.createDirectory(at: wrappedSounds, withIntermediateDirectories: true)
+        let wrappedWav = wrappedSounds.appendingPathComponent("Atmosdel.wav")
+        try Data(repeating: 0, count: 44).write(to: wrappedWav)
+        precondition(OriginalAudioFileLocator.locate("Sounds/Streamed/Atmosdel.wav",
+            beside: copiedWad, homeDirectory: home) == wrappedWav)
+
+        // The RRU replacement archive may already be extracted in Downloads.
+        let rruExtract = home.appendingPathComponent("Downloads/Atmosdel_and_Stats", isDirectory: true)
+        try fm.createDirectory(at: rruExtract, withIntermediateDirectories: true)
+        let rruWav = rruExtract.appendingPathComponent("Stats.wav")
+        try Data(repeating: 0, count: 44).write(to: rruWav)
+        precondition(OriginalAudioFileLocator.locate("Sounds/Streamed/Stats.wav",
+            beside: copiedWad, homeDirectory: home) == rruWav)
+
         // Do not follow traversal or arbitrary formats from untrusted CFG.
         precondition(OriginalAudioFileLocator.locate("../Sounds/Atmosdel.wav", beside: wad) == nil)
         precondition(OriginalAudioFileLocator.locate("/etc/passwd.wav", beside: wad) == nil)
