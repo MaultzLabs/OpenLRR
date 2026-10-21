@@ -43,6 +43,7 @@ final class OriginalMenuCanvas: NSView {
     var saveSlotLabel = "Save Game"
     var loadedSave: OriginalSaveFile? { didSet { needsDisplay = true } }
     var onNavigation: ((String) -> Void)?
+    var onMissionSelected: ((MissionSelection.Node) -> Void)?
     private var menuIndex = 0
     private var hoverIndex: Int?
     private var imageCache: [String: NSImage] = [:]
@@ -351,10 +352,9 @@ final class OriginalMenuCanvas: NSView {
         }
         if let index = missionRects.first(where: { $0.1.contains(pos) })?.0,
            currentMissions.indices.contains(index) {
-            // Only actual working runtime loading can start a level. Until
-            // then, let the original selection be inspected without writing
-            // a fictitious save or claiming a mission has launched.
-            onNavigation?("Mission selected: \(currentMissions[index].title) — gameplay runtime not ported")
+            // Route the original mission identifier into the native world
+            // loader, without modifying saves or pretending to run objectives.
+            onMissionSelected?(currentMissions[index])
             return
         }
         guard let index = hitRects.first(where: { $0.1.contains(pos) })?.0,
@@ -421,6 +421,7 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate {
     private var activeWadURL: URL?
     private var activeResources: GameResources?
     private var activeConfig: LegoConfig?
+    private var levelWindows: [NSWindow] = []
 
     private var selectedAudioFolder: URL? {
         guard let path = UserDefaults.standard.string(forKey: audioFolderDefaultsKey),
@@ -446,6 +447,9 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate {
         canvas.onNavigation = { [weak self] value in
             self?.window.title = "Rock Raiders — \(value)"
         }
+        canvas.onMissionSelected = { [weak self] node in
+            self?.openLevel(identifier: node.identifier)
+        }
         root.addSubview(canvas)
 
         let toolbar = NSVisualEffectView(frame: CGRect(x: 0, y: 0, width: 800, height: 80))
@@ -463,10 +467,13 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate {
         let restoreAudio = NSButton(title: "Get Original Audio…", target: self,
                                     action: #selector(openOriginalAudioResource))
         restoreAudio.toolTip = "Open Rock Raiders United's original menu WAV page; review its download terms."
+        let preview = NSButton(title: "First Level", target: self,
+                               action: #selector(openFirstOriginalLevel))
+        preview.toolTip = "Open the first original mission terrain with camera and tile inspection."
         let about = NSButton(title: "About", target: self, action: #selector(aboutPrototype))
         let quit = NSButton(title: "Quit", target: NSApp,
                             action: #selector(NSApplication.terminate(_:)))
-        let buttons = NSStackView(views: [open, restoreAudio, locateSounds, about, quit])
+        let buttons = NSStackView(views: [preview, open, restoreAudio, locateSounds, about, quit])
         buttons.orientation = .horizontal
         buttons.alignment = .centerY
         buttons.spacing = 12
@@ -495,6 +502,55 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate {
                   !savedPath.isEmpty {
             load(URL(fileURLWithPath: savedPath), automatic: true)
         }
+    }
+
+    @objc private func openFirstOriginalLevel() {
+        guard let config = activeConfig,
+              let identifier = config.valueUnderGame(["Main", "StartLevel"]),
+              !identifier.isEmpty else {
+            presentLevelError("The original mission catalog is unavailable. Confirm the installed LegoRR0/1.wad pair contains Lego.cfg.")
+            return
+        }
+        openLevel(identifier: identifier)
+    }
+
+    private func openLevel(identifier: String) {
+        guard let resources = activeResources, let config = activeConfig else {
+            presentLevelError("Load the original game archives before opening a mission.")
+            return
+        }
+        do {
+            let manifest = try LevelRuntimeResources(config: config, identifier: identifier)
+            let world = try LevelWorld(manifest: manifest, resources: resources)
+            let levelWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 960, height: 720),
+                                       styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                                       backing: .buffered, defer: false)
+            levelWindow.title = "Rock Raiders — \(world.title) (Native Terrain Inspection)"
+            levelWindow.minSize = NSSize(width: 640, height: 480)
+            levelWindow.isReleasedWhenClosed = false
+            let viewer = NativeLevelView(frame: levelWindow.contentView!.bounds, world: world)
+            viewer.autoresizingMask = [.width, .height]
+            levelWindow.contentView = viewer
+            levelWindow.center()
+            levelWindow.makeKeyAndOrderFront(nil)
+            levelWindow.makeFirstResponder(viewer)
+            NSApp.activate(ignoringOtherApps: true)
+            levelWindows.append(levelWindow)
+            status.stringValue = "Opened original \(world.title): \(world.width) × \(world.height) tiles (terrain inspection)"
+            status.toolTip = status.stringValue
+        } catch {
+            presentLevelError("\(identifier): \(error)")
+        }
+    }
+
+    private func presentLevelError(_ message: String) {
+        status.stringValue = "Unable to open original mission: \(message)"
+        status.toolTip = status.stringValue
+        let alert = NSAlert()
+        alert.messageText = "Original mission could not be loaded"
+        alert.informativeText = message + "\n\nNo original game or save files were changed."
+        alert.alertStyle = .warning
+        alert.beginSheetModal(for: window)
     }
 
     @objc private func openArchive() {
