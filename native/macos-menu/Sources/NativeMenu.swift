@@ -38,6 +38,10 @@ final class OriginalMenuCanvas: NSView {
     var resources: GameResources? { didSet { clearCache(); needsDisplay = true } }
     var definitions: MenuDefinition? { didSet { menuIndex = 0; needsDisplay = true } }
     var missionSelection: MissionSelection? { didSet { missionHover = nil; needsDisplay = true } }
+    var levelCatalog: LevelCatalog?
+    var saveSlots: [OriginalSaveCatalog.Slot] = [] { didSet { needsDisplay = true } }
+    var saveSlotLabel = "Save Game"
+    var loadedSave: OriginalSaveFile? { didSet { needsDisplay = true } }
     var onNavigation: ((String) -> Void)?
     private var menuIndex = 0
     private var hoverIndex: Int?
@@ -47,7 +51,9 @@ final class OriginalMenuCanvas: NSView {
     private var unavailable = Set<String>()
     private var hitRects: [(Int, CGRect)] = []
     private var missionRects: [(Int, CGRect)] = []
+    private var saveRects: [(Int, CGRect)] = []
     private var missionHover: Int?
+    private var saveHover: Int?
     private var history: [Int] = []
 
     private var currentMissions: [MissionSelection.Node] {
@@ -55,6 +61,24 @@ final class OriginalMenuCanvas: NSView {
         if menuIndex == 1 { return missionSelection.missions }
         if menuIndex == 2 { return missionSelection.tutorials }
         return []
+    }
+
+    private func missionAvailable(_ entry: MissionSelection.Node,
+                                  in nodes: [MissionSelection.Node]) -> Bool {
+        if menuIndex == 2 { return true } // All retail tutorials start unlocked.
+        guard let loadedSave, let levelCatalog else { return entry.initiallyAvailable }
+
+        let completed = Set(levelCatalog.missions.enumerated().compactMap { index, level in
+            loadedSave.completedLevelIndices.contains(index) ? level.identifier.lowercased() : nil
+        })
+        let key = entry.identifier.lowercased()
+        if entry.initiallyAvailable || completed.contains(key) { return true }
+        // Front_Levels_UpdateAvailable propagates availability only along
+        // links from levels marked completed in the loaded save.
+        return nodes.contains { parent in
+            completed.contains(parent.identifier.lowercased()) &&
+            parent.nextIdentifiers.contains { $0.lowercased() == key }
+        }
     }
 
     override var isFlipped: Bool { true }
@@ -68,8 +92,10 @@ final class OriginalMenuCanvas: NSView {
         history.removeAll()
         hoverIndex = nil
         missionHover = nil
+        saveHover = nil
         hitRects.removeAll()
         missionRects.removeAll()
+        saveRects.removeAll()
     }
 
     /// AppKit's ImageIO decodes the actual BMP bytes from the archive, without
@@ -160,6 +186,7 @@ final class OriginalMenuCanvas: NSView {
         ctx.cgContext.interpolationQuality = .none
         hitRects.removeAll()
         missionRects.removeAll()
+        saveRects.removeAll()
 
         let backgroundName = "Interface/FrontEnd/MenuBGpic.bmp"
         if let background = image(backgroundName) {
@@ -214,8 +241,9 @@ final class OriginalMenuCanvas: NSView {
         let entries = currentMissions
         for (index, entry) in entries.enumerated() {
             guard entry.imagePaths.count == 3 else { continue }
-            let isHovered = missionHover == index && entry.initiallyAvailable
-            let imageNumber = !entry.initiallyAvailable ? 2 : (isHovered ? 0 : 1)
+            let available = missionAvailable(entry, in: entries)
+            let isHovered = missionHover == index && available
+            let imageNumber = !available ? 2 : (isHovered ? 0 : 1)
             guard let artwork = image(entry.imagePaths[imageNumber]) else { continue }
             let x = CGFloat(menu.x + entry.x) -
                     (menu.autoCenter ? artwork.size.width / 2 : 0)
@@ -223,7 +251,7 @@ final class OriginalMenuCanvas: NSView {
             let frame = CGRect(x: x, y: y, width: artwork.size.width,
                                height: artwork.size.height)
             drawImage(artwork, at: frame)
-            if entry.initiallyAvailable { missionRects.append((index, frame)) }
+            if available { missionRects.append((index, frame)) }
         }
         // Like Front_Callback_SelectMissionItem, display the real localized
         // mission name when the cursor hovers an unlocked wormhole icon.
@@ -231,6 +259,26 @@ final class OriginalMenuCanvas: NSView {
             drawText(entries[missionHover].title, x: 320, y: 390, size: 22,
                      hovered: false, enabled: true, centered: true,
                      fontPath: menu.titleFont)
+        }
+
+        // The original game creates the Load_A_Saved_Game menu's five Select
+        // items dynamically (Front_LoadLevels) with offsets -200:-100 and a
+        // 60px step. Only show statuses read from the actual original files.
+        if menuIndex == 3 {
+            for (index, slot) in saveSlots.enumerated() {
+                let label = "\(saveSlotLabel) \(slot.number)"
+                let valid: Bool
+                switch slot.state {
+                case .valid: valid = true
+                default: valid = false
+                }
+                let hit = drawText(label, x: CGFloat(menu.x - 200),
+                                   y: CGFloat(menu.y - 100 + index * 60),
+                                   size: 20, hovered: saveHover == index,
+                                   enabled: valid, centered: false,
+                                   fontPath: saveHover == index ? menu.hoverFont : menu.normalFont)
+                if valid { saveRects.append((index, hit)) }
+            }
         }
     }
 
@@ -276,15 +324,31 @@ final class OriginalMenuCanvas: NSView {
         let pos = logicalPoint(event)
         let newHover = hitRects.first(where: { $0.1.contains(pos) })?.0
         let newMissionHover = missionRects.first(where: { $0.1.contains(pos) })?.0
-        if hoverIndex != newHover || missionHover != newMissionHover {
+        let newSaveHover = saveRects.first(where: { $0.1.contains(pos) })?.0
+        if hoverIndex != newHover || missionHover != newMissionHover ||
+           saveHover != newSaveHover {
             hoverIndex = newHover
             missionHover = newMissionHover
+            saveHover = newSaveHover
             needsDisplay = true
         }
     }
 
     override func mouseDown(with event: NSEvent) {
         let pos = logicalPoint(event)
+        if let index = saveRects.first(where: { $0.1.contains(pos) })?.0,
+           saveSlots.indices.contains(index) {
+            if case .valid(let save) = saveSlots[index].state {
+                loadedSave = save
+                history.append(menuIndex)
+                menuIndex = 1 // OpenLRR loads save then enters mission map.
+                saveHover = nil
+                missionHover = nil
+                needsDisplay = true
+                onNavigation?("Loaded original save slot \(saveSlots[index].number) (read-only)")
+                return
+            }
+        }
         if let index = missionRects.first(where: { $0.1.contains(pos) })?.0,
            currentMissions.indices.contains(index) {
             // Only actual working runtime loading can start a level. Until
@@ -303,6 +367,7 @@ final class OriginalMenuCanvas: NSView {
             menuIndex = next
             hoverIndex = nil
             missionHover = nil
+            saveHover = nil
             needsDisplay = true
             onNavigation?("Original menu: \(menus[next].internalName)")
         }
@@ -315,6 +380,7 @@ final class OriginalMenuCanvas: NSView {
             menuIndex = previous
             hoverIndex = nil
             missionHover = nil
+            saveHover = nil
             needsDisplay = true
             return
         }
@@ -491,10 +557,22 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate {
                 // Source-grounded mission maps using the game's NextLevel
                 // order and LevelLinks, no handwritten mission assets.
                 if let catalog = try? LevelCatalog(config: config) {
+                    canvas.levelCatalog = catalog
                     canvas.missionSelection = MissionSelection(config: config, catalog: catalog)
+                    let roots = OriginalAudioFileLocator.automaticAudioRoots(
+                        home: FileManager.default.homeDirectoryForCurrentUser)
+                    canvas.saveSlots = OriginalSaveCatalog(
+                        selectedWadURL: url,
+                        expectedMissionCount: canvas.missionSelection?.missions.count ?? 0,
+                        additionalInstallRoots: roots).slots
+                    canvas.saveSlotLabel = (config.valueUnderGame(["Menu", "Save_Game"]) ??
+                        "Save_Game").replacingOccurrences(of: "_", with: " ")
                 } else {
+                    canvas.levelCatalog = nil
                     canvas.missionSelection = nil
+                    canvas.saveSlots = []
                 }
+                canvas.loadedSave = nil
                 activeWadURL = url
                 activeResources = resources
                 activeConfig = config
@@ -511,6 +589,9 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate {
             canvas.resources = nil
             canvas.definitions = nil
             canvas.missionSelection = nil
+            canvas.levelCatalog = nil
+            canvas.loadedSave = nil
+            canvas.saveSlots = []
             if automatic {
                 UserDefaults.standard.removeObject(forKey: selectedWadDefaultsKey)
                 status.stringValue = "Previous WAD location unavailable; select the original WAD again."
