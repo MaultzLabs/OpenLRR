@@ -6,6 +6,7 @@ import Foundation
 /// Reads private user-owned WAVs in place; does not modify the install.
 final class OriginalMenuAudio {
     private var player: AVAudioPlayer?
+    var isPlaying: Bool { player?.isPlaying == true }
 
     func stop() {
         player?.stop()
