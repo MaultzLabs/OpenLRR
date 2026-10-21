@@ -8,7 +8,8 @@ tmp4="$(mktemp /tmp/openlrr-nerps-test.XXXXXXXX)"
 tmp5="$(mktemp /tmp/openlrr-audio-file-test.XXXXXXXX)"
 tmp6="$(mktemp /tmp/openlrr-mission-test.XXXXXXXX)"
 tmp7="$(mktemp /tmp/openlrr-save-test.XXXXXXXX)"
-trap 'rm -f "$tmp1" "$tmp2" "$tmp3" "$tmp4" "$tmp5" "$tmp6" "$tmp7"' EXIT
+tmp8="$(mktemp /tmp/openlrr-world-map-test.XXXXXXXX)"
+trap 'rm -f "$tmp1" "$tmp2" "$tmp3" "$tmp4" "$tmp5" "$tmp6" "$tmp7" "$tmp8"' EXIT
 swiftc -O Sources/WadArchive.swift Tests/WadArchiveTests.swift -o "$tmp1"
 "$tmp1"
 swiftc -O Sources/WadArchive.swift Sources/GameResources.swift \
@@ -37,3 +38,8 @@ swiftc -O Sources/LegoConfig.swift Sources/LevelCatalog.swift \
 
 swiftc -O Sources/OriginalSaveFile.swift Tests/OriginalSaveFileTests.swift -o "$tmp7"
 "$tmp7"
+
+swiftc -O Sources/WadArchive.swift Sources/GameResources.swift \
+  Sources/LegoConfig.swift Sources/MapFile.swift Sources/LevelRuntimeResources.swift \
+  Tests/LevelRuntimeResourcesTests.swift -o "$tmp8"
+"$tmp8"
