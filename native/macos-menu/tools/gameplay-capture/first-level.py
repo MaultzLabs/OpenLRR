@@ -19,7 +19,7 @@ import capture
 
 APP_TERMS = ("rock raiders", "openlrr", "legorr")
 FORBIDDEN_TERMS = ("test", "native", "prototype", "benchmark", "diagnostic")
-WAIT_SECONDS_DEFAULT = 360
+WAIT_SECONDS_DEFAULT = 90
 
 
 def is_normal_game_app(path: Path) -> bool:
@@ -59,6 +59,7 @@ def wait_for_game(probe: capture.WindowProbe, timeout: float,
     """Only accept one window; never guess between multiple candidates."""
     deadline = clock() + timeout
     last_notice = clock()
+    last_diagnostic = None
     while clock() < deadline:
         windows = probe.list_games()
         if len(windows) == 1:
@@ -72,14 +73,40 @@ def wait_for_game(probe: capture.WindowProbe, timeout: float,
             raise capture.CaptureError(
                 "Multiple Rock Raiders windows visible (" + ids +
                 "). Close the extra game windows, then run this command again.")
-        if clock() - last_notice >= 20:
-            print("Waiting for the original Rock Raiders main menu…", flush=True)
+        if clock() - last_notice >= 15:
+            # The old script repeated "Waiting..." for six minutes even
+            # after a visibly running Wine game had been closed.
+            if hasattr(probe, "diagnose"):
+                details = probe.diagnose()
+                summary = (
+                    details.get("screen_recording_permission"),
+                    details.get("eligible_game_windows"),
+                    details.get("wine_like_windows"),
+                    details.get("wine_like_untitled_windows")
+                )
+                if summary != last_diagnostic:
+                    print("Window detector: game matches=%s, Wine windows=%s, "
+                          "Wine windows without titles=%s, Screen Recording=%s"
+                          % (summary[1], summary[2], summary[3],
+                             "allowed" if summary[0] else "not authorized"),
+                          flush=True)
+                    last_diagnostic = summary
+                if details.get("screen_recording_permission") is False:
+                    raise capture.CaptureError(
+                        "Terminal does not have Screen Recording permission. "
+                        "In System Settings > Privacy & Security > Screen & "
+                        "System Audio Recording, allow Terminal, quit and "
+                        "reopen Terminal, then retry. The game was not recorded.")
+            else:
+                print("Waiting for a verified Rock Raiders game window…",
+                      flush=True)
             last_notice = clock()
         sleep(interval)
     raise capture.CaptureError(
-        "Timed out waiting for an original Rock Raiders window. "
-        "The game might use a different window title. "
-        "Nothing was recorded or uploaded.")
+        "No verified Rock Raiders window was detected within the wait limit. "
+        "The game may have closed, or Wine may expose an untitled window. "
+        "No recording or upload occurred. Use the window diagnostic to "
+        "identify the exact cause before attempting another capture.")
 
 
 def choose_application(explicit: Path | None, discovered: list[Path]) -> Path | None:
