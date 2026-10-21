@@ -35,10 +35,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Test parser and compile native arm64 AppKit prototype
+      - name: Compile native ARM64 AppKit prototype
+        # The parser-tests job already verifies every portable parser on Linux.
+        # macOS should verify Apple's frameworks/compiler rather than
+        # repeating the CPU-heavy portable fixture suite.
         run: |
           cd native/macos-menu
-          bash test.sh
           bash build.sh
           test -f build/RockRaidersNativeMenu.app/Contents/MacOS/RockRaidersNativeMenu
           /usr/bin/lipo -archs build/RockRaidersNativeMenu.app/Contents/MacOS/RockRaidersNativeMenu | grep -qx 'arm64'
