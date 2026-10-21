@@ -72,7 +72,7 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         let world = try LevelWorld(manifest: manifest, resources: archive)
         precondition(world.identifier == "Levels::Level01")
         precondition(world.width == 1 && world.height == 1)
-        precondition(world.tile(x: 0, y: 0)?.terrain.rawValue == "Unspecified")
+        precondition(world.tile(x: 0, y: 0)?.terrain.rawValue == "Tunnel")
         precondition(world.tile(x: 0, y: 0)?.excavation.rawValue == "Wall")
         precondition(world.tile(x: 1, y: 0) == nil)
         precondition(world.tile(x: -1, y: 0) == nil)
@@ -101,6 +101,35 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         precondition(nativeWorld.tile(x: 1, y: 1)?.excavation.rawValue == "Hidden cavern")
         precondition(nativeWorld.initialCameraTile.x == 1 &&
                      nativeWorld.initialCameraTile.y == 0)
+        // Genuine MAP-derived 3D geometry with no external assets or game
+        // semantics invented by a renderer.
+        let mesh = try NativeTerrainMesh(world: nativeWorld)
+        precondition(mesh.tileCount == 4)
+        precondition(mesh.triangleCount > 8)  // four tile tops + exposed wall sides
+        precondition(mesh.surfaces.contains { $0.material == .crystal })
+        precondition(mesh.surfaces.contains { $0.material == .wallFace })
+        precondition(mesh.surfaces.allSatisfy {
+            $0.vertices.count == $0.normals.count && $0.vertices.count % 3 == 0
+        })
+        precondition(mesh.surfaces.flatMap(\\.normals).allSatisfy {
+            $0.x.isFinite && $0.y.isFinite && $0.z.isFinite
+        })
+        precondition(mesh.surfaces.flatMap(\\.vertices).contains {
+            $0.y > NativeTerrainMesh.previewWallHeight
+        })
+        do {
+            _ = try NativeTerrainMesh(world: nativeWorld, maxTiles: 3)
+            preconditionFailure("Tile-count memory guard was bypassed")
+        } catch is NativeTerrainMesh.MeshError {}
+
+        // Correctness of raw terrain IDs is anchored in
+        // game/GameCommon.h::Lego_SurfaceType.
+        precondition(LevelWorld.Terrain(code: 1) == .immovable)
+        precondition(LevelWorld.Terrain(code: 3) == .medium)
+        precondition(LevelWorld.Terrain(code: 7) == .water)
+        precondition(LevelWorld.Terrain(code: 9) == .lake)
+        precondition(LevelWorld.Terrain(code: 10) == .crystalSeam)
+        precondition(LevelWorld.Terrain(code: 18) == .unknown)
         let wrongHeight = syntheticMap([1, 2, 3, 4], width: 2, height: 2)
         let inconsistentWad = syntheticWad([
             ("Levels\\GameLevels\\Level01\\Surf.map", nativeTerrain),
