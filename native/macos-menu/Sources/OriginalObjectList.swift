@@ -37,6 +37,8 @@ struct OriginalObjectList {
     var initialCamera: Placement? { placements.first(where: \.isCamera) }
     var rockRaiders: [Placement] { placements.filter(\.isRockRaider) }
 
+    init() { placements = [] }
+
     init(data: Data) throws {
         guard data.count <= 2_000_000 else {
             throw ObjectError.invalid("OL text file exceeds 2MB")
@@ -93,7 +95,7 @@ struct OriginalObjectList {
     init(manifest: LevelRuntimeResources, resources: GameResources) throws {
         guard let file = manifest.objectListPath else {
             // Levels can legitimately omit starting placed objects.
-            self.placements = []
+            self.init()
             return
         }
         let bytes = try resources.data(at: file, maximumBytes: 2_000_000)
