@@ -60,7 +60,14 @@ struct LevelRuntimeResources {
             if let filename = try safePath(key) { paths[key] = filename }
         }
         self.mapPaths = paths
-        self.textureSetSetting = try safePath("TextureSet")
+        // TextureSet is *not* a pathname. Retail Lego.cfg can use a
+        // colon-separated texture atlas descriptor (the value may contain
+        // colons or commas), so passing it through safePath incorrectly
+        // rejects working missions such as Levels::Level01.
+        let textureDescriptor = config.valueUnderGame(path + ["TextureSet"])?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        self.textureSetSetting = (textureDescriptor?.utf8.count ?? 0) <= 2048
+            ? textureDescriptor : nil
         self.objectListPath = try safePath("OListFile")
         self.scriptPath = try safePath("NERPFile")
         self.scriptMessagePath = try safePath("NERPMessageFile")
