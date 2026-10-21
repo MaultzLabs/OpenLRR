@@ -16,6 +16,7 @@ import sys
 
 import capture
 import video_session
+import index_clips
 
 
 def recover(source: Path, *, chunk_seconds: int = 120) -> int:
@@ -50,6 +51,13 @@ def recover(source: Path, *, chunk_seconds: int = 120) -> int:
         return 2
     data = json.loads(manifest.read_text())
     count = data.get("clip_count")
+    # Align the safely recovered video with any earlier input/Wine records.
+    # Missing telemetry remains explicit rather than being inferred.
+    correlation = index_clips.build_index(source.parent, destination)
+    (destination / "analysis-index.json").write_text(
+        json.dumps(correlation, sort_keys=True, indent=2) + "\n",
+        encoding="utf-8")
+    os.chmod(destination / "analysis-index.json", 0o600)
     print("Recovery succeeded. Created " + str(count) + " separate MP4 clips.")
     print("Recovery folder: " + str(destination))
     print("Original remains unchanged: " + str(source))

@@ -15,6 +15,7 @@ import sys
 
 import capture
 import video_session
+import index_clips
 
 LAUNCHER = Path(__file__).resolve().parent / "first-level.py"
 spec = importlib.util.spec_from_file_location("original_game_launcher", LAUNCHER)
@@ -123,6 +124,13 @@ def main(argv: list[str] | None = None) -> int:
     print("Using live-finalized, shareable video clips…", flush=True)
     clips = video_session.split_private_video(split_binary, session)
     info = json.loads((clips / "clips.json").read_text())
+    # Automatically relate each saved clip to supported input/Wine/NERPs
+    # events and their known source code entry points. Missing traces are
+    # identified as missing, never fabricated.
+    correlated = index_clips.build_index(session, clips)
+    with (clips / "analysis-index.json").open("x", encoding="utf-8") as file:
+        json.dump(correlated, file, sort_keys=True, indent=2)
+        file.write("\n")
     archive = session.with_name(session.name + "-timeline-review.zip")
     count = capture.package_review(session, archive, include_frames=False)
     print("Recorded " + args.session + " video + synchronized inputs.")
@@ -132,6 +140,7 @@ def main(argv: list[str] | None = None) -> int:
     print("Ready-to-share video clips: " + str(clips))
     print("Clip count: " + str(info["clip_count"]))
     print("Timeline review ZIP: " + str(archive))
+    print("Video/input/code correlation index: " + str(clips / "analysis-index.json"))
     print("Private local capture session: " + str(session))
     print("Share the finished clips and timeline ZIP after reviewing them.")
     # Finder only REVEALS the local clips, never sends any files.

@@ -53,7 +53,7 @@ class RecoveryTests(unittest.TestCase):
                 (dest / "part-0001.mp4").write_bytes(b"finished-clip")
                 (dest / "clips.json").write_text(json.dumps({
                     "schema": "openlrr-window-video-clips-v1", "clip_count": 1,
-                    "clips": [{"file": "part-0001.mp4", "duration_s": 120}]
+                    "clips": [{"file": "part-0001.mp4", "start_s": 0, "duration_s": 120, "bytes": 13}]
                 }))
             return mock.Mock(returncode=0, stdout="", stderr="")
         with (mock.patch.object(sys, "platform", "darwin"),
