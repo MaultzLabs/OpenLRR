@@ -97,10 +97,18 @@ final class OriginalMenuAudio {
 final class OriginalMenuButtonAudio {
     private var player: AVAudioPlayer?
 
-    func configure(config: LegoConfig, resources: GameResources,
-                   beside wadURL: URL, extraAudioRoot: URL? = nil) {
+    func stop() {
         player?.stop()
         player = nil
+    }
+
+    func configure(config: LegoConfig, resources: GameResources,
+                   beside wadURL: URL, extraAudioRoot: URL? = nil) {
+        stop()
+        // The same SoundOn setting governs SFX and menu ambience.
+        if let flag = (config.value("LegoRR", "SoundOn") ??
+                       config.valueUnderGame(["SoundOn"]))?.uppercased(),
+           ["FALSE", "NO", "OFF", "0"].contains(flag) { return }
         let samples = try? SoundSampleCatalog(config: config).samples(named: "SFX_Okay")
         guard let sample = samples?.first else { return }
         let filename = sample.wavPath
