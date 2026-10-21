@@ -607,6 +607,21 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate {
         }
     }
 
+    // AppKit routes both the toolbar Quit button and Cmd-Q through this
+    // delegate. Do not exit immediately: the retail game asks for confirmation.
+    // This native alert is temporary until the original quit menu assets and
+    // trigger behavior are decoded from the user's installed game.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        let confirmation = NSAlert()
+        confirmation.messageText = "Quit LEGO Rock Raiders?"
+        confirmation.informativeText = "Are you sure you want to quit the game?"
+        confirmation.alertStyle = .warning
+        confirmation.addButton(withTitle: "No")
+        confirmation.addButton(withTitle: "Yes")
+        return confirmation.runModal() == .alertSecondButtonReturn
+            ? .terminateNow : .terminateCancel
+    }
+
     @objc private func openFirstOriginalLevel() {
         guard let config = activeConfig,
               let identifier = config.valueUnderGame(["Main", "StartLevel"]),
