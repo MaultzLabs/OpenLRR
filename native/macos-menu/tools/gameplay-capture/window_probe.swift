@@ -102,6 +102,28 @@ if mode == "list" {
     exit(0)
 }
 
+if mode == "diagnose" {
+    // Diagnostic COUNTS ONLY. Do not expose unrelated window names, titles,
+    // application paths, process arguments or desktop pixel data.
+    let windows = windowRecords().filter { $0.onscreen && $0.width >= 320 &&
+        $0.height >= 200 && $0.width <= 8192 && $0.height <= 8192 }
+    let wineWords = ["wine", "wineskin", "whisky", "crossover",
+                     "sikarugir", "rock raiders", "legorr", "openlrr"]
+    let wine = windows.filter { window in
+        wineWords.contains(where: window.name.lowercased().contains)
+    }
+    emit([
+        "screen_recording_permission": CGPreflightScreenCaptureAccess(),
+        "eligible_game_windows": windows.filter { $0.safeIdentity }.count,
+        "wine_like_windows": wine.count,
+        "wine_like_untitled_windows": wine.filter { $0.title.isEmpty }.count,
+        "wine_like_titled_windows": wine.filter { !$0.title.isEmpty }.count,
+        "counts_only": true
+    ])
+    exit(0)
+}
+
+
 guard (mode == "inspect" || mode == "events"),
       let id = checkedInt(2), let pid = checkedInt(3),
       id > 0, pid > 0 else {
