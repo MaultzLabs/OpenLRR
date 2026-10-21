@@ -31,7 +31,14 @@ not use Wine, the original Windows EXE, DirectDraw, or any injected DLLs.
   world assets, plus object lists and NERP file paths, from each level's real
   `Lego.cfg` section. Reads binary `.map` terrain/height/predug arrays
   without altering them using the documented `MAP ` header and little-endian
-  16-bit cells. This is *resource loading*, not yet world simulation/rendering.
+  16-bit cells.
+- **First interactive mission terrain inspection:** a native AppKit tile map
+  using the original level's three essential MAP files. Click `First Level`
+  or an unlocked original mission-map icon; pan by dragging/WASD/arrow keys,
+  scroll or +/- to zoom, inspect original tile types and heights by clicking,
+  press R to recenter and Escape to close. This diagnostic top-down scene is
+  **not yet a playable 3D level**: it has no object/unit rendering, drilling,
+  goals, camera engine, or original terrain textures. Original files stay read-only.
 - Experimental macOS playback of the original `SFX_AmbientMusicLoop` sound using
   AVFoundation. Resolves configured WAVs from the WADs or loose
   `Data/Sounds/Streamed/` files; falls back to the original `Atmosdel.wav`
@@ -57,7 +64,8 @@ and actual mission launching.
 
 The framework for `Next` navigation exists and the original mission and save
 menus can now present decoded game data. Selecting a save is read-only. Clicking
-a mission reports its identity but cannot launch it. Native 3D graphics,
+a mission opens its authentic terrain files in the new overhead inspection
+window; it cannot launch gameplay yet. Native 3D graphics,
 camera/movement, AI, drilling/building, object simulation, objectives and
 executable NERPs have **not** been ported. WAV decoding and native menu audio
 playback are experimental.
