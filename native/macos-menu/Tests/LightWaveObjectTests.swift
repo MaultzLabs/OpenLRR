@@ -25,8 +25,8 @@ import Foundation
         }
         let points = point(0, 0, 0) + point(1, 0, 0) +
                      point(1, 0, 1) + point(0, 0, 1)
-        let names = Array("Ground".utf8) + [0] +
-                    Array("Details".utf8) + [0, 0]
+        let names = Array("Ground".utf8) + [0, 0] +
+                    Array("Details".utf8) + [0]
         let quad = be16(4) + be16(0) + be16(1) +
                    be16(2) + be16(3) + be16(1)
         let model = lwob([chunk("PNTS", points),
@@ -71,8 +71,8 @@ import Foundation
             chunk("SRFS", names), chunk("POLS", quad)
         ]))
         mustReject("NaN model position", lwob([
-            chunk("PNTS", be32(Float.nan.bitPattern) + point(0, 0, 0) +
-                         point(1, 0, 0) + point(0, 1, 0)),
+            chunk("PNTS", be32(Float.nan.bitPattern) + be32(0) + be32(0) +
+                         point(0, 0, 0) + point(1, 0, 0) + point(0, 1, 0)),
             chunk("SRFS", names), chunk("POLS", quad)
         ]))
         let detail = be16(3) + be16(0) + be16(1) + be16(2) +
