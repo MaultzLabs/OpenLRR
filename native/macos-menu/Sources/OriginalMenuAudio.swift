@@ -44,8 +44,8 @@ final class OriginalMenuAudio {
         var attemptedDecoding = false
         for sample in configured ?? [] {
             let path = sample.wavPath.replacingOccurrences(of: "\\", with: "/")
-            if let url = OriginalAudioFileLocator.locate(path, beside: selectedWadURL,
-                                                        additionalRoot: additionalAudioRoot) {
+            for url in OriginalAudioFileLocator.locateAll(path, beside: selectedWadURL,
+                                                           additionalRoot: additionalAudioRoot) {
                 attemptedDecoding = true
                 if let audio = try? AVAudioPlayer(contentsOf: url),
                    play(audio, volume: sample.volume) {
@@ -66,8 +66,8 @@ final class OriginalMenuAudio {
         // RRU identifies this as the main-menu recording in loose Data/Sounds.
         // Unlike the CD soundtrack it is already a WAV and needs no conversion.
         for candidate in ["Sounds/Streamed/Atmosdel.wav", "Sounds/Atmosdel.wav"] {
-            if let url = OriginalAudioFileLocator.locate(candidate,
-                                     beside: selectedWadURL, additionalRoot: additionalAudioRoot) {
+            for url in OriginalAudioFileLocator.locateAll(candidate,
+                                      beside: selectedWadURL, additionalRoot: additionalAudioRoot) {
                 attemptedDecoding = true
                 if let audio = try? AVAudioPlayer(contentsOf: url), play(audio) {
                     return "Playing original menu audio: \(url.lastPathComponent)"
@@ -76,10 +76,10 @@ final class OriginalMenuAudio {
         }
 
         if attemptedDecoding {
-            return "Found original WAV, but macOS cannot decode/play it; check the RRU Atmosdel.wav replacement"
+            return "Original WAVs were found but none could play (possibly corrupted). Restore authentic audio from your game CD or RRU."
         }
         let expected = configured?.first?.wavPath ?? "Sounds/Streamed/Atmosdel.wav"
-        return "Missing \(urlFilename(expected)); click Locate Sounds…"
+        return "Original menu WAV missing: \(urlFilename(expected)) (searched game installs and Downloads)"
     }
 
     private func urlFilename(_ raw: String) -> String {
