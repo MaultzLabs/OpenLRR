@@ -55,7 +55,7 @@ final class NativeLevelView: NSView {
         if terrain == .lava {
             return NSColor(calibratedRed: 0.90, green: 0.30, blue: 0.12, alpha: 1)
         }
-        if terrain == .water || terrain == .waterSheet {
+        if terrain == .water || terrain == .lake {
             return NSColor(calibratedRed: 0.13, green: 0.39, blue: 0.74, alpha: 1)
         }
         if cavern.isCavern {
@@ -64,14 +64,17 @@ final class NativeLevelView: NSView {
                            blue: 0.28 + boost, alpha: 1)
         }
         switch terrain {
-        case .solid: return NSColor(calibratedRed: 0.30, green: 0.33, blue: 0.36, alpha: 1)
+        case .immovable: return NSColor(calibratedRed: 0.30, green: 0.33, blue: 0.36, alpha: 1)
         case .hard: return NSColor(calibratedRed: 0.46, green: 0.46, blue: 0.47, alpha: 1)
-        case .loose: return NSColor(calibratedRed: 0.61, green: 0.47, blue: 0.30, alpha: 1)
+        case .medium: return NSColor(calibratedRed: 0.61, green: 0.47, blue: 0.30, alpha: 1)
         case .dirt, .soil: return NSColor(calibratedRed: 0.61, green: 0.38, blue: 0.22, alpha: 1)
         case .oreSeam: return NSColor(calibratedRed: 0.47, green: 0.55, blue: 0.63, alpha: 1)
         case .crystalSeam: return NSColor(calibratedRed: 0.18, green: 0.80, blue: 0.66, alpha: 1)
         case .rechargeSeam: return NSColor(calibratedRed: 0.36, green: 0.67, blue: 0.28, alpha: 1)
-        case .unknown, .lava, .water, .waterSheet:
+        case .tunnel, .rubble, .reinforcement, .path, .slugHole,
+             .undiscovered, .cavern:
+            return NSColor(calibratedRed: 0.28, green: 0.32, blue: 0.29, alpha: 1)
+        case .unknown, .lava, .water, .lake:
             return NSColor(calibratedWhite: 0.18, alpha: 1)
         }
     }
