@@ -80,8 +80,8 @@ private func mustThrow(_ title: String, _ block: () throws -> Void) {
             (.function, 4), (.function, 0)
         ])
         let zeroAction = NERPsRuntime.Function(kind: .action(arity: 0)) { _ in 0 }
-        precondition(try NERPsRuntime.run(unsigned,
-                                          functions: [4: zeroAction]).actionsExecuted == 1)
+        let unsignedTick = try NERPsRuntime.run(unsigned, functions: [4: zeroAction])
+        precondition(unsignedTick.actionsExecuted == 1)
 
         // "Pound" (#) applies unary NOT to the next expression.
         let invert = try script([
