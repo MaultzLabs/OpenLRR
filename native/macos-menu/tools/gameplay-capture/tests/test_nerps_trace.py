@@ -74,5 +74,33 @@ class NerpsTelemetryTests(unittest.TestCase):
         self.assertNotIn("raw_text", rows[0])
 
 
+    def test_win32_menu_command_can_be_logged_before_nerps_starts(self):
+        log = self.root / "early-menu.log"
+        log.touch()
+        follower = capture.NerpsFollower(log)
+        timeline = capture.Timeline(self.root / "menu-events.jsonl")
+        with log.open("a") as writer:
+            writer.write(json.dumps({
+                "event": "menu_command", "menu_id": 35012,
+                "game_unix_s": 1792610600.25, "game_tick_ms": 540,
+                "message": "private secret", "open_path": "/Users/test"
+            }) + "\n")
+            writer.write(json.dumps({
+                "event": "menu_command", "menu_id": 999999,
+                "game_unix_s": 1792610600.3
+            }) + "\n")
+        follower.sample(timeline)
+        timeline.close()
+        items = [json.loads(x) for x in
+                 (self.root / "menu-events.jsonl").read_text().splitlines()]
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["source"], "openlrr_menu")
+        self.assertEqual(items[0]["menu_id"], 35012)
+        self.assertEqual(items[0]["game_tick_ms"], 540)
+        self.assertEqual(items[0]["game_unix_s"], 1792610600.25)
+        self.assertNotIn("private", str(items))
+        self.assertNotIn("/Users", str(items))
+
+
 if __name__ == "__main__":
     unittest.main()
