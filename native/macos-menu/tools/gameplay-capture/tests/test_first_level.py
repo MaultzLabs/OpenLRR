@@ -127,7 +127,7 @@ class FirstLevelTests(unittest.TestCase):
 
     def test_timeout_does_not_capture_other_windows(self):
         clock = FakeClock()
-        with self.assertRaisesRegex(capture.CaptureError, "Timed out"):
+        with self.assertRaisesRegex(capture.CaptureError, "No verified Rock Raiders window"):
             first.wait_for_game(FakeProbe([]), 10, clock=clock, sleep=clock.sleep)
 
     def test_one_paste_pipeline_records_then_packages_locally(self):
