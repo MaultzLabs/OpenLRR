@@ -1,0 +1,38 @@
+name: Verify rolling live MP4 recording shutdown and recovery
+on:
+  push:
+    branches: [lab-capture-graceful-finalization-v1]
+    paths:
+      - native/macos-menu/tools/gameplay-capture/**
+      - .github/workflows/lab-capture-graceful-finalization.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: openlrr-rolling-video-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  portable-recovery-regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Test live segments, Wine exit, safe ZIP without real game
+        run: |
+          python3 -m py_compile native/macos-menu/tools/gameplay-capture/*.py
+          python3 -m unittest discover -s native/macos-menu/tools/gameplay-capture/tests -v
+  compile-apple-silicon-recorder:
+    needs: portable-recovery-regression
+    runs-on: macos-15
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compile rolling game-window recorder for arm64 macOS
+        run: |
+          cd native/macos-menu/tools/gameplay-capture
+          xcrun swiftc -O -target arm64-apple-macos15.0 -framework Cocoa -framework CoreGraphics -framework CoreMedia -framework ScreenCaptureKit -framework AVFoundation game_video.swift -o /tmp/openlrr-rolling-video
+          /usr/bin/lipo -archs /tmp/openlrr-rolling-video | grep -qx arm64
