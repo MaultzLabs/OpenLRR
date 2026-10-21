@@ -111,10 +111,10 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         precondition(mesh.surfaces.allSatisfy {
             $0.vertices.count == $0.normals.count && $0.vertices.count % 3 == 0
         })
-        precondition(mesh.surfaces.flatMap(\\.normals).allSatisfy {
+        precondition(mesh.surfaces.flatMap(\.normals).allSatisfy {
             $0.x.isFinite && $0.y.isFinite && $0.z.isFinite
         })
-        precondition(mesh.surfaces.flatMap(\\.vertices).contains {
+        precondition(mesh.surfaces.flatMap(\.vertices).contains {
             $0.y > NativeTerrainMesh.previewWallHeight
         })
         do {
