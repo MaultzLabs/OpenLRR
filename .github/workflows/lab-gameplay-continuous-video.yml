@@ -1,0 +1,43 @@
+name: Verify continuous Rock Raiders video and input recording
+on:
+  push:
+    branches: [lab-gameplay-continuous-video-v1]
+    paths:
+      - native/macos-menu/tools/gameplay-capture/**
+      - .github/workflows/lab-gameplay-continuous-video.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: rockraiders-continuous-video-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  unit-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: No-game privacy and event timeline tests
+        run: |
+          python3 -m py_compile native/macos-menu/tools/gameplay-capture/*.py
+          python3 -m unittest discover -s native/macos-menu/tools/gameplay-capture/tests -v
+  compile-video-macos:
+    needs: unit-tests
+    runs-on: macos-15
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compile native ARM64 ScreenCaptureKit continuous MP4 recorder
+        run: |
+          cd native/macos-menu/tools/gameplay-capture
+          xcrun swiftc -O -target arm64-apple-macos15.0 -framework Cocoa -framework CoreGraphics -framework CoreMedia -framework ScreenCaptureKit -framework AVFoundation game_video.swift -o /tmp/openlrr-game-video-compile-test
+          /usr/bin/lipo -archs /tmp/openlrr-game-video-compile-test | grep -qx arm64
+      - name: Compile built-in AVFoundation MP4 segmenter
+        run: |
+          cd native/macos-menu/tools/gameplay-capture
+          xcrun swiftc -O -parse-as-library -target arm64-apple-macos15.0 -framework AVFoundation -framework CoreMedia video_split.swift -o /tmp/openlrr-video-split-compile-test
+          /usr/bin/lipo -archs /tmp/openlrr-video-split-compile-test | grep -qx arm64
