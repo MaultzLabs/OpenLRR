@@ -45,6 +45,7 @@ swiftc -O Sources/WadArchive.swift Sources/GameResources.swift \
   Sources/LevelWorld.swift Sources/NativeTerrainMesh.swift Sources/NativeLevelNavigation.swift Tests/LevelRuntimeResourcesTests.swift -o "$tmp8"
 "$tmp8"
 
-swiftc -O Sources/LegoConfig.swift Sources/OriginalObjectList.swift \
-  Tests/OriginalObjectListTests.swift -o "$tmp9"
+swiftc -O Sources/WadArchive.swift Sources/GameResources.swift \
+  Sources/LegoConfig.swift Sources/MapFile.swift Sources/LevelRuntimeResources.swift \
+  Sources/OriginalObjectList.swift Tests/OriginalObjectListTests.swift -o "$tmp9"
 "$tmp9"
