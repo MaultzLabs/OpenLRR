@@ -81,6 +81,19 @@ struct PalettedBMP {
         self.rgba = colors
     }
 
+    /// Pointer_Load calls Image_SetupTrans with RGB(0,0,0), unlike the
+    /// bitmap-font renderer, which uses palette index zero as its mask.
+    /// Preserve every nonblack palette entry, including a nonblack index 0.
+    /// Return a separate buffer so the font atlas retains its original mask.
+    func blackKeyedRGBA() -> [UInt8] {
+        var keyed = rgba
+        for position in stride(from: 0, to: keyed.count, by: 4) {
+            keyed[position + 3] = keyed[position] == 0 &&
+                keyed[position + 1] == 0 && keyed[position + 2] == 0 ? 0 : 255
+        }
+        return keyed
+    }
+
     func index(x: Int, y: Int) -> UInt8? {
         guard (0..<width).contains(x), (0..<height).contains(y) else { return nil }
         return indices[y * width + x]
