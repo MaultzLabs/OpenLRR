@@ -627,7 +627,7 @@ def package_review(session: Path, output: Path, *, include_frames: bool) -> int:
                         if not isinstance(item, dict):
                             continue
                         name = item.get("file")
-                        if not isinstance(name, str) or not __import__("re").fullmatch(r"part-[0-9]{4}\\.mp4", name):
+                        if not isinstance(name, str) or not __import__("re").fullmatch(r"part-[0-9]{4}\.mp4", name):
                             continue
                         numbers = [item.get(key) for key in ("start_s", "duration_s", "bytes")]
                         if not all(type(x) in (int, float) and 0 <= x < 1e12 for x in numbers):
