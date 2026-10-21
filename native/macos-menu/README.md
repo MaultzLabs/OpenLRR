@@ -16,6 +16,13 @@ not use Wine, the original Windows EXE, DirectDraw, or any injected DLLs.
   Banner text honors the retail `AutoCenter` flag, and unpositioned menu
   images draw at their original pixel dimensions instead of being stretched.
   The game viewport stays at 4:3, separately centered above the utility bar.
+- **Original scrolling mission selection:** honors the retail menu
+  `CanScroll` configuration, uses `Front_Menu_UpdateMousePosition`'s
+  original top/bottom mouse position scrolling curve and clamps at the
+  image bounds. Mission icons travel with the map; mouse wheel also works.
+  Uses `Pointers::Pointer_Standard` BMP from the installed original WAD
+  as a custom transparent cursor in menus and both mission views, with a
+  system-arrow fallback when the original asset is absent.
 - Original sprite-font format: indexed 8-bit BMP, 10 columns by 19 rows,
   pen-zero transparency and pen-255 trailing width markers, following
   `src/openlrr/engine/drawing/Fonts.cpp`. Native system font is only a fallback.
@@ -45,6 +52,16 @@ not use Wine, the original Windows EXE, DirectDraw, or any injected DLLs.
   default level height and wall scaling as the starting geometry baseline.
   Switch to `2D MAP` for raw map inspection. Per-wall transitions, roof,
   shadows and model detail are still incomplete.
+- **Level loading regression corrected:** `Levels::Level01::TextureSet`
+  can contain colon-separated original texture descriptors. It is not an
+  ordinary file path, and no longer triggers a false "unsafe TextureSet"
+  error. Actual referenced map/object/script paths still undergo traversal
+  and malformed-filename protection.
+- **Read-only classic LightWave `.lwo` decoder:** validates the original
+  `FORM/LWOB` format with `PNTS`, `SRFS`, and `POLS` chunks, bounds checks,
+  triangle fan conversion and basic detail polygons. This begins the work
+  of importing actual original character/building model parts but does
+  **not** assemble `.lws` animations or display character meshes yet.
 - **Retail OL object placement:** parses the level's original text `.ol`
   file with the actual `ObjectN { type, xPos, yPos, heading }` entries.
   The first TVCamera guides the initial viewport; visible Rock Raiders
