@@ -68,6 +68,51 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         precondition(maps["PredugMap"]?.value(x: 0, y: 1) == 2)
         precondition(maps["SurfaceMap"]?.value(x: 1, y: 1) == 2)
 
+        // Native level scene: MAP dimensions include a border vertex.
+        let world = try LevelWorld(manifest: manifest, resources: archive)
+        precondition(world.identifier == "Levels::Level01")
+        precondition(world.width == 1 && world.height == 1)
+        precondition(world.tile(x: 0, y: 0)?.terrain.rawValue == "Unspecified")
+        precondition(world.tile(x: 0, y: 0)?.excavation.rawValue == "Wall")
+        precondition(world.tile(x: 1, y: 0) == nil)
+        precondition(world.tile(x: -1, y: 0) == nil)
+
+        // Multi-tile map with an exposed cavern and a crystal wall.
+        let nativeTerrain = syntheticMap([1, 4, 2,
+                                          2, 10, 3,
+                                          1, 2, 4], width: 3, height: 3)
+        let nativePredug = syntheticMap([0, 1, 0,
+                                         0, 2, 0,
+                                         0, 0, 0], width: 3, height: 3)
+        let nativeSurface = syntheticMap([1, 3, 3,
+                                          1, 1, 5,
+                                          1, 1, 2], width: 3, height: 3)
+        let nativeWad = syntheticWad([
+            ("Levels\\\\GameLevels\\\\Level01\\\\Surf.map", nativeTerrain),
+            ("Levels\\\\GameLevels\\\\Level01\\\\Dugg.map", nativePredug),
+            ("Levels\\\\GameLevels\\\\Level01\\\\High.map", nativeSurface)
+        ])
+        let nativeResources = try GameResources(archives: [(0, nativeWad)])
+        let nativeWorld = try LevelWorld(manifest: manifest, resources: nativeResources)
+        precondition(nativeWorld.width == 2 && nativeWorld.height == 2)
+        precondition(nativeWorld.tile(x: 1, y: 0)?.terrain.rawValue == "Dirt")
+        precondition(nativeWorld.tile(x: 1, y: 0)?.excavation.isCavern == true)
+        precondition(nativeWorld.tile(x: 1, y: 1)?.terrain.rawValue == "Energy crystal seam")
+        precondition(nativeWorld.tile(x: 1, y: 1)?.excavation.rawValue == "Hidden cavern")
+        precondition(nativeWorld.initialCameraTile.x == 1 &&
+                     nativeWorld.initialCameraTile.y == 0)
+        let wrongHeight = syntheticMap([1, 2, 3, 4], width: 2, height: 2)
+        let inconsistentWad = syntheticWad([
+            ("Levels\\\\GameLevels\\\\Level01\\\\Surf.map", nativeTerrain),
+            ("Levels\\\\GameLevels\\\\Level01\\\\Dugg.map", nativePredug),
+            ("Levels\\\\GameLevels\\\\Level01\\\\High.map", wrongHeight)
+        ])
+        do {
+            _ = try LevelWorld(manifest: manifest,
+                               resources: GameResources(archives: [(0, inconsistentWad)]))
+            preconditionFailure("Mismatched map dimensions were accepted")
+        } catch is LevelWorld.WorldError {}
+
         do {
             _ = try LevelRuntimeResources(config: cfg, identifier: "Main::Other")
             preconditionFailure("non-level identifier was accepted")
