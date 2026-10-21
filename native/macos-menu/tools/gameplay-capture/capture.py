@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -165,6 +166,113 @@ class Timeline:
             self._file.close()
 
 
+
+# This is a deliberately low-resolution *observation* of Wine log output,
+# not a timestamp supplied by the game, not a native call trace, and not a
+# substitute for instrumenting NERPs inside a reviewed Windows build.
+_WINE_TAG = re.compile(
+    r"(?<![A-Za-z])(trace|fixme|warn|err):(ddraw|d3drm|d3d|dsound|dinput|winmm):",
+    flags=re.IGNORECASE,
+)
+_WINE_OPERATIONS = (
+    ("bltfast", re.compile(r"(?<![a-z])bltfast(?![a-z])", re.I)),
+    ("blt", re.compile(r"(?<![a-z])blt(?![a-z])", re.I)),
+    ("flip", re.compile(r"(?<![a-z])flip(?![a-z])", re.I)),
+    ("unlock", re.compile(r"(?<![a-z])unlock(?![a-z])", re.I)),
+    ("lock", re.compile(r"(?<![a-z])lock(?![a-z])", re.I)),
+    ("releasedc", re.compile(r"(?<![a-z])releasedc(?![a-z])", re.I)),
+    ("getdc", re.compile(r"(?<![a-z])getdc(?![a-z])", re.I)),
+    ("createsurface", re.compile(r"(?<![a-z])createsurface(?![a-z])", re.I)),
+    ("directdrawcreate", re.compile(r"(?<![a-z])directdrawcreate(?:ex)?(?![a-z])", re.I)),
+    ("setdisplaymode", re.compile(r"(?<![a-z])setdisplaymode(?![a-z])", re.I)),
+    ("setcooperativelevel", re.compile(r"(?<![a-z])setcooperativelevel(?![a-z])", re.I)),
+    ("waitforverticalblank", re.compile(r"(?<![a-z])waitforverticalblank(?![a-z])", re.I)),
+    ("getdevicestate", re.compile(r"(?<![a-z])getdevicestate(?![a-z])", re.I)),
+    ("getdevicedata", re.compile(r"(?<![a-z])getdevicedata(?![a-z])", re.I)),
+    ("waveoutwrite", re.compile(r"(?<![a-z])waveoutwrite(?![a-z])", re.I)),
+    ("playsound", re.compile(r"(?<![a-z])playsound(?![a-z])", re.I)),
+    ("render", re.compile(r"(?<![a-z])render(?![a-z])", re.I)),
+    ("update", re.compile(r"(?<![a-z])update(?![a-z])", re.I)),
+)
+_WINE_LEVELS = frozenset({"trace", "fixme", "warn", "err"})
+_WINE_CHANNELS = frozenset({"ddraw", "d3drm", "d3d", "dsound", "dinput", "winmm"})
+
+
+class SanitizedWineEvents:
+    """Tail complete lines and produce only bounded, fixed-vocabulary counters.
+
+    Batch timestamps are the *host observation time* of log bytes being read.
+    They are not the time each Wine function executed. Raw lines, arguments,
+    paths, addresses, user text and unknown symbols are never emitted.
+    """
+
+    MAX_LINE = 4096
+    MAX_GROUPS = 50
+
+    def __init__(self) -> None:
+        self._partial = b""
+        self._discarding = False
+        self.matched_calls = 0
+        self.batches_written = 0
+
+    def reset_partial(self) -> None:
+        self._partial = b""
+        self._discarding = False
+
+    def observe(self, chunk: bytes, timeline: "Timeline") -> None:
+        data = self._partial + chunk
+        pieces = data.split(b"\n")
+        self._partial = pieces.pop()
+        if len(self._partial) > self.MAX_LINE:
+            self._partial = b""
+            self._discarding = True
+
+        counts: dict[tuple[str, str, str], int] = {}
+        for index, line in enumerate(pieces):
+            # Finish ignoring an oversized line from the previous sample.
+            if self._discarding and index == 0:
+                self._discarding = False
+                continue
+            if len(line) > self.MAX_LINE:
+                continue
+            # Only the fixed Wine severity/channel marker can enter the data.
+            raw = line.decode("ascii", errors="ignore")
+            tag = _WINE_TAG.search(raw)
+            if tag is None:
+                continue
+            severity, channel = tag.group(1).lower(), tag.group(2).lower()
+            if severity not in _WINE_LEVELS or channel not in _WINE_CHANNELS:
+                continue
+            # Use a bounded message prefix and known labels only, never an
+            # arbitrary symbol, DLL name, address, path or Win32 argument.
+            message = raw[tag.end():tag.end() + 180]
+            operation = "other"
+            for label, pattern in _WINE_OPERATIONS:
+                if pattern.search(message):
+                    operation = label
+                    break
+            key = (channel, operation, severity)
+            if key not in counts and len(counts) >= self.MAX_GROUPS:
+                key = (channel, "other", severity)
+            counts[key] = counts.get(key, 0) + 1
+
+        if not counts:
+            return
+        observation_monotonic = time.monotonic()
+        observation_unix = time.time()
+        for (channel, operation, severity), count in sorted(counts.items()):
+            timeline.write({
+                "source": "wine_api", "event": "sampled_log_batch",
+                "channel": channel, "operation": operation,
+                "severity": severity, "count": count,
+                "monotonic_s": observation_monotonic,
+                "unix_s": observation_unix,
+                "time_basis": "host_log_read",
+            })
+            self.matched_calls += count
+        self.batches_written += 1
+
+
 class BoundedTraceFollower:
     """Read only new bytes from a user-specified existing log, locally.
 
@@ -178,15 +286,17 @@ class BoundedTraceFollower:
         self._cursor = source.stat().st_size  # no historic unrelated data
         self._count = 0
         self._limit = limit
+        self.events = SanitizedWineEvents()
         self._out = os.fdopen(os.open(destination, os.O_WRONLY | os.O_CREAT |
                                      os.O_EXCL, 0o600), "wb")
 
-    def sample(self) -> None:
+    def sample(self, timeline: Timeline | None = None) -> None:
         if self._count >= self._limit:
             return
         size = self.source.stat().st_size
         if size < self._cursor:  # log rotation or reset
             self._cursor = size
+            self.events.reset_partial()
         amount = min(size - self._cursor, self._limit - self._count, 65536)
         if amount <= 0:
             return
@@ -197,6 +307,8 @@ class BoundedTraceFollower:
         self._count += len(chunk)
         self._out.write(chunk)
         self._out.flush()
+        if timeline is not None:
+            self.events.observe(chunk, timeline)
 
     def close(self) -> None:
         self._out.close()
@@ -394,7 +506,7 @@ def capture_loop(probe: WindowProbe, target: GameWindow, destination: Path,
                 reason = "time_limit"
                 break
             if raw_wine is not None:
-                raw_wine.sample()
+                raw_wine.sample(timeline)
             if nerps is not None:
                 nerps.sample(timeline)
             if not inspection.get("onscreen"):
@@ -464,6 +576,9 @@ def capture_loop(probe: WindowProbe, target: GameWindow, destination: Path,
             "capture_started_utc": datetime.fromtimestamp(began, tz=timezone.utc).isoformat(),
             "capture_ended_utc": iso_now(),
             "wine_trace_captured_locally": raw_wine is not None,
+            "wine_api_observations": raw_wine.events.matched_calls if raw_wine else 0,
+            "wine_log_batches": raw_wine.events.batches_written if raw_wine else 0,
+            "wine_time_basis": "host_log_read_not_game_call_time",
             "nerps_runtime_trace_source_attached": nerps is not None,
             "input_monitor_requested": event_exe is not None,
             "raw_trace_upload_allowed": False,
@@ -486,7 +601,7 @@ def package_review(session: Path, output: Path, *, include_frames: bool) -> int:
     for line in (session / "timeline.jsonl").read_text().splitlines():
         record = json.loads(line)
         if record.get("source") not in (
-            "frame", "mac_input", "capture_control", "nerps"
+            "frame", "mac_input", "capture_control", "nerps", "wine_api"
         ):
             continue
         if record.get("source") == "mac_input" and record.get("event") not in ALLOWED_EVENT_NAMES:
