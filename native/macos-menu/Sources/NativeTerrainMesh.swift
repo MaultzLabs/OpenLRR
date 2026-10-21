@@ -57,6 +57,24 @@ struct NativeTerrainMesh {
     static let previewHeightScale: Float = 6.0 / 40.0
     static let previewWallHeight: Float = 40.0 / 40.0
 
+    /// Original Map3D compares the two diagonals of the HIGH map at each
+    /// block to select the less distorted triangulation. The "rotated"
+    /// orientation joins upper-left to lower-right when that height
+    /// difference is strictly smaller; equal differences retain the
+    /// default upper-right/lower-left diagonal. This implementation is
+    /// independent of D3DRM and the executable's fixed memory addresses.
+    ///
+    /// Reference for verification: Project Reversio's map3d.c
+    /// (Map3D_Create and Map3D_SetBlockRotated); research reference only.
+    static func usesUpperLeftDiagonal(
+        topLeft: UInt16, topRight: UInt16,
+        bottomLeft: UInt16, bottomRight: UInt16
+    ) -> Bool {
+        let cornerDifference = abs(Int(topLeft) - Int(bottomRight))
+        let oppositeDifference = abs(Int(topRight) - Int(bottomLeft))
+        return cornerDifference < oppositeDifference
+    }
+
     init(world: LevelWorld, maxTiles: Int = 150_000) throws {
         let count = world.width * world.height
         guard count > 0 && count <= maxTiles else {
@@ -143,8 +161,25 @@ struct NativeTerrainMesh {
                 let b = vertex(x + 1, z, extraHeight: lift)
                 let c = vertex(x, z + 1, extraHeight: lift)
                 let d = vertex(x + 1, z + 1, extraHeight: lift)
-                // CCW when viewed from above, with positive world Y normal.
-                addQuad(a, c, b, d, material: material(for: tile))
+                // Each original 3D block picks its triangle diagonal from
+                // the four HIGH map samples. Fixed triangulation distorted
+                // steep seams, unlike the retail Map3D geometry.
+                let h00 = world.surfaceMap.value(x: x, y: z) ?? 0
+                let h10 = world.surfaceMap.value(x: x + 1, y: z) ?? 0
+                let h01 = world.surfaceMap.value(x: x, y: z + 1) ?? 0
+                let h11 = world.surfaceMap.value(x: x + 1, y: z + 1) ?? 0
+                let tileMaterial = material(for: tile)
+                if Self.usesUpperLeftDiagonal(topLeft: h00,
+                                             topRight: h10,
+                                             bottomLeft: h01,
+                                             bottomRight: h11) {
+                    // Diagonal a-d. Both triangles face +Y.
+                    addTriangle(a, c, d, material: tileMaterial)
+                    addTriangle(a, d, b, material: tileMaterial)
+                } else {
+                    // Default diagonal b-c. Both triangles face +Y.
+                    addQuad(a, c, b, d, material: tileMaterial)
+                }
 
                 guard wall else { continue }
 
