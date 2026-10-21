@@ -22,6 +22,7 @@ struct LevelRuntimeResources {
     let identifier: String
     let title: String
     let mapPaths: [String: String]
+    let textureSetSetting: String?
     let objectListPath: String?
     let scriptPath: String?
     let scriptMessagePath: String?
@@ -59,6 +60,7 @@ struct LevelRuntimeResources {
             if let filename = try safePath(key) { paths[key] = filename }
         }
         self.mapPaths = paths
+        self.textureSetSetting = try safePath("TextureSet")
         self.objectListPath = try safePath("OListFile")
         self.scriptPath = try safePath("NERPFile")
         self.scriptMessagePath = try safePath("NERPMessageFile")
