@@ -19,10 +19,19 @@ not use Wine, the original Windows EXE, DirectDraw, or any injected DLLs.
 - Original sprite-font format: indexed 8-bit BMP, 10 columns by 19 rows,
   pen-zero transparency and pen-255 trailing width markers, following
   `src/openlrr/engine/drawing/Fonts.cpp`. Native system font is only a fallback.
-- Parses original mission and tutorial ordering from `Main/StartLevel`,
-  `TutorialStartLevel`, and the `NextLevel` chains.
-- Reads original `.map` binary terrain/height/predug arrays without altering
-  them, using the documented `MAP ` header and little-endian 16-bit cells.
+- Parses original mission/tutorial order (`NextLevel`) and the *actual*
+  `LevelLinks` mission map traversal, rendering original `MenuBMP` variants
+  for initially open/locked missions and training missions. This selection
+  does **not** launch the mission runtime.
+- Reads original PC `Saves/0.sav` through `Saves/4.sav` **without modifying
+  them**. Validates the 0xb0-byte save header and 0x3190-byte reward records,
+  displays the five visible save slots and derives mission unlocks from
+  completed-level flags when an existing slot is selected.
+- Resolves the original `SurfaceMap`, `TerrainMap`, `PredugMap` and other
+  world assets, plus object lists and NERP file paths, from each level's real
+  `Lego.cfg` section. Reads binary `.map` terrain/height/predug arrays
+  without altering them using the documented `MAP ` header and little-endian
+  16-bit cells. This is *resource loading*, not yet world simulation/rendering.
 - Experimental macOS playback of the original `SFX_AmbientMusicLoop` sound using
   AVFoundation. Resolves configured WAVs from the WADs or loose
   `Data/Sounds/Streamed/` files; falls back to the original `Atmosdel.wav`
@@ -37,17 +46,21 @@ not use Wine, the original Windows EXE, DirectDraw, or any injected DLLs.
 
 ## Actual verified scope
 
-The portable archive, config, front-end, map and font decoding tests **compile
-and run on Linux** with Swift 6 using synthetic fixtures. The native AppKit
-prototype has been built and launched on an Apple Silicon Mac by the project
-owner using their own original WAD files. The original menu artwork and some
-navigation display, but the layout and controls are incomplete; original audio
-playback is newly added and **not yet verified on a Mac**. Frame rate, 3D
-rendering, gameplay, and missions have not been validated.
+The portable archive, config, front-end, map, save, and mission-link parsing
+tests compile and run on Linux using synthetic fixtures. The native AppKit
+prototype has been launched on the owner's Apple Silicon Mac using their own
+WAD files. A standard hosted macOS Actions runner also **successfully compiled**
+the ARM64 AppKit menu, including the new graphical mission-selection and save
+slot integration, without any original WADs in CI. Runtime behavior of the
+new mission/save screens is still unverified, as are visible FPS, 3D gameplay,
+and actual mission launching.
 
-The framework for `Next` navigation exists, but the rest of the original menu
-items remain intentionally non-operational; no fake game or save actions.
-Native 3D graphics, AI, level runtime, and executable NERPs have **not** been ported. WAV decoding and initial native menu audio playback are experimental.
+The framework for `Next` navigation exists and the original mission and save
+menus can now present decoded game data. Selecting a save is read-only. Clicking
+a mission reports its identity but cannot launch it. Native 3D graphics,
+camera/movement, AI, drilling/building, object simulation, objectives and
+executable NERPs have **not** been ported. WAV decoding and native menu audio
+playback are experimental.
 
 ## Building locally when you are ready
 
