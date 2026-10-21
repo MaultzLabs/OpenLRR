@@ -140,8 +140,13 @@ let mask: NSEvent.EventTypeMask = [
 ]
 var lastMove: TimeInterval = 0
 let observer = NSEvent.addGlobalMonitorForEvents(matching: mask) { event in
+    // A Wine process can own additional settings or prompt windows.
+    // Require the exact target game window to be foremost within its app,
+    // not merely some foreground Wine window or a similarly titled browser.
     guard let target = gameWindow(id: id, pid: pid), target.onscreen,
-          NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else {
+          let foregroundPID = NSWorkspace.shared.frontmostApplication?.processIdentifier,
+          Int(foregroundPID) == pid,
+          windowRecords().first(where: { $0.pid == pid && $0.onscreen })?.id == id else {
         return
     }
     let now = ProcessInfo.processInfo.systemUptime
