@@ -12,6 +12,7 @@ struct LegoConfig {
     }
 
     private let properties: [String: String]
+    private let sectionPaths: [[String]]
 
     init(data: Data) throws {
         guard data.count <= 10_000_000 else { throw ConfigError.malformed("file too large") }
@@ -26,6 +27,7 @@ struct LegoConfig {
         guard text.utf8.count <= 10_000_000 else { throw ConfigError.malformed("file too large") }
         var values: [String: String] = [:]
         var section: [String] = []
+        var visitedSections: [[String]] = []
         var pending: String?
         let normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
         var buffer = ""
@@ -70,6 +72,7 @@ struct LegoConfig {
                     throw ConfigError.malformed("invalid section opening at line \(line)")
                 }
                 section.append(name)
+                visitedSections.append(section)
                 pending = nil
             } else if char == "}" {
                 let tail = buffer.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -90,6 +93,7 @@ struct LegoConfig {
         guard section.isEmpty else { throw ConfigError.malformed("unclosed configuration section") }
         guard !values.isEmpty else { throw ConfigError.malformed("no usable settings") }
         properties = values
+        sectionPaths = visitedSections
     }
 
     /// The retail game uses Lego* as the top section, but alternate game-name
@@ -107,6 +111,22 @@ struct LegoConfig {
             if let setting = value(path: [prefix] + parts) { return setting }
         }
         return nil
+    }
+
+    /// Directly nested original CFG sections, in source order. Required for
+    /// .ol object lists, whose Object1/Object2 keys are section names rather
+    /// than settings. No object IDs are invented from missing declarations.
+    func childSections(under path: [String]) -> [String] {
+        var seen = Set<String>()
+        return sectionPaths.compactMap { section in
+            guard section.count == path.count + 1,
+                  zip(section.prefix(path.count), path).allSatisfy({
+                      $0.0.caseInsensitiveCompare($0.1) == .orderedSame
+                  }) else { return nil }
+            let name = section[section.count - 1]
+            guard seen.insert(name.lowercased()).inserted else { return nil }
+            return name
+        }
     }
 
     var settingCount: Int { properties.count }
