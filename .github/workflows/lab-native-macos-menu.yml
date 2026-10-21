@@ -26,6 +26,9 @@ jobs:
         run: |
           swiftc --version
           bash native/macos-menu/test.sh
+      - name: Verify gameplay capture never leaves the target game window
+        run: |
+          python3 -m unittest discover -s native/macos-menu/tools/gameplay-capture/tests -v
   compile-native-mac:
     # Public hosted Mac compiles are opt-in; parser-tests run on each push.
     # A separately launched job checks AppKit/ARM64 without requiring the user's Mac.
@@ -44,6 +47,11 @@ jobs:
         run: |
           cd native/macos-menu
           bash build.sh
+          mkdir -p tools/gameplay-capture/.build
+          xcrun swiftc -O -framework Cocoa -framework CoreGraphics \
+            tools/gameplay-capture/window_probe.swift \
+            -o tools/gameplay-capture/.build/window_probe
+          test -x tools/gameplay-capture/.build/window_probe
           test -f build/RockRaidersNativeMenu.app/Contents/MacOS/RockRaidersNativeMenu
           /usr/bin/lipo -archs build/RockRaidersNativeMenu.app/Contents/MacOS/RockRaidersNativeMenu | grep -qx 'arm64'
           /usr/bin/ditto -c -k --sequesterRsrc --keepParent \
