@@ -1,7 +1,7 @@
 name: Verify rolling live MP4 recording shutdown and recovery
 on:
   push:
-    branches: [lab-capture-graceful-finalization-v1]
+    branches: [lab-capture-graceful-finalization-v1, lab-capture-upload-recovery-v2]
     paths:
       - native/macos-menu/tools/gameplay-capture/**
       - .github/workflows/lab-capture-graceful-finalization.yml
