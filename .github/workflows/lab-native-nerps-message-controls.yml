@@ -1,0 +1,35 @@
+name: Verify native tutorial message and NERPs progression
+on:
+  push:
+    branches: [lab-native-nerps-message-controls-v1]
+    paths:
+      - native/macos-menu/**
+      - .github/workflows/lab-native-nerps-message-controls.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: openlrr-native-message-controls-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  portable-message-state:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Run original format, world, and NERPs tutorial regression suite
+        run: bash native/macos-menu/test.sh
+  native-menu-compile:
+    needs: portable-message-state
+    runs-on: macos-15
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compile Apple Silicon AppKit mission workspace and Next button
+        run: |
+          bash native/macos-menu/build.sh
+          /usr/bin/lipo -archs native/macos-menu/build/RockRaidersNativeMenu.app/Contents/MacOS/RockRaidersNativeMenu | grep -qx arm64

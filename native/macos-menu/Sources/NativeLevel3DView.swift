@@ -25,6 +25,7 @@ final class NativeLevel3DView: SCNView {
         addCursorRect(bounds, cursor: originalCursor ?? .arrow)
     }
     var onInteractionMessage: ((String) -> Void)?
+    var onRockRaiderSelected: ((String) -> Void)?
 
     override var acceptsFirstResponder: Bool { true }
 
@@ -227,6 +228,7 @@ final class NativeLevel3DView: SCNView {
 
     private func selectRaider(_ id: String) {
         selectedRaider = id
+        onRockRaiderSelected?(id)
         for (identifier, marker) in raiderMarkers {
             marker.geometry?.firstMaterial?.emission.contents =
                 identifier == id ? NSColor.systemYellow : NSColor.black
@@ -309,6 +311,7 @@ final class NativeMissionWorkspace: NSView {
     private let status: NSTextField
     private let nerpsInfo: NSTextField
     private let tutorialMessage: NSTextField
+    private let nextMessageButton: NSButton
     private let nerpsState: NativeNERPsGameState?
     private var nerpsTimer: Timer?
     private var previousTickTime: TimeInterval?
@@ -334,6 +337,8 @@ final class NativeMissionWorkspace: NSView {
             nerpsState == nil ? "Original NERPs script unavailable" : "NERPs script loaded; preparing native callbacks")
         self.tutorialMessage = NSTextField(wrappingLabelWithString: "")
         self.tutorialMessage.isHidden = true
+        self.nextMessageButton = NSButton(title: "Next ▶", target: nil, action: nil)
+        self.nextMessageButton.isHidden = true
         self.level3D = try NativeLevel3DView(
             frame: frame, world: world, objects: objects,
             resources: resources, textureSet: textureSet)
@@ -368,12 +373,22 @@ final class NativeMissionWorkspace: NSView {
         tutorialMessage.backgroundColor = NSColor(calibratedWhite: 0.09, alpha: 0.94)
         tutorialMessage.drawsBackground = true
         addSubview(tutorialMessage)
+        // Native NERPs progression; no dummy UI or blocking Windows wait loop.
+        nextMessageButton.bezelStyle = .rounded
+        nextMessageButton.target = self
+        nextMessageButton.action = #selector(advanceTutorialMessage(_:))
+        addSubview(nextMessageButton)
         level3D.onTileSelected = { [weak self] tile in
             self?.status.stringValue =
                 "Original (\(tile.x), \(tile.y)) · \(tile.terrain.rawValue) · \(tile.excavation.rawValue) · Height \(tile.heightCode)"
         }
         level3D.onInteractionMessage = { [weak self] message in
             self?.status.stringValue = message
+        }
+        // A real click on an original OL Pilot marker changes the script's
+        // GetMiniFigureSelected result during the next NERPs VM tick.
+        level3D.onRockRaiderSelected = { [weak self] _ in
+            self?.nerpsState?.reportRockRaiderSelection(true)
         }
         if let objects {
             status.stringValue = "\(objects.rockRaiders.count) Rock Raiders • \(level3D.textureSummary) • click a Raider to select"
@@ -405,14 +420,9 @@ final class NativeMissionWorkspace: NSView {
         previousTickTime = now
         do {
             let result = try nerpsState.tick(elapsedMilliseconds: Float(elapsed * 1000))
-            // Text-only preview; original Next-arrow interaction and
-            // synchronized Chief audio have not yet been implemented.
-            if let text = nerpsState.messageText, !text.isEmpty {
-                tutorialMessage.stringValue = text
-                tutorialMessage.isHidden = false
-            } else {
-                tutorialMessage.isHidden = true
-            }
+            // Original message text and one-shot acknowledgement.
+            // Chief sound playback is still unimplemented.
+            refreshTutorialMessage()
             nerpsInfo.stringValue =
                 "Original NERPs: \(nerpsState.completedTicks) ticks · " +
                 "\(result.functionCalls) calls this tick · tutorial flags \(nerpsState.tutorialFlags)"
@@ -421,7 +431,29 @@ final class NativeMissionWorkspace: NSView {
             nerpsTimer?.invalidate()
             nerpsTimer = nil
             nerpsInfo.stringValue = "NERPs halted (unsupported original call): \(error)"
+            refreshTutorialMessage()
         }
+    }
+
+    private func refreshTutorialMessage() {
+        guard let nerpsState, let text = nerpsState.messageText,
+              !text.isEmpty else {
+            tutorialMessage.isHidden = true
+            nextMessageButton.isHidden = true
+            return
+        }
+        tutorialMessage.stringValue = text
+        tutorialMessage.isHidden = false
+        nextMessageButton.isHidden = nerpsState.nextArrowDisabled
+        nextMessageButton.isEnabled = nerpsState.messageNeedsAdvance
+    }
+
+    @objc private func advanceTutorialMessage(_ sender: NSButton) {
+        guard let state = nerpsState, state.messageNeedsAdvance,
+              !state.nextArrowDisabled else { return }
+        state.advanceMessage()
+        refreshTutorialMessage()
+        focusActiveView()
     }
 
     override func layout() {
@@ -436,7 +468,9 @@ final class NativeMissionWorkspace: NSView {
         nerpsInfo.frame = NSRect(x: 12, y: 42, width: max(0, bounds.width - 24),
                                 height: 19)
         tutorialMessage.frame = NSRect(x: 12, y: 70,
-                                      width: max(0, bounds.width - 24), height: 70)
+                                      width: max(0, bounds.width - 145), height: 70)
+        nextMessageButton.frame = NSRect(x: max(0, bounds.width - 118), y: 92,
+                                         width: 103, height: 30)
     }
 
     func focusActiveView() {

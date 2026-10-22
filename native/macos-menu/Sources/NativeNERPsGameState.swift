@@ -16,12 +16,25 @@ final class NativeNERPsGameState {
     // This is a script-visible latch, not an invented mission-completion UI.
     private(set) var objectiveSwitch: Int32 = 0
     private(set) var tutorialFlags: Int32 = 0
+    // The native 3D view currently supports ONE selected original OL Pilot.
+    // GetMiniFigureSelected must reflect an actual click, never a made-up
+    // starting unit count from the map file.
+    private(set) var selectedRockRaiderCount: Int32 = 0
     private(set) var completedTicks = 0
     // In retail NERPs, 0 permits messages; nonzero suppresses them.
     private(set) var messagePermit = true
     private(set) var messageText: String?
     private(set) var lastMessageNumber: Int32?
     private(set) var nextArrowDisabled = false
+    // The retail interpreter's message history, acknowledgement counter and
+    // message-control NPL functions are distinct from the current HUD text.
+    // Audio-driven message timing is zero until an original sound is loaded.
+    private(set) var messageNeedsAdvance = false
+    private(set) var messageWait = false
+    private(set) var acknowledgedMessageCount: UInt32 = 0
+    private(set) var recentMessageNumbers: [Int32] = []
+    private(set) var messageTimerValues: [Float] = [1000, 500, 4000]
+    private(set) var messageTimer: Float = 0
     private let messages: NativeNERPsMessageFile?
 
     init(script: NERPsScript, messages: NativeNERPsMessageFile? = nil) {
@@ -39,6 +52,33 @@ final class NativeNERPsGameState {
             throw StateError.invalidElapsedTime
         }
         for i in timers.indices { timers[i] += milliseconds }
+        // Message timers are sample-dependent in retail. Without original
+        // audio playback, do NOT synthesize a countdown for tutorial text.
+        if messageTimer > 0 {
+            messageTimer = max(0, messageTimer - milliseconds)
+        }
+    }
+
+    /// Called only when a verified original message audio sample starts.
+    /// Keeping this separate prevents inventing voice timings from text.
+    func startOriginalMessageAudio(durationMilliseconds: Float) throws {
+        guard durationMilliseconds.isFinite,
+              durationMilliseconds >= 0, durationMilliseconds <= 600_000 else {
+            throw StateError.invalidElapsedTime
+        }
+        messageTimer = durationMilliseconds
+    }
+
+    /// Corresponds to retail NERPsRuntime_AdvanceMessage in its normal
+    /// (no-history-navigation) state: acknowledge once, not every VM tick.
+    /// Script-level AdvanceMessage can call this even with a disabled arrow;
+    /// the AppKit button below respects nextArrowDisabled separately.
+    @discardableResult
+    func advanceMessage() -> Bool {
+        guard messageNeedsAdvance else { return false }
+        messageNeedsAdvance = false
+        acknowledgedMessageCount &+= 1
+        return true
     }
 
     func tick(elapsedMilliseconds: Float, maxSteps: Int = 200_000,
@@ -48,6 +88,12 @@ final class NativeNERPsGameState {
                                           maxSteps: maxSteps, onCall: onCall)
         completedTicks += 1
         return result
+    }
+
+    /// Called by actual selection events in NativeLevel3DView, not from a
+    /// simulated user or a placeholder mission.
+    func reportRockRaiderSelection(_ selected: Bool) {
+        selectedRockRaiderCount = selected ? 1 : 0
     }
 
     /// Only proven functions are available. If bytecode reaches another ID,
@@ -107,21 +153,81 @@ final class NativeNERPsGameState {
             self.objectiveSwitch = 0
             return 1
         })
+        // Original NPL 0x50: CountSelectedUnits_ByObjectName(PILOT).
+        // Until multi-selection is ported this is the actual single
+        // selected Rock Raider from the OL object and native viewport.
+        callbacks[0x50] = .init(kind: .expression(arity: 0),
+                                invoke: { [unowned self] _ in
+            self.selectedRockRaiderCount
+        })
         // Original NPL function IDs: SetMessagePermit and SetMessage.
         callbacks[0x31] = .init(kind: .action(arity: 1),
                                 invoke: { [unowned self] args in
-            self.messagePermit = args[0] != 0
+            let newPermit = args[0] != 0
+            let changed = newPermit != self.messagePermit
+            self.messagePermit = newPermit
             self.messageText = nil
-            self.lastMessageNumber = nil
+            // A script can execute SetMessagePermit(0) and the same
+            // SetMessage on *every* frame. Repeated permit values must
+            // not manufacture another player acknowledgement after Next.
+            if changed {
+                self.lastMessageNumber = nil
+                self.messageNeedsAdvance = false
+            }
             return args[0]
         })
         callbacks[0x10] = .init(kind: .action(arity: 2),
                                 invoke: { [unowned self] args in
             guard !self.messagePermit else { return 0 }
+            let isNew = self.lastMessageNumber != args[0]
             self.lastMessageNumber = args[0]
             self.messageText = self.messages?.text(for: args[0])
             self.nextArrowDisabled = args[1] != 0
+            // A repeated SetMessage on each script update must not
+            // re-arm the already-acknowledged Next button.
+            if isNew, self.messageText != nil {
+                if self.recentMessageNumbers.last != args[0] {
+                    self.recentMessageNumbers.append(args[0])
+                    if self.recentMessageNumbers.count > 8 {
+                        self.recentMessageNumbers.removeFirst()
+                    }
+                }
+                self.messageNeedsAdvance = true
+            }
             return 0
+        })
+        // Original NPL table: SetMessageWait 0x58, GetMessageTimer 0x6B,
+        // SetMessageTimerValues 0x6C, AdvanceMessage 0xC8 and
+        // GetMessagesAreUpToDate 0xD1 (RRU NERPs function table).
+        callbacks[0x58] = .init(kind: .action(arity: 1),
+                                invoke: { [unowned self] args in
+            self.messageWait = args[0] != 0
+            // The original SetMessage blocks within a Windows message
+            // loop when this is enabled. Our native app instead exposes
+            // the wait state; blocking AppKit's run loop is not safe.
+            return args[0]
+        })
+        callbacks[0x6b] = .init(kind: .expression(arity: 0),
+                                invoke: { [unowned self] _ in
+            Int32(min(Float(Int32.max - 256),
+                      max(0, self.messageTimer)))
+        })
+        callbacks[0x6c] = .init(kind: .action(arity: 3),
+                                invoke: { [unowned self] args in
+            self.messageTimerValues = args.map {
+                Float(UInt32(bitPattern: $0))
+            }
+            return 1
+        })
+        callbacks[0xc8] = .init(kind: .action(arity: 0),
+                                invoke: { [unowned self] _ in
+            self.advanceMessage()
+            return 0
+        })
+        callbacks[0xd1] = .init(kind: .expression(arity: 0),
+                                invoke: { [unowned self] _ in
+            let lines = self.messages?.lines.count ?? 0
+            return self.acknowledgedMessageCount >= UInt32(lines) ? 1 : 0
         })
         callbacks[0x5d] = .init(kind: .expression(arity: 0),
                                 invoke: { [unowned self] _ in self.tutorialFlags })
