@@ -170,6 +170,7 @@ def diagnostic_coverage(timeline_path: Path, *, video_verified: bool,
     inputs = 0
     wine_batches = 0
     nerps_calls = 0
+    menu_commands = 0
     listener_ready = False
     with timeline_path.open("r", encoding="utf-8", errors="replace") as stream:
         for number, line in enumerate(stream):
@@ -188,13 +189,16 @@ def diagnostic_coverage(timeline_path: Path, *, video_verified: bool,
                 listener_ready = True
             elif source == "mac_input" and event in (
                 "left_down", "left_up", "right_down", "right_up",
-                "mouse_move", "scroll", "key_down", "key_up"
+                "mouse_move", "scroll", "key_down", "key_up",
+                "modifier_changed"
             ):
                 inputs += 1
             elif source == "wine_api" and event == "sampled_log_batch":
                 wine_batches += 1
             elif source == "nerps" and event == "runtime_function":
                 nerps_calls += 1
+            elif source == "openlrr_menu" and event == "menu_command":
+                menu_commands += 1
 
     streams = {
         "video": "verified" if video_verified else "missing",
@@ -215,6 +219,7 @@ def diagnostic_coverage(timeline_path: Path, *, video_verified: bool,
         "input_events": inputs,
         "wine_event_batches": wine_batches,
         "nerps_events": nerps_calls,
+        "menu_commands": menu_commands,
         "all_streams_observed": (
             streams["video"] == "verified" and
             all(streams[s] == "observed" for s in ("input", "wine", "nerps"))
@@ -415,6 +420,7 @@ def continuous_capture(
             "input_events_captured": coverage["input_events"],
             "wine_events_captured": coverage["wine_event_batches"],
             "nerps_events_captured": coverage["nerps_events"],
+            "menu_commands_captured": coverage["menu_commands"],
             "wine_trace_captured_locally": raw_wine is not None,
             "wine_log_batches": raw_wine.events.batches_written if raw_wine else 0,
             "wine_log_time_basis": "host_log_read_not_game_call_time",
