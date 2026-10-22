@@ -47,6 +47,11 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(self.source.read_bytes(), self.original)
 
     def test_recovery_writes_separate_clips_without_replacing_master(self):
+        (self.root / "timeline.jsonl").write_text(
+            json.dumps({"source": "video", "event": "capture_started",
+                        "unix_s": 1792620000}) + "\\n" +
+            json.dumps({"source": "openlrr_menu", "event": "win32_menu_command",
+                        "menu_id": 603, "unix_s": 1792620015}) + "\\n")
         def fake_split(cmd, **kw):
             if str(cmd[0]).endswith("mock-split"):
                 dest = Path(cmd[2])
@@ -69,6 +74,8 @@ class RecoveryTests(unittest.TestCase):
             self.assertIn("analysis-index.json", bundle.namelist())
             self.assertIn("part-0001.evidence.json", bundle.namelist())
             self.assertNotIn("game-window-master.mp4", bundle.namelist())
+            evidence = json.loads(bundle.read("part-0001.evidence.json"))
+            self.assertEqual(evidence["events"][1]["openlrr_command"], "IDM_EXIT")
 
     def test_validation_rejects_missing_or_size_mismatched_clips(self):
         destination = self.root / "recovered-clips"
