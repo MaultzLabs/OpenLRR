@@ -1,0 +1,27 @@
+{
+  "steps": [
+    {
+      "action": "capture"
+    },
+    {
+      "action": "click",
+      "x": 120,
+      "y": 68
+    },
+    {
+      "action": "wait",
+      "seconds": 0.5
+    },
+    {
+      "action": "assert_title",
+      "pattern": "OpenLRR Fixture - In Game"
+    },
+    {
+      "action": "assert_changed",
+      "min_difference": 4
+    },
+    {
+      "action": "assert_alive"
+    }
+  ]
+}
