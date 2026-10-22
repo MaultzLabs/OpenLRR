@@ -345,7 +345,7 @@ class NerpsFollower:
             data = stream.read(32768)
             if not data:
                 return
-            ending = data.rfind(b"\\n")
+            ending = data.rfind(b"\n")
             if ending == -1:
                 return
             self._cursor += ending + 1
