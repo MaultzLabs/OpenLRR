@@ -223,7 +223,13 @@ guard let observer else {
     exit(4)
 }
 
-// An installed NSEvent monitor is not proof of delivered clicks/keys.\n// The coordinator also counts actual game-scoped events.\nemit(["source": "capture_control", "event": "input_monitor_ready",\n      "window_id": id, "unix_s": Date().timeIntervalSince1970,\n      "monotonic_s": ProcessInfo.processInfo.systemUptime])\n\n// Stops even if the parent capture supervisor exits.
+// An installed NSEvent monitor is not proof of delivered clicks/keys.
+// The coordinator also counts actual game-scoped events.
+emit(["source": "capture_control", "event": "input_monitor_ready",
+      "window_id": id, "unix_s": Date().timeIntervalSince1970,
+      "monotonic_s": ProcessInfo.processInfo.systemUptime])
+
+// Stops even if the parent capture supervisor exits.
 let guardTimer = Timer(timeInterval: 0.25, repeats: true) { _ in
     if gameWindow(id: id, pid: pid) == nil {
         emit(["source": "capture_control", "event": "game_window_closed",
