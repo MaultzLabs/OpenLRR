@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Read-only catalog of original training text within privately owned WWAD files.
 
-Does not upload, extract, or print original tutorial prose; discovers paths and
+Does not upload, extract, or print any original tutorial contents; discovers paths and
 their byte lengths so a subsequent local training parser can use exact assets.
 """
 from __future__ import annotations
@@ -49,10 +49,20 @@ def catalog(data):
     for e in entries(data):
         path = e["path"].replace("\\", "/").lstrip("/").lower()
         # Can be nested in 'levels/tutoriallevels' or 'levels/traininglevels'
-        if ("/tutoriallevels/" in f"/{path}" or "/traininglevels/" in f"/{path}") and path.endswith(".txt"):
+        suffixes = {".txt", ".npl", ".nrn", ".nrm", ".ol", ".map", ".bmp"}
+        in_training_folder = ("/tutoriallevels/" in f"/{path}" or
+                              "/traininglevels/" in f"/{path}")
+        if in_training_folder and any(path.endswith(ext) for ext in suffixes):
+            ext = "." + path.rsplit(".", 1)[-1]
+            kind = ("compiled-script" if ext == ".npl" else
+                    "source-script" if ext in {".nrn", ".nrm"} else
+                    "object-placements" if ext == ".ol" else
+                    "level-map" if ext == ".map" else
+                    "message-or-text" if ext == ".txt" else
+                    "graphic")
             found.append({
                 "path": e["path"], "bytes": e["unpacked_bytes"],
-                "text_readable": not bool(e["flags"] & 2)
+                "category": kind, "uncompressed_in_wad": not bool(e["flags"] & 2)
             })
     return sorted(found, key=lambda e: e["path"].lower())
 
