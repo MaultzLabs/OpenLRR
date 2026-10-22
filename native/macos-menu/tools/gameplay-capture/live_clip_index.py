@@ -120,6 +120,7 @@ def index_existing_clips(session: Path, clips: Path,
             "start_s": clip.get("start_s"),
             "duration_s": clip.get("duration_s"),
             "bytes": clip.get("bytes"),
-            "audio_track_present": False  # Older splitter did not attest audio.
+            "audio_track_present": clip.get("audio_track_present") is True
+            # Unknown legacy audio track stays explicitly unattested.
         }))
     return outputs

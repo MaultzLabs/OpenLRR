@@ -133,13 +133,16 @@ def recover(source: Path, *, chunk_seconds: int = 120) -> int:
     count = len(clips)
     # Align the safely recovered video with any earlier input/Wine records.
     # Missing telemetry remains explicit rather than being inferred.
-    correlation = index_clips.build_index(source.parent, destination)
+    repo_root = Path(__file__).resolve().parents[4]
+    correlation = index_clips.build_index(source.parent, destination,
+                                          source_root=repo_root)
     (destination / "analysis-index.json").write_text(
         json.dumps(correlation, sort_keys=True, indent=2) + "\n",
         encoding="utf-8")
     os.chmod(destination / "analysis-index.json", 0o600)
     try:
-        details = live_clip_index.index_existing_clips(source.parent, destination)
+        details = live_clip_index.index_existing_clips(source.parent, destination,
+                                                       source_root=repo_root)
         print("Generated " + str(len(details)) +
               " private per-clip input/code evidence files.")
     except (ValueError, OSError) as error:

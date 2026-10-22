@@ -202,6 +202,17 @@ class VideoSessionTests(unittest.TestCase):
         timeline.close()
         self.assertEqual(state.get("segments", []), [])
 
+    def test_live_launcher_uses_ninety_second_finalization_by_default(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "live_gameplay_launcher", ROOT / "first-level-video.py")
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        launcher = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(launcher)
+        self.assertEqual(launcher.DEFAULT_SEGMENT_SECONDS, 90)
+        self.assertEqual(video_session.continuous_capture.__kwdefaults__["segment_seconds"], 90)
+
     def test_video_event_names_are_fixed_and_no_unknown_fields(self):
         self.assertNotIn("key_text", video_session.ALLOWED_VIDEO_EVENTS)
         self.assertNotIn("desktop_capture", video_session.ALLOWED_VIDEO_EVENTS)

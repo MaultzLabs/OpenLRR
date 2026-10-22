@@ -17,6 +17,8 @@ import capture
 import video_session
 import index_clips
 
+DEFAULT_SEGMENT_SECONDS = 90
+
 LAUNCHER = Path(__file__).resolve().parent / "first-level.py"
 spec = importlib.util.spec_from_file_location("original_game_launcher", LAUNCHER)
 if spec is None or spec.loader is None:
@@ -33,8 +35,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="report only safe window counts and permission; do not launch or record")
     ap.add_argument("--fps", type=int, default=30,
                     help="continuous MP4 requested FPS (default 30)")
-    ap.add_argument("--segment-seconds", type=int, default=60,
-                    help="finalize an MP4 while game is open, every 20–300 sec (default 60)")
+    ap.add_argument("--segment-seconds", type=int, default=DEFAULT_SEGMENT_SECONDS,
+                    help="finalize an MP4 while game is open, every 20–300 sec (default 90)")
     ap.add_argument("--session", choices=("menu", "full"), default="full",
                     help="menu: 15-minute diagnostic recording; full: menu through tutorial (default)")
     ap.add_argument("--max-minutes", type=int,
