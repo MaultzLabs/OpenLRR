@@ -16,6 +16,12 @@ final class NativeNERPsGameState {
     // This is a script-visible latch, not an invented mission-completion UI.
     private(set) var objectiveSwitch: Int32 = 0
     private(set) var tutorialFlags: Int32 = 0
+    /// NERPFunc__AllowCameraMovement defers changes until a ClickOnly* call.
+    private(set) var allowCameraMovementMask: UInt32 = 0
+    private(set) var suppressMessageArrow = false
+    var inputPolicy: NativeTutorialInputPolicy {
+        NativeTutorialInputPolicy(flags: tutorialFlags)
+    }
     private(set) var completedTicks = 0
     // In retail NERPs, 0 permits messages; nonzero suppresses them.
     private(set) var messagePermit = true
@@ -121,6 +127,43 @@ final class NativeNERPsGameState {
             self.lastMessageNumber = args[0]
             self.messageText = self.messages?.text(for: args[0])
             self.nextArrowDisabled = args[1] != 0
+            return 0
+        })
+        // The retail tutorial script directly controls which gameplay
+        // interactions are accepted. IDs and bitmasks are from NERPsFile.h,
+        // NERPsFunctions.cpp and the original NPL function table.
+        callbacks[0xc9] = .init(kind: .action(arity: 1),
+                                invoke: { [unowned self] args in
+            self.allowCameraMovementMask = UInt32(bitPattern: args[0]) &<< 12
+            return 0
+        })
+        callbacks[0xca] = .init(kind: .action(arity: 0),
+                                invoke: { [unowned self] _ in
+            self.tutorialFlags = NativeTutorialInputPolicy.scriptMask(
+                kind: .objects, allowCameraMovementMask: self.allowCameraMovementMask)
+            return 0
+        })
+        callbacks[0xcb] = .init(kind: .action(arity: 0),
+                                invoke: { [unowned self] _ in
+            self.tutorialFlags = NativeTutorialInputPolicy.scriptMask(
+                kind: .map, allowCameraMovementMask: self.allowCameraMovementMask)
+            return 0
+        })
+        callbacks[0xcc] = .init(kind: .action(arity: 0),
+                                invoke: { [unowned self] _ in
+            self.tutorialFlags = NativeTutorialInputPolicy.scriptMask(
+                kind: .icons, allowCameraMovementMask: self.allowCameraMovementMask)
+            return 0
+        })
+        callbacks[0xcd] = .init(kind: .action(arity: 0),
+                                invoke: { [unowned self] _ in
+            self.tutorialFlags = NativeTutorialInputPolicy.scriptMask(
+                kind: .none, allowCameraMovementMask: self.allowCameraMovementMask)
+            return 0
+        })
+        callbacks[0xce] = .init(kind: .action(arity: 1),
+                                invoke: { [unowned self] args in
+            self.suppressMessageArrow = args[0] != 0
             return 0
         })
         callbacks[0x5d] = .init(kind: .expression(arity: 0),
