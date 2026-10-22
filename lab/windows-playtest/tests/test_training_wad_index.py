@@ -20,10 +20,11 @@ def make_wad(names):
 
 class TrainingSourceTests(unittest.TestCase):
     def test_catalog_original_folder(self):
-        wad=make_wad(["Levels\\TutorialLevels\\Training01\\messages.txt","Levels\\Level01\\notes.txt","Levels\\TutorialLevels\\Training02\\Briefing.TXT"])
+        wad=make_wad(["Levels\\TutorialLevels\\Training01\\messages.txt","Levels\\Level01\\notes.txt","Levels\\TutorialLevels\\Training02\\Briefing.TXT","Levels\\TutorialLevels\\Training01\\train.npl","Levels\\TutorialLevels\\Training01\\cave.map","Levels\\TutorialLevels\\Training01\\objects.ol"])
         c=mod.catalog(wad)
-        self.assertEqual(len(c),2)
-        self.assertTrue(all(x["text_readable"] for x in c))
+        self.assertEqual(len(c),5)
+        self.assertTrue(all(x["uncompressed_in_wad"] for x in c))
+        self.assertEqual({x["category"] for x in c}, {"message-or-text", "compiled-script", "level-map", "object-placements"})
         self.assertFalse(any("Level01" in x["path"] for x in c))
 
     def test_bad_header(self):
