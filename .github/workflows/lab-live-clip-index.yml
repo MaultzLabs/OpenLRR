@@ -1,0 +1,25 @@
+name: Verify live MP4 evidence creation and upload-size checks
+on:
+  push:
+    branches: [lab-live-clip-index-v1]
+    paths:
+      - native/macos-menu/tools/gameplay-capture/**
+      - .github/workflows/lab-live-clip-index.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: openlrr-live-clip-evidence-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  index-during-recording:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify playback-safe, privacy-filtered incremental clip indexing
+        run: |
+          python3 -m py_compile native/macos-menu/tools/gameplay-capture/*.py
+          python3 -m unittest discover -s native/macos-menu/tools/gameplay-capture/tests -v
