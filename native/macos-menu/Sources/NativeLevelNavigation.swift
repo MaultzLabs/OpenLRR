@@ -14,13 +14,17 @@ struct NativeLevelNavigation {
 
     let world: LevelWorld
     let maximumTiles: Int
+    let excavation: NativeExcavationState?
 
-    init(world: LevelWorld, maximumTiles: Int = 150_000) {
+    init(world: LevelWorld, maximumTiles: Int = 150_000,
+         excavation: NativeExcavationState? = nil) {
         self.world = world
         self.maximumTiles = maximumTiles
+        self.excavation = excavation
     }
 
     func canWalk(_ point: Position) -> Bool {
+        if let excavation { return excavation.canWalk(point) }
         guard let tile = world.tile(x: point.x, y: point.y),
               tile.excavation.isDiscoveredCavern else { return false }
         return !tile.terrain.isLiquid
