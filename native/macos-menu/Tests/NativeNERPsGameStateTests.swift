@@ -131,6 +131,90 @@ private func encode(_ operations: [(UInt16, UInt16)]) throws -> NERPsScript {
         precondition(objective.registers[1] == 0)
         precondition(objective.objectiveSwitch == 0)
 
+        // Retail NPL message-control opcodes now have working callbacks.
+        // They must acknowledge each message ONCE, even if the same SetMessage
+        // runs on every frame, and must respect the message-file line count.
+        let guide = try NativeNERPsMessageFile(
+            data: Data("Welcome_Raider!\nSelect_the_rock.\n".utf8))
+        let guideState = NativeNERPsGameState(script: try encode([]),
+                                              messages: guide)
+        let guideFunctions = guideState.functions()
+        precondition(guideFunctions[0x58]?.kind.arity == 1)
+        precondition(guideFunctions[0x6b]?.kind.arity == 0)
+        precondition(guideFunctions[0x6c]?.kind.arity == 3)
+        precondition(guideFunctions[0xc8]?.kind.arity == 0)
+        precondition(guideFunctions[0xd1]?.kind.arity == 0)
+        precondition(guideFunctions[0xd1]!.invoke([]) == 0)
+        precondition(guideFunctions[0x58]!.invoke([1]) == 1)
+        precondition(guideState.messageWait)
+        precondition(guideFunctions[0x58]!.invoke([0]) == 0)
+        precondition(!guideState.messageWait)
+
+        precondition(guideFunctions[0x31]!.invoke([0]) == 0)
+        precondition(guideFunctions[0x10]!.invoke([1, 0]) == 0)
+        precondition(guideState.messageText == "Welcome Raider!")
+        precondition(guideState.messageNeedsAdvance)
+        precondition(!guideState.nextArrowDisabled)
+        precondition(guideFunctions[0xc8]!.invoke([]) == 0)
+        precondition(!guideState.messageNeedsAdvance)
+        precondition(guideState.acknowledgedMessageCount == 1)
+        precondition(guideFunctions[0xd1]!.invoke([]) == 0)
+        // A repeated script call for the same line must not trigger a
+        // phantom second player click or duplicate its recent history.
+        precondition(guideFunctions[0x10]!.invoke([1, 0]) == 0)
+        precondition(!guideState.messageNeedsAdvance)
+        precondition(guideFunctions[0xc8]!.invoke([]) == 0)
+        precondition(guideState.acknowledgedMessageCount == 1)
+        precondition(guideState.recentMessageNumbers == [1])
+
+        precondition(guideFunctions[0x31]!.invoke([0]) == 0)
+        precondition(guideFunctions[0x10]!.invoke([2, 1]) == 0)
+        precondition(guideState.nextArrowDisabled)
+        precondition(guideState.messageNeedsAdvance)
+        precondition(guideState.messageText == "Select the rock.")
+        // A script-invoked AdvanceMessage works even when UI Next is
+        // disabled, exactly as the original native function dispatch.
+        precondition(guideFunctions[0xc8]!.invoke([]) == 0)
+        precondition(guideFunctions[0xd1]!.invoke([]) == 1)
+        precondition(guideState.recentMessageNumbers == [1, 2])
+        precondition(guideState.acknowledgedMessageCount == 2)
+
+        // Source uses unsigned 32-bit conversion for all three delay
+        // values. GetMessageTimer must return zero until authentic audio
+        // has actually supplied a duration.
+        precondition(guideFunctions[0x6b]!.invoke([]) == 0)
+        precondition(guideFunctions[0x6c]!.invoke([1000, -1, 4000]) == 1)
+        precondition(guideState.messageTimerValues[0] == 1000)
+        precondition(guideState.messageTimerValues[1] == Float(UInt32.max))
+        precondition(guideState.messageTimerValues[2] == 4000)
+        try guideState.startOriginalMessageAudio(durationMilliseconds: 1500)
+        try guideState.advanceTimers(milliseconds: 250.75)
+        precondition(guideState.messageTimer == 1249.25)
+        precondition(guideFunctions[0x6b]!.invoke([]) == 1249)
+        try guideState.advanceTimers(milliseconds: 2000)
+        precondition(guideState.messageTimer == 0)
+        do {
+            try guideState.startOriginalMessageAudio(durationMilliseconds: .infinity)
+            preconditionFailure("Accepted an infinite voice duration")
+        } catch NativeNERPsGameState.StateError.invalidElapsedTime {}
+
+        // Verify message progress feeds the actual NPL interpreter. A
+        // zero-arg predicate allows SetR0 only after both real acknowledgements.
+        let messageProgress = NativeNERPsGameState(script: try encode([
+            (2, 0xd1), (2, 0x19), (0, 77)
+        ]), messages: guide)
+        let progressFunctions = messageProgress.functions()
+        _ = try messageProgress.tick(elapsedMilliseconds: 10)
+        precondition(messageProgress.registers[0] == 0)
+        _ = progressFunctions[0x31]!.invoke([0])
+        _ = progressFunctions[0x10]!.invoke([1, 0])
+        _ = progressFunctions[0xc8]!.invoke([])
+        _ = progressFunctions[0x31]!.invoke([0])
+        _ = progressFunctions[0x10]!.invoke([2, 0])
+        _ = progressFunctions[0xc8]!.invoke([])
+        _ = try messageProgress.tick(elapsedMilliseconds: 10)
+        precondition(messageProgress.registers[0] == 77)
+
         // Separate level sessions cannot accidentally share runtime state.
         let fresh = NativeNERPsGameState(script: try encode([]))
         precondition(fresh.registers == Array(repeating: 0, count: 8))
