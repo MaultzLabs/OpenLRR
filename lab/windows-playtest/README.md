@@ -103,3 +103,48 @@ could be launched, clicked inside its own window, visually compared via
 captured frames, and pass all six scripted test steps. This **does not** yet
 prove the original executable runs or renders on the same runner. The user's
 computer is not required for the synthetic CI gate.
+
+
+## Read-only live spectator (new experimental viewer)
+
+A lightweight HTTP viewer now exists at `spectator.py`. It serves only the
+PrintWindow pixels of **one verified HWND owned by the exact Windows game PID**.
+It never controls the game, records the desktop, changes saves, uploads assets,
+or serves any project files. The page polls sampled JPEG frames at about 2 FPS;
+it is **not** native video, audio or evidence of 60 FPS. The process must run
+in the same unlocked interactive Windows desktop as the installed game.
+
+First install the licensed original Windows game privately with its own WAD
+files on a functioning Windows test computer. Nothing in this public repo
+includes the retail `LegoRR0.wad` / `LegoRR1.wad` data. The viewer cannot
+make a missing-data installation playable. After starting the game and finding
+its process ID, run this on the same Windows computer:
+
+```powershell
+py -m pip install "Pillow>=11.2,<12"
+py lab\windows-playtest\spectator.py --pid 1234 --port 8765
+```
+
+Replace `1234` with the real game PID. From the remote Windows session,
+`http://127.0.0.1:8765` is a working read-only viewer when the game window
+can be captured. The service binds to loopback only, intentionally. To watch
+from a different computer, use a **separately authenticated** tunnel, such as
+Cloudflare Quick Tunnels with an explicitly approved email address:
+
+```powershell
+cloudflared tunnel --url http://127.0.0.1:8765 --allowed-mail "approved-viewer@example.com"
+```
+
+Use your own approved address, not the example. Cloudflare prints a short-lived
+`https://...trycloudflare.com` viewer URL. The address changes each run and
+expires when the test machine or tunnel stops. Do not run an unauthenticated
+tunnel for private original-game capture; do not publish WADs or game media as
+CI artifacts. Quick Tunnels are best-effort, not guaranteed availability.
+
+GitHub-hosted Windows runners can host **temporary** synthetic application
+tests, not a durable live game computer. A real autonomous playtest requires
+an interactive Windows machine with the retail assets installed and a game
+controller able to verify mission state rather than merely sending scripts.
+The new spectator only solves the **watching** component, not game setup or
+AI decision-making. Portable viewer tests use fake frames. Do not interpret
+their success as a successful original-game stream.
