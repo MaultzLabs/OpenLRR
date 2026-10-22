@@ -14,16 +14,22 @@ struct NativeLevelNavigation {
 
     let world: LevelWorld
     let maximumTiles: Int
+    /// Temporary mission-local excavation; the installed PredugMap stays read-only.
+    let excavated: Set<Position>
 
-    init(world: LevelWorld, maximumTiles: Int = 150_000) {
+    init(world: LevelWorld, excavated: Set<Position> = [],
+         maximumTiles: Int = 150_000) {
         self.world = world
+        self.excavated = excavated
         self.maximumTiles = maximumTiles
     }
 
     func canWalk(_ point: Position) -> Bool {
-        guard let tile = world.tile(x: point.x, y: point.y),
-              tile.excavation.isDiscoveredCavern else { return false }
-        return !tile.terrain.isLiquid
+        guard let tile = world.tile(x: point.x, y: point.y) else { return false }
+        if excavated.contains(point) {
+            return tile.excavation == .wall && tile.terrain.isMineableWall
+        }
+        return tile.excavation.isDiscoveredCavern && !tile.terrain.isLiquid
     }
 
     /// Returns inclusive start-to-target tile positions, or nil if either
