@@ -14,6 +14,11 @@ final class NativeLevel3DView: SCNView {
     let textureSummary: String
     var onExit: (() -> Void)?
     private let navigation: NativeLevelNavigation
+    /// Retail NERPs restrictions are applied to actual native interaction,
+    /// rather than displayed as an informational number only.
+    var tutorialPolicy = NativeTutorialInputPolicy.unrestricted {
+        didSet { allowsCameraControl = tutorialPolicy.permits(.camera) }
+    }
     private var raiderMarkers: [String: SCNNode] = [:]
     private var selectedRaider: String?
     var onTileSelected: ((LevelWorld.Tile) -> Void)?
@@ -281,10 +286,18 @@ final class NativeLevel3DView: SCNView {
         if let pilot = hits.first(where: { hit in
             raiderMarkers.values.contains(where: { $0 === hit.node })
         })?.node, let id = raiderMarkers.first(where: { $0.value === pilot })?.key {
+            guard tutorialPolicy.permits(.object) else {
+                onInteractionMessage?("Original tutorial: selecting Rock Raiders is disabled for this step.")
+                return
+            }
             selectRaider(id)
         } else if let terrainHit = hits.first(where: {
             $0.node.name?.hasPrefix("Retail MAP /") == true
         }) {
+            guard tutorialPolicy.permits(.map) else {
+                onInteractionMessage?("Original tutorial: map actions are disabled for this step.")
+                return
+            }
             let point = terrainHit.worldCoordinates
             let x = Int(floor(Double(point.x) + Double(world.width) / 2))
             let z = Int(floor(Double(point.z) + Double(world.height) / 2))
@@ -295,7 +308,10 @@ final class NativeLevel3DView: SCNView {
                 }
             }
         }
-        super.mouseDown(with: event) // Keep the native orbit camera controller.
+        // Tutorials can lock camera control independently of map and object clicks.
+        if tutorialPolicy.permits(.camera) {
+            super.mouseDown(with: event)
+        }
     }
 }
 
@@ -338,6 +354,9 @@ final class NativeMissionWorkspace: NSView {
             frame: frame, world: world, objects: objects,
             resources: resources, textureSet: textureSet)
         self.level2D = NativeLevelView(frame: frame, world: world)
+        if let nerpsState {
+            self.level3D.tutorialPolicy = NativeTutorialInputPolicy(flags: nerpsState.tutorialFlags)
+        }
         self.mode = NSSegmentedControl(labels: ["3D Terrain", "2D MAP"],
                                        trackingMode: .selectOne, target: nil, action: nil)
         self.status = NSTextField(labelWithString:
@@ -405,6 +424,7 @@ final class NativeMissionWorkspace: NSView {
         previousTickTime = now
         do {
             let result = try nerpsState.tick(elapsedMilliseconds: Float(elapsed * 1000))
+            level3D.tutorialPolicy = NativeTutorialInputPolicy(flags: nerpsState.tutorialFlags)
             // Text-only preview; original Next-arrow interaction and
             // synchronized Chief audio have not yet been implemented.
             if let text = nerpsState.messageText, !text.isEmpty {
