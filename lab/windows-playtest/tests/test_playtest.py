@@ -23,6 +23,13 @@ class ScenarioTests(unittest.TestCase):
         self.assertEqual(actions.count('ensure_no_nerps'), 2)
         self.assertNotIn('shell', actions)
 
+    def test_first_mission_uses_existing_cheat(self):
+        scenario = json.loads((BASE / 'first-mission-sandbox.json').read_text())
+        steps = playtest.validate_scenario(scenario)
+        self.assertEqual(steps[0]['action'], 'capture')
+        self.assertEqual([x['action'] for x in steps].count('ensure_no_nerps'), 1)
+        self.assertNotIn('shell', [x['action'] for x in steps])
+
     def test_injection_not_supported(self):
         with self.assertRaisesRegex(ValueError, 'unsupported action'):
             playtest.validate_scenario({'steps': [{'action': 'shell', 'command': 'del /s'}]})
