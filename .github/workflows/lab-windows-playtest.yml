@@ -1,0 +1,79 @@
+name: Windows virtual game playtest laboratory
+on:
+  push:
+    branches: [lab-windows-virtual-playtest-v1]
+    paths:
+      - lab/windows-playtest/**
+      - .github/workflows/lab-windows-playtest.yml
+  workflow_dispatch:
+    inputs:
+      run_private_game:
+        description: "Run original game smoke test only on a preconfigured private interactive Windows runner"
+        required: false
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: windows-playtest-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+jobs:
+  scenario-validation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate scenarios and safeguards
+        run: python3 -m unittest discover -s lab/windows-playtest/tests -v
+
+  synthetic-windows-gui:
+    needs: scenario-validation
+    runs-on: windows-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install capture dependency
+        run: python -m pip install "Pillow>=11.2,<12"
+      - name: Exercise real Win32 input and window-only capture on synthetic test app
+        shell: pwsh
+        run: |
+          $fixture = (Resolve-Path 'lab/windows-playtest/tests/fixture.ps1').Path
+          $fixtureProc = Start-Process powershell.exe -ArgumentList @('-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-File', "'$fixture'") -PassThru
+          try {
+            python lab/windows-playtest/playtest.py --pid $fixtureProc.Id --scenario lab/windows-playtest/tests/fixture-scenario.json --title 'OpenLRR Fixture' --out lab/windows-playtest/out/fixture
+            if ($LASTEXITCODE -ne 0) { throw "Windows GUI fixture failed. Inspect report rather than assuming desktop access." }
+          }
+          finally {
+            if (-not $fixtureProc.HasExited) { Stop-Process -Id $fixtureProc.Id -Force -ErrorAction SilentlyContinue }
+          }
+      - name: Publish synthetic-only diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-synthetic-fixture-evidence
+          path: lab/windows-playtest/out/fixture/
+          if-no-files-found: ignore
+          retention-days: 3
+
+  private-original-windows-game:
+    if: github.event_name == 'workflow_dispatch' && inputs.run_private_game
+    needs: scenario-validation
+    runs-on: [self-hosted, Windows, X64, openlrr-gui]
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install controller capture dependency
+        run: python -m pip install "Pillow>=11.2,<12"
+      - name: Run original game locally, keep evidence private
+        shell: pwsh
+        run: |
+          $exe = $env:OPENLRR_GAME_EXE
+          if (-not $exe -or -not (Test-Path -LiteralPath $exe)) { throw "Set OPENLRR_GAME_EXE on the private Windows runner to the local installed executable." }
+          python lab/windows-playtest/playtest.py --exe "$exe" --scenario lab/windows-playtest/game-smoke.json --out "$env:LOCALAPPDATA/OpenLRR-Private-Reports/ci-smoke"
+          if ($LASTEXITCODE -ne 0) { throw "Private game smoke failed: inspect the runner's LOCALAPPDATA report (never public artifacts)." }
