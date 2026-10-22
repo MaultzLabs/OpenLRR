@@ -1,0 +1,15 @@
+name: Evidence coverage audit tests
+on:
+  push:
+    branches: [lab-evidence-coverage-gates-v1]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  synthetic-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m py_compile lab/evidence-bridge/audit.py
+      - run: python3 -m unittest discover -s lab/evidence-bridge/tests -v
