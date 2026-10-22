@@ -79,6 +79,6 @@ swiftc -O Sources/WadArchive.swift Sources/GameResources.swift \
 # Persistent NERPs game state from original C++ callbacks; no retail assets.
 swiftc -O Sources/WadArchive.swift Sources/GameResources.swift \
   Sources/LegoConfig.swift Sources/NERPsScript.swift \
-  Sources/NERPsRuntime.swift Sources/NativeNERPsGameState.swift \
-  Tests/NativeNERPsGameStateTests.swift -o "$tmp14"
+  Sources/NERPsRuntime.swift Sources/NativeNERPsMessageFile.swift \
+  Sources/NativeNERPsGameState.swift Tests/NativeNERPsGameStateTests.swift -o "$tmp14"
 "$tmp14"

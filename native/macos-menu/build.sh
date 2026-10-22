@@ -27,7 +27,7 @@ xcrun swiftc -O -target arm64-apple-macos12.0 -framework AppKit -framework Image
   Sources/MenuDefinition.swift Sources/LevelCatalog.swift Sources/MissionSelection.swift \
   Sources/MapFile.swift Sources/LevelRuntimeResources.swift Sources/LevelWorld.swift Sources/NativeTerrainMesh.swift Sources/NativeLevelNavigation.swift Sources/OriginalTerrainTextureCatalog.swift Sources/LightWaveObject.swift Sources/LightWaveScene.swift \
   Sources/PalettedBMP.swift Sources/OriginalFontLayout.swift Sources/OriginalMenuScroll.swift Sources/OriginalPointerAsset.swift Sources/WavePCM.swift \
-  Sources/SoundSampleCatalog.swift Sources/NERPsScript.swift Sources/NERPsRuntime.swift Sources/NativeNERPsGameState.swift Sources/OriginalObjectList.swift Sources/OriginalSaveFile.swift Sources/OriginalAudioFileLocator.swift \
+  Sources/SoundSampleCatalog.swift Sources/NERPsScript.swift Sources/NERPsRuntime.swift Sources/NativeNERPsMessageFile.swift Sources/NativeNERPsGameState.swift Sources/OriginalObjectList.swift Sources/OriginalSaveFile.swift Sources/OriginalAudioFileLocator.swift \
   Sources/OriginalMenuAudio.swift Sources/OriginalMacCursor.swift Sources/NativeRockWipeView.swift Sources/NativeLevelView.swift Sources/NativeLevel3DView.swift Sources/NativeMenu.swift \
   -o "$out/Contents/MacOS/RockRaidersNativeMenu"
 /usr/bin/codesign --force --sign - "$out"

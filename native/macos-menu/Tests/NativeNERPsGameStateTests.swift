@@ -70,6 +70,42 @@ private func encode(_ operations: [(UInt16, UInt16)]) throws -> NERPsScript {
             precondition(unknown.completedTicks == 0)
         }
 
+        // Original tutorial messaging: a synthetic NPL first enables
+        // messages, then displays the first synthetic message-file line.
+        let messages = try NativeNERPsMessageFile(data: Data(
+            ":picture World\\Tutorial.bmp\r\n$voice Sounds\\Chief\r\nHello_Raider! <picture> #voice#\r\nSecond_message\n".utf8))
+        precondition(messages.lines.count == 2)
+        precondition(messages.text(for: 0)?.hasPrefix("Hello Raider!") == true)
+        precondition(messages.text(for: 1) == messages.text(for: 0))
+        precondition(messages.text(for: 2) == "Second message")
+        precondition(messages.text(for: 3) == nil)
+        let tutorial = NativeNERPsGameState(script: try encode([
+            (0, 1), (2, 0x31), (0, 0),        // TRUE ? SetMessagePermit 0
+            (0, 1), (2, 0x10), (0, 1), (0, 1) // TRUE ? SetMessage 1 1
+        ]), messages: messages)
+        precondition(tutorial.messagePermit)
+        let messageTick = try tutorial.tick(elapsedMilliseconds: 40)
+        precondition(messageTick.actionsExecuted == 2)
+        precondition(!tutorial.messagePermit)
+        precondition(tutorial.lastMessageNumber == 1)
+        precondition(tutorial.messageText?.hasPrefix("Hello Raider!") == true)
+        precondition(tutorial.nextArrowDisabled)
+        let tutorialCallbacks = tutorial.functions()
+        precondition(tutorialCallbacks[0x31]!.invoke([1]) == 1)
+        precondition(tutorial.messageText == nil && tutorial.messagePermit)
+        precondition(tutorialCallbacks[0x10]!.invoke([2, 0]) == 0)
+        precondition(tutorial.messageText == nil, "Blocked message must stay hidden")
+        precondition(tutorialCallbacks[0x31]!.invoke([0]) == 0)
+        precondition(tutorialCallbacks[0x10]!.invoke([2, 0]) == 0)
+        precondition(tutorial.messageText == "Second message")
+        precondition(!tutorial.nextArrowDisabled)
+        precondition(tutorialCallbacks[0x10]!.invoke([-1, 0]) == 0)
+        precondition(tutorial.messageText == nil, "Invalid line cannot display text")
+        do {
+            _ = try NativeNERPsMessageFile(data: Data(repeating: 65, count: 1_000_001))
+            preconditionFailure("Oversized NERP message file accepted")
+        } catch NativeNERPsMessageFile.MessageError.oversized {}
+
         // Separate level sessions cannot accidentally share runtime state.
         let fresh = NativeNERPsGameState(script: try encode([]))
         precondition(fresh.registers == Array(repeating: 0, count: 8))

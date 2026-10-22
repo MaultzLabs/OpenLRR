@@ -735,7 +735,18 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
             // substitute tutorial content or fabricated missing functions.
             let script = try? NERPsScript.load(levelIdentifier: identifier,
                                                 config: config, resources: resources)
-            let missionNERPs = script.map { NativeNERPsGameState(script: $0) }
+            // Decode text-only tutorial messages from the configured
+            // NERPMessageFile, without exporting or modifying WAD contents.
+            let missionMessages: NativeNERPsMessageFile?
+            if let path = manifest.scriptMessagePath {
+                missionMessages = try? NativeNERPsMessageFile(
+                    data: resources.data(at: path, maximumBytes: 1_000_000))
+            } else {
+                missionMessages = nil
+            }
+            let missionNERPs = script.map {
+                NativeNERPsGameState(script: $0, messages: missionMessages)
+            }
 
             // Mission selection changes the scene in the existing window, as
             // the retail game does. Never spawn another NSWindow per mission.

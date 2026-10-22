@@ -308,6 +308,7 @@ final class NativeMissionWorkspace: NSView {
     private let mode: NSSegmentedControl
     private let status: NSTextField
     private let nerpsInfo: NSTextField
+    private let tutorialMessage: NSTextField
     private let nerpsState: NativeNERPsGameState?
     private var nerpsTimer: Timer?
     private var previousTickTime: TimeInterval?
@@ -331,6 +332,8 @@ final class NativeMissionWorkspace: NSView {
         self.nerpsState = nerpsState
         self.nerpsInfo = NSTextField(labelWithString:
             nerpsState == nil ? "Original NERPs script unavailable" : "NERPs script loaded; preparing native callbacks")
+        self.tutorialMessage = NSTextField(wrappingLabelWithString: "")
+        self.tutorialMessage.isHidden = true
         self.level3D = try NativeLevel3DView(
             frame: frame, world: world, objects: objects,
             resources: resources, textureSet: textureSet)
@@ -360,6 +363,11 @@ final class NativeMissionWorkspace: NSView {
         nerpsInfo.drawsBackground = true
         nerpsInfo.lineBreakMode = .byTruncatingTail
         addSubview(nerpsInfo)
+        tutorialMessage.font = NSFont.systemFont(ofSize: 15, weight: .medium)
+        tutorialMessage.textColor = .white
+        tutorialMessage.backgroundColor = NSColor(calibratedWhite: 0.09, alpha: 0.94)
+        tutorialMessage.drawsBackground = true
+        addSubview(tutorialMessage)
         level3D.onTileSelected = { [weak self] tile in
             self?.status.stringValue =
                 "Original (\(tile.x), \(tile.y)) · \(tile.terrain.rawValue) · \(tile.excavation.rawValue) · Height \(tile.heightCode)"
@@ -397,6 +405,14 @@ final class NativeMissionWorkspace: NSView {
         previousTickTime = now
         do {
             let result = try nerpsState.tick(elapsedMilliseconds: Float(elapsed * 1000))
+            // Text-only preview; original Next-arrow interaction and
+            // synchronized Chief audio have not yet been implemented.
+            if let text = nerpsState.messageText, !text.isEmpty {
+                tutorialMessage.stringValue = text
+                tutorialMessage.isHidden = false
+            } else {
+                tutorialMessage.isHidden = true
+            }
             nerpsInfo.stringValue =
                 "Original NERPs: \(nerpsState.completedTicks) ticks · " +
                 "\(result.functionCalls) calls this tick · tutorial flags \(nerpsState.tutorialFlags)"
@@ -419,6 +435,8 @@ final class NativeMissionWorkspace: NSView {
                               height: 26)
         nerpsInfo.frame = NSRect(x: 12, y: 42, width: max(0, bounds.width - 24),
                                 height: 19)
+        tutorialMessage.frame = NSRect(x: 12, y: 70,
+                                      width: max(0, bounds.width - 24), height: 70)
     }
 
     func focusActiveView() {

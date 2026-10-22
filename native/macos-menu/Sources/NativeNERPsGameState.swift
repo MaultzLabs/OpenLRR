@@ -14,9 +14,16 @@ final class NativeNERPsGameState {
     private(set) var timers = [Float](repeating: 0, count: 4)
     private(set) var tutorialFlags: Int32 = 0
     private(set) var completedTicks = 0
+    // In retail NERPs, 0 permits messages; nonzero suppresses them.
+    private(set) var messagePermit = true
+    private(set) var messageText: String?
+    private(set) var lastMessageNumber: Int32?
+    private(set) var nextArrowDisabled = false
+    private let messages: NativeNERPsMessageFile?
 
-    init(script: NERPsScript) {
+    init(script: NERPsScript, messages: NativeNERPsMessageFile? = nil) {
         self.script = script
+        self.messages = messages
     }
 
     /// Receives real frame elapsed time in milliseconds, instead of
@@ -83,6 +90,22 @@ final class NativeNERPsGameState {
                 return 1
             })
         }
+        // Original NPL function IDs: SetMessagePermit and SetMessage.
+        callbacks[0x31] = .init(kind: .action(arity: 1),
+                                invoke: { [unowned self] args in
+            self.messagePermit = args[0] != 0
+            self.messageText = nil
+            self.lastMessageNumber = nil
+            return args[0]
+        })
+        callbacks[0x10] = .init(kind: .action(arity: 2),
+                                invoke: { [unowned self] args in
+            guard !self.messagePermit else { return 0 }
+            self.lastMessageNumber = args[0]
+            self.messageText = self.messages?.text(for: args[0])
+            self.nextArrowDisabled = args[1] != 0
+            return 0
+        })
         callbacks[0x5d] = .init(kind: .expression(arity: 0),
                                 invoke: { [unowned self] _ in self.tutorialFlags })
         callbacks[0x5e] = .init(kind: .action(arity: 1),
