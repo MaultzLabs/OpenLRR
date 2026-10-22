@@ -9,7 +9,10 @@ import SceneKit
 /// derived exclusively from the user's original files.
 final class NativeLevel3DView: SCNView {
     let world: LevelWorld
-    let terrainMesh: NativeTerrainMesh
+    private(set) var terrainMesh: NativeTerrainMesh
+    private let excavation: NativeExcavationState
+    private let terrainTextures: [NativeTerrainMesh.Material: NSImage]
+    private var terrainNodes: [SCNNode] = []
     let originalObjects: OriginalObjectList?
     let textureSummary: String
     var onExit: (() -> Void)?
@@ -31,9 +34,11 @@ final class NativeLevel3DView: SCNView {
     init(frame: NSRect, world: LevelWorld, objects: OriginalObjectList?,
          resources: GameResources, textureSet: String?) throws {
         self.world = world
-        self.terrainMesh = try NativeTerrainMesh(world: world)
+        let excavation = NativeExcavationState(world: world)
+        self.excavation = excavation
+        self.terrainMesh = try NativeTerrainMesh(world: world, excavation: excavation)
         self.originalObjects = objects
-        self.navigation = NativeLevelNavigation(world: world)
+        self.navigation = NativeLevelNavigation(world: world, excavation: excavation)
 
         let textureCatalog = OriginalTerrainTextureCatalog(
             textureSetSetting: textureSet, resources: resources)
@@ -55,6 +60,17 @@ final class NativeLevel3DView: SCNView {
             "Original terrain texture not found; showing diagnostic materials" :
             "Original \(textureCatalog?.family.rawValue ?? "world") BMP terrain textures"
 
+        var textures: [NativeTerrainMesh.Material: NSImage] = [:]
+        if textureCatalog != nil {
+            for material in NativeTerrainMesh.Material.allCases {
+                if let id = Self.textureID(for: material),
+                   let image = originalBitmap(id) ?? groundTexture {
+                    textures[material] = image
+                }
+            }
+        }
+        self.terrainTextures = textures
+
         super.init(frame: frame, options: nil)
         backgroundColor = NSColor(calibratedRed: 0.06, green: 0.075, blue: 0.09, alpha: 1)
         autoenablesDefaultLighting = true
@@ -68,55 +84,7 @@ final class NativeLevel3DView: SCNView {
         scene.fogStartDistance = 18
         scene.fogEndDistance = 48
 
-        for surface in terrainMesh.surfaces {
-            // A few material-grouped triangle meshes replace thousands of
-            // SCNNode cubes, allowing normal level sizes to stay responsive.
-            let vertices: [SCNVector3] = surface.vertices.map {
-                SCNVector3($0.x, $0.y, $0.z)
-            }
-            let normals: [SCNVector3] = surface.normals.map {
-                SCNVector3($0.x, $0.y, $0.z)
-            }
-            guard vertices.count <= Int(UInt32.max) else { continue }
-            let indices = (0..<vertices.count).map { UInt32($0) }
-            // UVs repeat original wall/ground bitmaps once per tile. For
-            // vertical walls use their horizontal axis and height rather
-            // than projecting the same flat color over the entire level.
-            let uv: [CGPoint] = zip(surface.vertices, surface.normals).map { pair in
-                let p = pair.0
-                let n = pair.1
-                if abs(n.y) >= 0.5 {
-                    return CGPoint(x: CGFloat(p.x), y: CGFloat(p.z))
-                }
-                let horizontal = abs(n.x) > abs(n.z) ? p.z : p.x
-                return CGPoint(x: CGFloat(horizontal),
-                               y: CGFloat(p.y) / CGFloat(NativeTerrainMesh.previewWallHeight))
-            }
-            let geometry = SCNGeometry(
-                sources: [SCNGeometrySource(vertices: vertices),
-                          SCNGeometrySource(normals: normals),
-                          SCNGeometrySource(textureCoordinates: uv)],
-                elements: [SCNGeometryElement(indices: indices,
-                                              primitiveType: .triangles)])
-            let material = SCNMaterial()
-            material.diffuse.contents = Self.color(surface.material)
-            if textureCatalog != nil,
-               let id = Self.textureID(for: surface.material),
-               let image = originalBitmap(id) ?? groundTexture {
-                material.diffuse.contents = image
-                material.diffuse.wrapS = .repeat
-                material.diffuse.wrapT = .repeat
-                material.diffuse.magnificationFilter = .linear
-                material.diffuse.minificationFilter = .linear
-            }
-            material.lightingModel = .blinn
-            material.isDoubleSided = true
-            material.specular.contents = NSColor(calibratedWhite: 0.14, alpha: 1)
-            geometry.materials = [material]
-            let node = SCNNode(geometry: geometry)
-            node.name = "Retail MAP / \(surface.material.rawValue)"
-            scene.rootNode.addChildNode(node)
-        }
+        renderTerrain(in: scene)
 
         // The original TVCamera placement overrides the first exposed-cavern
         // fallback. Its heading will be used when original camera semantics
@@ -178,6 +146,62 @@ final class NativeLevel3DView: SCNView {
 
     required init?(coder: NSCoder) { nil }
 
+    /// Recreate visible cave geometry from the immutable MAP plus session
+    /// excavation overlay. Changes only our SceneKit preview nodes.
+    private func renderTerrain(in scene: SCNScene) {
+        for node in terrainNodes { node.removeFromParentNode() }
+        terrainNodes.removeAll()
+        for surface in terrainMesh.surfaces {
+            // A few material-grouped triangle meshes replace thousands of
+            // SCNNode cubes, allowing normal level sizes to stay responsive.
+            let vertices: [SCNVector3] = surface.vertices.map {
+                SCNVector3($0.x, $0.y, $0.z)
+            }
+            let normals: [SCNVector3] = surface.normals.map {
+                SCNVector3($0.x, $0.y, $0.z)
+            }
+            guard vertices.count <= Int(UInt32.max) else { continue }
+            let indices = (0..<vertices.count).map { UInt32($0) }
+            // UVs repeat original wall/ground bitmaps once per tile. For
+            // vertical walls use their horizontal axis and height rather
+            // than projecting the same flat color over the entire level.
+            let uv: [CGPoint] = zip(surface.vertices, surface.normals).map { pair in
+                let p = pair.0
+                let n = pair.1
+                if abs(n.y) >= 0.5 {
+                    return CGPoint(x: CGFloat(p.x), y: CGFloat(p.z))
+                }
+                let horizontal = abs(n.x) > abs(n.z) ? p.z : p.x
+                return CGPoint(x: CGFloat(horizontal),
+                               y: CGFloat(p.y) / CGFloat(NativeTerrainMesh.previewWallHeight))
+            }
+            let geometry = SCNGeometry(
+                sources: [SCNGeometrySource(vertices: vertices),
+                          SCNGeometrySource(normals: normals),
+                          SCNGeometrySource(textureCoordinates: uv)],
+                elements: [SCNGeometryElement(indices: indices,
+                                              primitiveType: .triangles)])
+            let material = SCNMaterial()
+            material.diffuse.contents = Self.color(surface.material)
+            if let image = terrainTextures[surface.material] {
+                material.diffuse.contents = image
+                material.diffuse.wrapS = .repeat
+                material.diffuse.wrapT = .repeat
+                material.diffuse.magnificationFilter = .linear
+                material.diffuse.minificationFilter = .linear
+            }
+            material.lightingModel = .blinn
+            material.isDoubleSided = true
+            material.specular.contents = NSColor(calibratedWhite: 0.14, alpha: 1)
+            geometry.materials = [material]
+            let node = SCNNode(geometry: geometry)
+            node.name = "Retail MAP / \(surface.material.rawValue)"
+            scene.rootNode.addChildNode(node)
+            terrainNodes.append(node)
+        }
+
+    }
+
     /// These are the original SurfaceTexture identifiers, not arbitrary
     /// diagnostic colors (src/openlrr/game/GameCommon.h). Transition variants
     /// and wall orientation are still under development.
@@ -237,7 +261,7 @@ final class NativeLevel3DView: SCNView {
         if let vehicle = placement?.drivingIdentifier {
             onInteractionMessage?("\(id) is driving \(vehicle); vehicle controls not yet ported.")
         } else {
-            onInteractionMessage?("Selected original Rock Raider \(id). Click an exposed cavern tile to walk.")
+            onInteractionMessage?("Selected original Rock Raider \(id). Left-click to move; right-click mineable rock to preview digging.")
         }
     }
 
@@ -271,6 +295,80 @@ final class NativeLevel3DView: SCNView {
             marker.runAction(SCNAction.sequence(actions))
         }
         onInteractionMessage?("Rock Raider \(id): moving \(max(0, route.count - 1)) tiles to (\(destination.x), \(destination.y)).")
+    }
+
+    /// Preliminary digging command. The retail AI/drill duration, rubble,
+    /// collection and fog reveal are not represented; this is an explicit
+    /// session-only geometry/navigation preview for the original map.
+    override func rightMouseDown(with event: NSEvent) {
+        guard let id = selectedRaider, let marker = raiderMarkers[id] else {
+            onInteractionMessage?("Select a Rock Raider before requesting excavation.")
+            return
+        }
+        if originalObjects?.rockRaiders.first(where: {
+            $0.identifier == id
+        })?.drivingIdentifier != nil {
+            onInteractionMessage?("Raider is driving; vehicle drilling is not yet ported.")
+            return
+        }
+        let location = convert(event.locationInWindow, from: nil)
+        let hits = hitTest(location, options: [.firstFoundOnly: false])
+        guard let hit = hits.first(where: {
+            $0.node.name?.hasPrefix("Retail MAP /") == true
+        }) else { return }
+        let point = hit.worldCoordinates
+        let target = NativeLevelNavigation.Position(
+            x: Int(floor(Double(point.x) + Double(world.width) / 2)),
+            y: Int(floor(Double(point.z) + Double(world.height) / 2)))
+        guard excavation.canTarget(target) else {
+            onInteractionMessage?("Not an exposed, drillable rock wall.")
+            return
+        }
+        let current = marker.presentation.position
+        let start = NativeLevelNavigation.Position(
+            x: Int(floor(Double(current.x) + Double(world.width) / 2)),
+            y: Int(floor(Double(current.z) + Double(world.height) / 2)))
+        let neighbours = [
+            NativeLevelNavigation.Position(x: target.x, y: target.y - 1),
+            NativeLevelNavigation.Position(x: target.x + 1, y: target.y),
+            NativeLevelNavigation.Position(x: target.x, y: target.y + 1),
+            NativeLevelNavigation.Position(x: target.x - 1, y: target.y)
+        ]
+        let candidates = neighbours.compactMap { neighbour -> [NativeLevelNavigation.Position]? in
+            guard let route = navigation.route(from: start, to: neighbour),
+                  route.count <= 512 else { return nil }
+            return route
+        }
+        guard let route = candidates.min(by: { $0.count < $1.count }),
+              let standing = route.last else {
+            onInteractionMessage?("No discovered route to an adjacent drilling position.")
+            return
+        }
+        marker.removeAllActions()
+        var actions: [SCNAction] = route.dropFirst().map { tile in
+            SCNAction.move(to: worldPosition(x: Double(tile.x) + 0.5,
+                                              z: Double(tile.y) + 0.5),
+                           duration: 0.25)
+        }
+        actions.append(SCNAction.run { [weak self] node in
+            guard let self, self.selectedRaider == id,
+                  self.raiderMarkers[id] === node else { return }
+            guard self.excavation.dig(at: target, from: standing) == .dug else {
+                self.onInteractionMessage?("Excavation rejected; tile state changed.")
+                return
+            }
+            do {
+                self.terrainMesh = try NativeTerrainMesh(
+                    world: self.world, excavation: self.excavation)
+                if let scene = self.scene { self.renderTerrain(in: scene) }
+                self.onInteractionMessage?(
+                    "Diagnostic excavation at (\(target.x), \(target.y)); drilling time, rubble and resources NOT yet simulated.")
+            } catch {
+                self.onInteractionMessage?("Terrain rebuilding failed: \(error)")
+            }
+        })
+        marker.runAction(SCNAction.sequence(actions))
+        onInteractionMessage?("Rock Raider \(id): moving beside rock \(target.x), \(target.y) for excavation preview.")
     }
 
     override func mouseDown(with event: NSEvent) {
