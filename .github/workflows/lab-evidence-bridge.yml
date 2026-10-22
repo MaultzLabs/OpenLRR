@@ -1,0 +1,25 @@
+name: Cross-platform Mac and Windows gameplay evidence bridge
+on:
+  push:
+    branches: [lab-cross-platform-evidence-bridge-v1]
+    paths:
+      - lab/evidence-bridge/**
+      - .github/workflows/lab-evidence-bridge.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: openlrr-evidence-bridge-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  privacy-and-semantic-regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Portable read-only evidence comparators
+        run: |
+          python3 -m py_compile lab/evidence-bridge/compare.py
+          python3 -m unittest discover -s lab/evidence-bridge/tests -v
