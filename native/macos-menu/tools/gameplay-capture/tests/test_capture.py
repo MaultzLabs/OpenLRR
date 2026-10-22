@@ -157,7 +157,7 @@ class CaptureSafetyTests(unittest.TestCase):
         timeline = capture.Timeline(self.root / "events.jsonl")
         with npl.open("a") as stream:
             stream.write(json.dumps({
-                "function": "AdvanceMessage", "args": [2, 3],
+                "function": "AdvanceMessage", "function_id": 44, "args": [2, 3],
                 "host_path": "/Users/private/secret", "frame": 72,
                 "password": "dont_capture"
             }) + "\n")
