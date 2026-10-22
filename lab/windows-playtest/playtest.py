@@ -30,7 +30,7 @@ def validate_scenario(data):
         if not isinstance(step, dict):
             raise ValueError(f"Step {i} must be an object")
         kind = step.get("action")
-        if kind not in {"capture", "click", "key", "wait", "assert_title", "assert_alive", "assert_changed"}:
+        if kind not in {"capture", "click", "key", "wait", "assert_title", "assert_alive", "assert_changed", "ensure_no_nerps"}:
             raise ValueError(f"Step {i} has unsupported action: {kind}")
         if kind == "click":
             if not all(isinstance(step.get(k), int) and not isinstance(step[k], bool) and 0 <= step[k] <= 8192 for k in ("x", "y")):
@@ -74,6 +74,19 @@ class Win32:
         self.u.SetCursorPos.argtypes = (ctypes.c_int, ctypes.c_int)
         self.u.mouse_event.argtypes = (wt.DWORD, wt.DWORD, wt.DWORD, wt.DWORD, ctypes.c_ulonglong)
         self.u.keybd_event.argtypes = (ctypes.c_ubyte, ctypes.c_ubyte, wt.DWORD, ctypes.c_ulonglong)
+        # OpenLRR installs a real Win32 HMENU from its compiled .rc resource.
+        self.u.GetMenu.argtypes = (wt.HWND,)
+        self.u.GetMenu.restype = wt.HMENU
+        self.u.GetMenuItemCount.argtypes = (wt.HMENU,)
+        self.u.GetMenuItemCount.restype = ctypes.c_int
+        self.u.GetMenuStringW.argtypes = (wt.HMENU, wt.UINT, wt.LPWSTR, ctypes.c_int, wt.UINT)
+        self.u.GetMenuStringW.restype = ctypes.c_int
+        self.u.GetSubMenu.argtypes = (wt.HMENU, ctypes.c_int)
+        self.u.GetSubMenu.restype = wt.HMENU
+        self.u.GetMenuState.argtypes = (wt.HMENU, wt.UINT, wt.UINT)
+        self.u.GetMenuState.restype = wt.UINT
+        self.u.GetMenuItemRect.argtypes = (wt.HWND, wt.HMENU, wt.UINT, ctypes.POINTER(wt.RECT))
+        self.u.GetMenuItemRect.restype = wt.BOOL
 
     def title(self, hwnd):
         n = self.u.GetWindowTextLengthW(hwnd)
@@ -134,6 +147,72 @@ class Win32:
         self.u.keybd_event(vk, 0, 0, 0)
         time.sleep(0.06)
         self.u.keybd_event(vk, 0, 0x0002, 0)
+
+    @staticmethod
+    def normalize_menu_label(label):
+        return label.split("\\t", 1)[0].replace("&", "").strip().casefold()
+
+    def find_menu_item(self, menu, label):
+        count = self.u.GetMenuItemCount(menu)
+        if count < 0 or count > 256:
+            raise ProbeError("Invalid or oversized native Windows menu")
+        matches = []
+        for i in range(count):
+            buffer = ctypes.create_unicode_buffer(256)
+            self.u.GetMenuStringW(menu, i, buffer, len(buffer), 0x400)  # MF_BYPOSITION
+            if self.normalize_menu_label(buffer.value) == label.casefold():
+                matches.append(i)
+        if len(matches) != 1:
+            raise ProbeError(f"Native menu {label!r} not uniquely found: {len(matches)} matches")
+        return matches[0]
+
+    def click_screen(self, x, y):
+        if not self.u.SetCursorPos(x, y):
+            raise ProbeError("Could not position cursor for native menu selection")
+        self.u.mouse_event(0x0002, 0, 0, 0, 0)
+        time.sleep(0.06)
+        self.u.mouse_event(0x0004, 0, 0, 0, 0)
+
+    def menu_rect(self, hwnd, menu, index):
+        rect = self.wt.RECT()
+        if not self.u.GetMenuItemRect(hwnd, menu, index, ctypes.byref(rect)):
+            raise ProbeError("Native menu item not visible; cannot click it")
+        if rect.right <= rect.left or rect.bottom <= rect.top:
+            raise ProbeError("Native menu item has an invalid rectangle")
+        return ((rect.left + rect.right) // 2, (rect.top + rect.bottom) // 2)
+
+    def ensure_no_nerps(self, hwnd, pid):
+        """Select the existing Cheats > No NERPs dropdown, not an engine hook."""
+        self.focus(hwnd, pid)
+        menu = self.u.GetMenu(hwnd)
+        if not menu:
+            raise ProbeError("Game has no native menu bar; start OpenLRR with menu enabled")
+        top_index = self.find_menu_item(menu, "Cheats")
+        submenu = self.u.GetSubMenu(menu, top_index)
+        if not submenu:
+            raise ProbeError("The Cheats menu does not have a native submenu")
+        item_index = self.find_menu_item(submenu, "No NERPs")
+        def item_state():
+            return self.u.GetMenuState(submenu, item_index, 0x400)
+        state = item_state()
+        if state == 0xffffffff or state & 0x3:
+            raise ProbeError("No NERPs menu item is not currently enabled")
+        if state & 0x8:
+            return "already_checked"
+        self.click_screen(*self.menu_rect(hwnd, menu, top_index))
+        time.sleep(0.18)
+        try:
+            submenu_pos = self.menu_rect(hwnd, submenu, item_index)
+        except Exception:
+            self.key(hwnd, pid, "escape")
+            raise
+        self.click_screen(*submenu_pos)
+        for _ in range(20):
+            self.ensure_window(hwnd, pid)
+            if item_state() & 0x8:
+                return "checked"
+            time.sleep(0.1)
+        raise ProbeError("Clicked Cheats > No NERPs, but the menu did not become checked")
 
 
 def capture(hwnd, windows, pid, outfile):
@@ -204,6 +283,8 @@ def execute(win, pid, steps, dest, title_pattern, start_timeout=25, launched_pro
             last_frame = img
         elif kind == "assert_alive":
             win.ensure_window(hwnd, pid)
+        elif kind == "ensure_no_nerps":
+            event["result"] = win.ensure_no_nerps(hwnd, pid)
         events.append(event)
         (dest / "timeline.json").write_text(json.dumps(events, indent=2), encoding="utf-8")
     return events
