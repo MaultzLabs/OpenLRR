@@ -25,6 +25,7 @@ final class NativeLevel3DView: SCNView {
         addCursorRect(bounds, cursor: originalCursor ?? .arrow)
     }
     var onInteractionMessage: ((String) -> Void)?
+    var onRockRaiderSelected: ((String) -> Void)?
 
     override var acceptsFirstResponder: Bool { true }
 
@@ -227,6 +228,7 @@ final class NativeLevel3DView: SCNView {
 
     private func selectRaider(_ id: String) {
         selectedRaider = id
+        onRockRaiderSelected?(id)
         for (identifier, marker) in raiderMarkers {
             marker.geometry?.firstMaterial?.emission.contents =
                 identifier == id ? NSColor.systemYellow : NSColor.black
@@ -382,6 +384,11 @@ final class NativeMissionWorkspace: NSView {
         }
         level3D.onInteractionMessage = { [weak self] message in
             self?.status.stringValue = message
+        }
+        // A real click on an original OL Pilot marker changes the script's
+        // GetMiniFigureSelected result during the next NERPs VM tick.
+        level3D.onRockRaiderSelected = { [weak self] _ in
+            self?.nerpsState?.reportRockRaiderSelection(true)
         }
         if let objects {
             status.stringValue = "\(objects.rockRaiders.count) Rock Raiders • \(level3D.textureSummary) • click a Raider to select"
