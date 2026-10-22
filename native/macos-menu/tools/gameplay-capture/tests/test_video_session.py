@@ -220,13 +220,13 @@ class VideoSessionTests(unittest.TestCase):
 
     def test_capture_integrity_cannot_confuse_requested_with_observed(self):
         timeline = self.root / "coverage.jsonl"
-        timeline.write_text("\\n".join(json.dumps(x) for x in [
+        timeline.write_text("\n".join(json.dumps(x) for x in [
             {"source": "video", "event": "capture_started"},
             {"source": "capture_control", "event": "input_monitor_ready"},
             {"source": "mac_input", "event": "left_down", "keycode": 1},
             {"source": "wine_api", "event": "sampled_log_batch"},
             {"source": "nerps", "event": "runtime_function", "function_id": 2},
-        ]) + "\\n")
+        ]) + "\n")
         complete = video_session.diagnostic_coverage(
             timeline, video_verified=True, input_requested=True,
             wine_attached=True, nerps_attached=True)
@@ -248,7 +248,7 @@ class VideoSessionTests(unittest.TestCase):
         spec.loader.exec_module(launcher)
         path = self.root / "empty-timeline.jsonl"
         path.write_text(json.dumps({"source": "video",
-                                    "event": "capture_started"}) + "\\n")
+                                    "event": "capture_started"}) + "\n")
         result = video_session.diagnostic_coverage(
             path, video_verified=True, input_requested=True,
             wine_attached=False, nerps_attached=False)
