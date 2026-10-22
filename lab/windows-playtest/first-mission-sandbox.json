@@ -1,0 +1,31 @@
+{
+  "purpose": "Run only after first normal mission is visibly loaded in actual original Windows game. This does not independently navigate or prove a playable mission.",
+  "steps": [
+    {
+      "action": "capture"
+    },
+    {
+      "action": "ensure_no_nerps"
+    },
+    {
+      "action": "wait",
+      "seconds": 0.5
+    },
+    {
+      "action": "capture"
+    },
+    {
+      "action": "assert_alive"
+    },
+    {
+      "action": "wait",
+      "seconds": 3
+    },
+    {
+      "action": "capture"
+    },
+    {
+      "action": "assert_alive"
+    }
+  ]
+}
