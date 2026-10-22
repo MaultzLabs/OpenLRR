@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
+import math
 import os
 import re
 from pathlib import Path
@@ -31,7 +32,7 @@ MAX_CAPTURE_SECONDS = 4 * 60 * 60
 MAX_LOCAL_TRACE_BYTES = 20_000_000
 ALLOWED_EVENT_NAMES = {
     "left_down", "left_up", "right_down", "right_up", "mouse_move",
-    "scroll", "key_down", "key_up", "game_window_closed",
+    "scroll", "key_down", "key_up", "modifier_changed", "game_window_closed",
     "input_monitor_ready"
 }
 ALLOWED_NERPS_FIELDS = {"function", "opcode", "instruction", "args", "pc", "frame"}
@@ -323,17 +324,20 @@ class BoundedTraceFollower:
 
 
 class NerpsFollower:
-    """Optional structured NERPs trace produced by future opt-in DLL hooks.
+    """Follow the structured trace emitted by an instrumented OpenLRR build.
 
-    Only small numeric arguments + declared function identifiers are copied.
-    It is not a claim that a vanilla LegoRR.exe emits NERPs telemetry.
+    Reconstruct the known numeric menu and script records without copying
+    arbitrary strings or memory addresses. The game clock, when available,
+    is retained; host time measures only when a record was read.
     """
 
     def __init__(self, source: Path):
         if not source.is_file() or source.is_symlink():
-            raise CaptureError("Optional NERPs trace file not found")
+            raise CaptureError("Instrumented OpenLRR trace source not found")
         self.source = source
-        self._cursor = source.stat().st_size
+        # The isolated trace belongs to this recording session. Read its
+        # complete history so the very first menu command is not discarded.
+        self._cursor = 0
 
     def sample(self, timeline: Timeline) -> None:
         with self.source.open("rb") as stream:
@@ -341,9 +345,7 @@ class NerpsFollower:
             data = stream.read(32768)
             if not data:
                 return
-            # Only parse complete newline records. Incomplete trailing bytes
-            # are revisited, not dropped.
-            ending = data.rfind(b"\n")
+            ending = data.rfind(b"\\n")
             if ending == -1:
                 return
             self._cursor += ending + 1
@@ -357,24 +359,51 @@ class NerpsFollower:
                 continue
             if not isinstance(payload, dict):
                 continue
-            cleaned = {}
-            for key in ALLOWED_NERPS_FIELDS:
-                value = payload.get(key)
-                if key == "function":
-                    if isinstance(value, str) and len(value) <= 80 and value.replace("_", "").isalnum():
-                        cleaned[key] = value
-                elif key == "args":
-                    if isinstance(value, list) and len(value) <= 8 and all(
-                        type(v) in (int, float) and abs(v) < 1e9 for v in value
-                    ):
-                        cleaned[key] = value
-                elif type(value) is int and abs(value) < 1e9:
-                    cleaned[key] = value
-            if not cleaned:
+            game_time = payload.get("game_unix_s")
+            # An instrumented Wine game emits UNIX time, not host-read time.
+            good_game_time = (
+                type(game_time) in (float, int) and
+                946684800 < game_time < 4102444800 and
+                math.isfinite(game_time)
+            )
+            observation_time = time.time()
+            now = time.monotonic()
+            clean = {
+                "unix_s": game_time if good_game_time else observation_time,
+                "monotonic_s": now,
+                "time_basis": "game_unix_clock" if good_game_time else "host_log_read",
+            }
+            if payload.get("event") == "menu_command":
+                menu_id = payload.get("menu_id")
+                if type(menu_id) is int and 0 <= menu_id <= 65535:
+                    timeline.write({"source": "openlrr_menu",
+                                    "event": "menu_command",
+                                    "menu_id": menu_id, **clean})
                 continue
+            name = payload.get("function")
+            function_id = payload.get("function_id")
+            if type(function_id) is not int or not 0 <= function_id < 294:
+                continue
+            clean["function_id"] = function_id
+            if (isinstance(name, str) and len(name) <= 80 and
+                    name.replace("_", "").isalnum()):
+                clean["function"] = name
+            for field in ("pc", "frame", "argc", "game_tick_ms"):
+                value = payload.get(field)
+                if type(value) is int and 0 <= value < 2**32:
+                    clean[field] = value
+            if payload.get("kind") in ("action", "predicate"):
+                clean["kind"] = payload["kind"]
+            args = payload.get("args")
+            if (isinstance(args, list) and len(args) <= 3 and
+                    all(type(v) is int and -(2**31) <= v < 2**31
+                        for v in args)):
+                clean["args"] = args
+            result = payload.get("result")
+            if type(result) is int and -(2**31) <= result < 2**31:
+                clean["result"] = result
             timeline.write({"source": "nerps", "event": "runtime_function",
-                            "unix_s": time.time(), "monotonic_s": time.monotonic(),
-                            **cleaned})
+                            **clean})
 
 
 def pump_input_events(pipe: Any, target: GameWindow, timeline: Timeline,
@@ -398,7 +427,8 @@ def pump_input_events(pipe: Any, target: GameWindow, timeline: Timeline,
         # Rebuild the safe record instead of storing arbitrary helper output.
         safe = {key: record[key] for key in (
             "source", "event", "unix_s", "monotonic_s", "window_id",
-            "x", "y", "x_normalized", "y_normalized", "scroll_y", "keycode"
+            "x", "y", "x_normalized", "y_normalized", "scroll_y", "keycode",
+            "modifier_flags"
         ) if key in record and (
             key in ("source", "event") or type(record[key]) in (int, float)
         )}
