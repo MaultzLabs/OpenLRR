@@ -354,14 +354,14 @@ final class NativeMissionWorkspace: NSView {
             frame: frame, world: world, objects: objects,
             resources: resources, textureSet: textureSet)
         self.level2D = NativeLevelView(frame: frame, world: world)
-        if let nerpsState {
-            self.level3D.tutorialPolicy = NativeTutorialInputPolicy(flags: nerpsState.tutorialFlags)
-        }
         self.mode = NSSegmentedControl(labels: ["3D Terrain", "2D MAP"],
                                        trackingMode: .selectOne, target: nil, action: nil)
         self.status = NSTextField(labelWithString:
             "Original \(world.width)×\(world.height) tiles · Drag to orbit · Scroll to zoom · Click a tile")
         super.init(frame: frame)
+        if let nerpsState {
+            level3D.tutorialPolicy = NativeTutorialInputPolicy(flags: nerpsState.tutorialFlags)
+        }
         wantsLayer = true
         level2D.isHidden = true
         addSubview(level3D)
