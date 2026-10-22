@@ -1,6 +1,43 @@
 # Rock Raiders Gameplay Capture Lab — macOS
 
 
+## Automatic code/input indexing **while recording**
+
+The live recorder now finalizes one H.264 MP4 every **60 seconds** by
+default. When a segment is finalized, it immediately creates a private
+matching `part-0001.evidence.json` file **while the next segment is being
+recorded**. The evidence file records the clip's approximate timeline
+offset, supported mouse/key events, available Wine API observations,
+and source-code entry-point references for OpenLRR commands and NERPs
+functions. The program never uploads files or calls a paid API.
+
+Example folder contents *before* OpenLRR is closed:
+
+~~~text
+clips/
+  part-0001.mp4
+  part-0001.evidence.json
+  part-0002.mp4
+  part-0002.evidence.json
+  part-0003.mp4        (still recording; NOT upload ready yet)
+~~~
+
+Evidence is produced only after the previous MP4 is finalized. Each
+file is marked `upload_ready_size_only` if under 180 MiB. This verifies
+the local file size, not that a ChatGPT client supports video upload
+or that a model has already inspected frames. Raw Wine logs are never
+included in sidecars. If no Wine/NERPs instrumentation was enabled,
+those records are correctly marked missing. Full event history always
+remains available in `timeline.jsonl`. The per-clip preview includes up
+to 20,000 sanitized events, with an overflow count. The index is a
+source-reference guide, not executable recovery of the Windows code.
+
+After you quit, the existing full session index is also generated.
+The older 557-MB file can be split **without changing the source** using
+`recover-existing.py`, which now creates matching evidence files for
+the recovered clips too. This is offline retroactive indexing; it cannot
+reconstruct Wine or NERPs telemetry that was not captured.
+
 ## Interruption recovery and first-tutorial capture (October 21)
 
 The earlier single-file recorder successfully wrote **557 MB / ~10m30s**
