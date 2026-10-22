@@ -185,8 +185,7 @@ struct LevelWorld {
               let d = surfaceMap.value(x: x0 + 1, y: y0 + 1) else { return nil }
         let u = Float(x - Double(x0))
         let v = Float(y - Double(y0))
-        if NativeTerrainMesh.usesUpperLeftDiagonal(
-            topLeft: a, topRight: b, bottomLeft: c, bottomRight: d) {
+        if abs(Int(a) - Int(d)) < abs(Int(b) - Int(c)) {
             // a--d diagonal; split by u == v.
             if u <= v {
                 return Float(a) * (1 - v) + Float(c) * (v - u) + Float(d) * u
