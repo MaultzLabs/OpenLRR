@@ -17,6 +17,12 @@ class ScenarioTests(unittest.TestCase):
         scenario = json.loads((BASE / 'game-smoke.json').read_text())
         self.assertEqual(len(playtest.validate_scenario(scenario)), 5)
 
+    def test_source_grounded_menu_scenario(self):
+        scenario = json.loads((BASE / 'tests/menu-scenario.json').read_text())
+        actions = [step['action'] for step in playtest.validate_scenario(scenario)]
+        self.assertEqual(actions.count('ensure_no_nerps'), 2)
+        self.assertNotIn('shell', actions)
+
     def test_injection_not_supported(self):
         with self.assertRaisesRegex(ValueError, 'unsupported action'):
             playtest.validate_scenario({'steps': [{'action': 'shell', 'command': 'del /s'}]})
