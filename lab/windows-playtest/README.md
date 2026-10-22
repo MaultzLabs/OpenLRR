@@ -61,3 +61,45 @@ No arbitrary commands, game binaries or network access are accepted from a scena
 4. Expand into deterministic menu/mission interaction and instrument real frame presentation, with a clear distinction between input automation and autonomous strategic gameplay.
 
 **Status:** infrastructure/prototype only. No successful original Windows gameplay run has been demonstrated in this lab.
+
+
+## Learning gameplay from the original eight tutorials
+
+The 1999 Windows game includes eight original training missions. Their order
+and skills are recorded in `tutorial-curriculum.json` using the original
+Windows walkthrough (https://www.youtube.com/watch?v=2jQ93-cdJeY), the
+original game's instruction manual, and Rock Raiders United documentation.
+This is a **training curriculum**, not evidence of learned or completed play.
+
+Learning gates, in original order:
+
+1. Select and move an on-foot Rock Raider.
+2. Identify rock types, assign drilling, verify the target wall was removed.
+3. Gather materials and build a basic HQ.
+4. Select and move vehicles.
+5. Use explosives safely and verify the obstruction cleared.
+6. Construct advanced buildings when requirements are met.
+7. Drill with vehicles and observe completed drilling.
+8. Defend the HQ against enemies.
+
+An automated player must verify the actual game-window or internal game state
+after each action rather than blindly replay mouse coordinates. These tutorials
+provide the correct **policy targets**; screenshots and instrumented game state
+are still required to learn how to execute each task reliably.
+
+The retail training messages reside in the user's original WAD assets.
+The optional read-only indexer discovers their filenames without extracting
+or transmitting the actual tutorial text:
+
+    python lab/windows-playtest/training_wad_index.py "C:\Games\Rock Raiders\LegoRR1.wad"
+
+Output includes only the original training text asset paths, byte sizes, and
+whether they are compressed. Do not commit proprietary WAD contents to GitHub.
+
+## Confirmed GitHub-hosted Windows capability
+
+Windows Actions run 39715036769 confirmed that a synthetic WinForms program
+could be launched, clicked inside its own window, visually compared via
+captured frames, and pass all six scripted test steps. This **does not** yet
+prove the original executable runs or renders on the same runner. The user's
+computer is not required for the synthetic CI gate.
