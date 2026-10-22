@@ -44,9 +44,17 @@ timings and generated task queue against the original executable.
    exact match, partial match, or unsupported.
 
 The Windows lab currently passes synthetic GUI automation. The asset-free
-`OpenLRR.exe` hosted runner exited before a matching game window opened.
-That is not a tutorial observation. User-owned retail files have not been
-uploaded to public GitHub, and should not be.
+`OpenLRR.exe` hosted runner exited *before creating any game window*
+with Windows status `0xC0000135` (missing DLL). An import probe on GitHub's
+Windows runner confirmed direct imports `d3drm.dll` and `openlrr.dll`
+could not be loaded there; other tested direct system imports loaded.
+The original OpenLRR README additionally requires the original `LegoRR0.wad`
+and `LegoRR1.wad` to play.
+
+This is **not** a tutorial observation. Do not infer graphics, FPS or input
+behavior until the Windows executable's import requirements are resolved
+and legitimate retail game assets are supplied privately. No game assets
+have been uploaded to public GitHub.
 
 ## Specific first-port conclusion
 
