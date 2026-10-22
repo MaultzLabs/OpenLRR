@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
+import math
 import json
 from pathlib import Path
 import re
@@ -45,7 +46,7 @@ def menu_constants(source_root: Path | None) -> dict[int, str]:
 
 
 def safe_number(n: Any, *, maximum: float = 1e14) -> float | None:
-    if type(n) not in (float, int) or n < 0 or n > maximum:
+    if type(n) not in (float, int) or not math.isfinite(n) or n < 0 or n > maximum:
         return None
     return float(n)
 
@@ -176,11 +177,11 @@ def build_index(session: Path, clip_directory: Path,
                             row["keycode"] = keycode
                         for field in ("x", "y", "scroll_y"):
                             value = event.get(field)
-                            if type(value) in (int, float) and -20000 <= value <= 20000:
+                            if type(value) in (int, float) and math.isfinite(value) and -20000 <= value <= 20000:
                                 row[field] = value
                         for field in ("x_normalized", "y_normalized"):
                             value = event.get(field)
-                            if type(value) in (int, float) and 0 <= value <= 1:
+                            if type(value) in (int, float) and math.isfinite(value) and 0 <= value <= 1:
                                 row[field] = value
                 if source == "wine_api":
                     channel = event.get("channel")
