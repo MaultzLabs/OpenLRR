@@ -3,7 +3,7 @@
 
 ## Automatic code/input indexing **while recording**
 
-The live recorder now finalizes one H.264 MP4 every **60 seconds** by
+The live recorder now finalizes one H.264 MP4 every **90 seconds** by
 default. When a segment is finalized, it immediately creates a private
 matching `part-0001.evidence.json` file **while the next segment is being
 recorded**. The evidence file records the clip's approximate timeline
