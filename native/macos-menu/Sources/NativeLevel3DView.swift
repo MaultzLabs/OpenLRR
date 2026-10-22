@@ -16,6 +16,10 @@ final class NativeLevel3DView: SCNView {
     private let navigation: NativeLevelNavigation
     private var raiderMarkers: [String: SCNNode] = [:]
     private var selectedRaider: String?
+    /// Retail tutorial NERPs restrict map clicks, object selection and camera.
+    var tutorialInputPolicy = NativeTutorialInputPolicy.unrestricted {
+        didSet { allowsCameraControl = tutorialInputPolicy.canMoveCamera }
+    }
     var onTileSelected: ((LevelWorld.Tile) -> Void)?
     var originalCursor: NSCursor? {
         didSet { if let window { window.invalidateCursorRects(for: self) } }
@@ -281,8 +285,11 @@ final class NativeLevel3DView: SCNView {
         if let pilot = hits.first(where: { hit in
             raiderMarkers.values.contains(where: { $0 === hit.node })
         })?.node, let id = raiderMarkers.first(where: { $0.value === pilot })?.key {
-            selectRaider(id)
-        } else if let terrainHit = hits.first(where: {
+            if tutorialInputPolicy.canSelectObjects {
+                selectRaider(id)
+            }
+        } else if tutorialInputPolicy.canClickMap,
+                  let terrainHit = hits.first(where: {
             $0.node.name?.hasPrefix("Retail MAP /") == true
         }) {
             let point = terrainHit.worldCoordinates
@@ -405,6 +412,9 @@ final class NativeMissionWorkspace: NSView {
         previousTickTime = now
         do {
             let result = try nerpsState.tick(elapsedMilliseconds: Float(elapsed * 1000))
+            let policy = nerpsState.inputPolicy
+            level3D.tutorialInputPolicy = policy
+            level2D.tutorialInputPolicy = policy
             // Text-only preview; original Next-arrow interaction and
             // synchronized Chief audio have not yet been implemented.
             if let text = nerpsState.messageText, !text.isEmpty {
