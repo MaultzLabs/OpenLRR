@@ -240,6 +240,39 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         precondition(NativeLevelNavigation(world: corridorWorld, maximumTiles: 10)
                       .route(from: origin, to: destination) == nil)
 
+        // Native mining orders must reach a real cardinally adjacent cavern
+        // before a mineable wall becomes floor. WAD and MAP bytes stay intact.
+        let mining = NativeExcavationState(world: corridorWorld)
+        let wall = NativeLevelNavigation.Position(x: 1, y: 1)
+        precondition(mining.canDrill(wall))
+        precondition(!mining.canDrill(origin)) // exposed cavern is not a wall
+        precondition(!mining.canDrill(.init(x: -1, y: 1)))
+        guard let order = mining.plan(from: origin, wall: wall) else {
+            preconditionFailure("Expected accessible drilling face")
+        }
+        precondition(order.approach == .init(x: 2, y: 1))
+        precondition(order.route == [origin, order.approach])
+        precondition(!mining.finish(order, raiderAt: origin))
+        precondition(mining.excavated.isEmpty)
+        precondition(mining.finish(order, raiderAt: order.approach))
+        precondition(!mining.finish(order, raiderAt: order.approach))
+        precondition(!mining.canDrill(wall))
+        precondition(mining.tile(x: 1, y: 1)?.terrain == .tunnel)
+        precondition(mining.tile(x: 1, y: 1)?.excavation == .exposed)
+        precondition(corridorWorld.tile(x: 1, y: 1)?.excavation == .wall)
+        precondition(NativeLevelNavigation(world: corridorWorld,
+                     excavated: mining.excavated).canWalk(wall))
+        precondition(NativeLevelNavigation(world: corridorWorld).route(
+                     from: order.approach, to: wall) == nil)
+        precondition(NativeLevelNavigation(world: corridorWorld,
+                     excavated: mining.excavated).route(
+                     from: order.approach, to: wall) == [order.approach, wall])
+        let dugMesh = try NativeTerrainMesh(world: corridorWorld,
+                                            excavatedTiles: mining.excavated)
+        precondition(dugMesh.triangleCount > 0)
+        precondition(dugMesh.surfaces.contains { $0.material == .cavernFloor })
+        precondition(mining.plan(from: origin, wall: wall) == nil)
+
         // Source-grounded original BMP world atlas paths. A synthetic WAD
         // tests lookup without redistributing a copyrighted actual image.
         let textureWad = syntheticWad([
