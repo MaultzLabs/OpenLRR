@@ -20,6 +20,7 @@ final class NativeLevelView: NSView {
     private var tileSize: CGFloat = 23
     private var selected: LevelWorld.Tile?
     private var previousDragPoint: CGPoint?
+    var tutorialInputPolicy = NativeTutorialInputPolicy.unrestricted
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
@@ -164,7 +165,8 @@ final class NativeLevelView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        if point.y >= 75 && point.y < bounds.height - 57 {
+        if tutorialInputPolicy.canClickMap &&
+           point.y >= 75 && point.y < bounds.height - 57 {
             selected = tile(at: point)
         }
         previousDragPoint = point
@@ -173,7 +175,7 @@ final class NativeLevelView: NSView {
 
     override func mouseDragged(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        if let last = previousDragPoint {
+        if tutorialInputPolicy.canMoveCamera, let last = previousDragPoint {
             cameraX -= (point.x - last.x) / tileSize
             cameraY -= (point.y - last.y) / tileSize
             constrainCamera()
@@ -187,14 +189,20 @@ final class NativeLevelView: NSView {
     }
 
     override func scrollWheel(with event: NSEvent) {
+        guard tutorialInputPolicy.canMoveCamera else { return }
         zoomBy(event.scrollingDeltaY > 0 ? 1.12 : 1.0 / 1.12)
     }
 
     override func magnify(with event: NSEvent) {
+        guard tutorialInputPolicy.canMoveCamera else { return }
         zoomBy(1 + event.magnification)
     }
 
     override func keyDown(with event: NSEvent) {
+        // Mac Escape always returns to the native menu, including when the
+        // retail NERPs script has locked movement during a tutorial prompt.
+        if event.keyCode == 53 { onExit?(); return }
+        guard tutorialInputPolicy.canMoveCamera else { return }
         let step = max(1, 35 / tileSize)
         switch event.keyCode {
         case 123, 0: cameraX -= step // Left / A
@@ -207,7 +215,6 @@ final class NativeLevelView: NSView {
             let initial = world.initialCameraTile
             cameraX = CGFloat(initial.x) + 0.5
             cameraY = CGFloat(initial.y) + 0.5
-        case 53: onExit?() // Escape returns to the menu, never exits the app
         default:
             super.keyDown(with: event)
             return
