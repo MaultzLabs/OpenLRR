@@ -131,6 +131,72 @@ private func encode(_ operations: [(UInt16, UInt16)]) throws -> NERPsScript {
         precondition(objective.registers[1] == 0)
         precondition(objective.objectiveSwitch == 0)
 
+        // The first tutorial's NERPs ClickOnly commands must actually
+        // restrict terrain clicks, unit selection and camera movement.
+        // All mask bits come from src/openlrr/game/mission/NERPsFile.h.
+        let freely = NativeTutorialInputPolicy.unrestricted
+        precondition(freely.canClickMap && freely.canSelectObjects)
+        precondition(freely.canMoveCamera && freely.canClickIcons)
+        let flags = NativeTutorialInputPolicy.scriptMask(
+            kind: .objects, allowCameraMovementMask: 0)
+        precondition(flags == 0x1ff3)
+        let objectsPolicy = NativeTutorialInputPolicy(flags: flags)
+        precondition(objectsPolicy.canSelectObjects)
+        precondition(objectsPolicy.canClickMap)
+        precondition(!objectsPolicy.canMoveCamera)
+        precondition(!objectsPolicy.canClickIcons)
+
+        let tutorialInput = NativeNERPsGameState(script: try encode([
+            (0, 1), (2, 0xc9), (0, 1), // TRUE ? AllowCameraMovement 1
+            (0, 1), (2, 0xcb),         // TRUE ? ClickOnlyMap
+            (0, 1), (2, 0x19), (2, 0x5d) // SetR0(GetTutorialFlags)
+        ]))
+        let gatingTick = try tutorialInput.tick(elapsedMilliseconds: 33)
+        precondition(gatingTick.actionsExecuted == 3)
+        precondition(tutorialInput.tutorialFlags == 0x0ffb)
+        precondition(tutorialInput.registers[0] == tutorialInput.tutorialFlags)
+        precondition(tutorialInput.inputPolicy.canClickMap)
+        precondition(!tutorialInput.inputPolicy.canSelectObjects)
+        precondition(tutorialInput.inputPolicy.canMoveCamera)
+        precondition(!tutorialInput.inputPolicy.canClickIcons)
+
+        let controls = tutorialInput.functions()
+        precondition(controls[0xc9]!.invoke([0]) == 0)
+        // Changing the camera setting alone does not rewrite the
+        // tutorial mask until a ClickOnly* function runs.
+        precondition(tutorialInput.inputPolicy.canMoveCamera)
+        precondition(controls[0xcc]!.invoke([]) == 0)
+        precondition(tutorialInput.tutorialFlags == 0x1ffe)
+        precondition(tutorialInput.inputPolicy.canClickIcons)
+        precondition(!tutorialInput.inputPolicy.canClickMap)
+        precondition(!tutorialInput.inputPolicy.canSelectObjects)
+        precondition(!tutorialInput.inputPolicy.canMoveCamera)
+
+        precondition(controls[0xca]!.invoke([]) == 0)
+        precondition(tutorialInput.tutorialFlags == 0x1ff3)
+        precondition(tutorialInput.inputPolicy.canClickMap)
+        precondition(tutorialInput.inputPolicy.canSelectObjects)
+        precondition(!tutorialInput.inputPolicy.canMoveCamera)
+
+        precondition(controls[0xcd]!.invoke([]) == 0)
+        precondition(tutorialInput.tutorialFlags == 0x1fff)
+        precondition(!tutorialInput.inputPolicy.canClickMap)
+        precondition(!tutorialInput.inputPolicy.canSelectObjects)
+        precondition(!tutorialInput.inputPolicy.canMoveCamera)
+
+        precondition(controls[0xc9]!.invoke([1]) == 0)
+        precondition(controls[0xcd]!.invoke([]) == 0)
+        precondition(tutorialInput.tutorialFlags == 0x0fff)
+        precondition(!tutorialInput.inputPolicy.canClickMap)
+        precondition(tutorialInput.inputPolicy.canMoveCamera)
+        precondition(controls[0xce]!.invoke([1]) == 0)
+        precondition(tutorialInput.suppressMessageArrow)
+        precondition(controls[0xce]!.invoke([0]) == 0)
+        precondition(!tutorialInput.suppressMessageArrow)
+        precondition(controls[0x5e]!.invoke([0]) == 0)
+        precondition(tutorialInput.inputPolicy.canSelectObjects)
+        precondition(tutorialInput.inputPolicy.canClickMap)
+
         // Separate level sessions cannot accidentally share runtime state.
         let fresh = NativeNERPsGameState(script: try encode([]))
         precondition(fresh.registers == Array(repeating: 0, count: 8))
