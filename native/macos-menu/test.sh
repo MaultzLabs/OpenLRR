@@ -15,7 +15,8 @@ tmp11="$(mktemp /tmp/openlrr-lightwave-scene-test.XXXXXXXX)"
 tmp12="$(mktemp /tmp/openlrr-texture-set-test.XXXXXXXX)"
 tmp13="$(mktemp /tmp/openlrr-nerps-runtime-test.XXXXXXXX)"
 tmp14="$(mktemp /tmp/openlrr-nerps-game-state-test.XXXXXXXX)"
-trap 'rm -f "$tmp1" "$tmp2" "$tmp3" "$tmp4" "$tmp5" "$tmp6" "$tmp7" "$tmp8" "$tmp9" "$tmp10" "$tmp11" "$tmp12" "$tmp13" "$tmp14"' EXIT
+tmp15="$(mktemp /tmp/openlrr-tutorial-input-test.XXXXXXXX)"
+trap 'rm -f "$tmp1" "$tmp2" "$tmp3" "$tmp4" "$tmp5" "$tmp6" "$tmp7" "$tmp8" "$tmp9" "$tmp10" "$tmp11" "$tmp12" "$tmp13" "$tmp14" "$tmp15"' EXIT
 swiftc -O Sources/WadArchive.swift Tests/WadArchiveTests.swift -o "$tmp1"
 "$tmp1"
 swiftc -O Sources/WadArchive.swift Sources/GameResources.swift \
@@ -82,3 +83,7 @@ swiftc -O Sources/WadArchive.swift Sources/GameResources.swift \
   Sources/NERPsRuntime.swift Sources/NativeNERPsMessageFile.swift \
   Sources/NativeNERPsGameState.swift Tests/NativeNERPsGameStateTests.swift -o "$tmp14"
 "$tmp14"
+
+# Original tutorial interaction restrictions: portable without AppKit or WADs.
+swiftc -O Sources/NativeTutorialInputPolicy.swift Tests/NativeTutorialInputPolicyTests.swift -o "$tmp15"
+"$tmp15"
