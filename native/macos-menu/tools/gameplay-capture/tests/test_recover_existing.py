@@ -58,7 +58,8 @@ class RecoveryTests(unittest.TestCase):
                 (dest / "part-0001.mp4").write_bytes(b"c" * 6000)
                 (dest / "clips.json").write_text(json.dumps({
                     "schema": "openlrr-window-video-clips-v1", "clip_count": 1,
-                    "clips": [{"file": "part-0001.mp4", "start_s": 0, "duration_s": 120, "bytes": 6000}]
+                    "clips": [{"file": "part-0001.mp4", "start_s": 0, "duration_s": 120, "bytes": 6000,
+                               "audio_track_present": True}]
                 }))
             return mock.Mock(returncode=0, stdout="", stderr="")
         with (mock.patch.object(sys, "platform", "darwin"),
@@ -76,6 +77,7 @@ class RecoveryTests(unittest.TestCase):
             self.assertNotIn("game-window-master.mp4", bundle.namelist())
             evidence = json.loads(bundle.read("part-0001.evidence.json"))
             self.assertEqual(evidence["events"][1]["openlrr_command"], "IDM_EXIT")
+            self.assertTrue(evidence["audio_track_present"])
 
     def test_validation_rejects_missing_or_size_mismatched_clips(self):
         destination = self.root / "recovered-clips"
