@@ -42,7 +42,11 @@ jobs:
         shell: pwsh
         run: |
           $fixture = (Resolve-Path 'lab/windows-playtest/tests/fixture.ps1').Path
-          $fixtureProc = Start-Process powershell.exe -ArgumentList @('-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-File', "'$fixture'") -PassThru
+          $argFile = '"' + $fixture + '"'
+          $fixtureProc = Start-Process powershell.exe -ArgumentList @('-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-File', $argFile) -PassThru
+          Start-Sleep -Seconds 2
+          Write-Host "Fixture PID: $($fixtureProc.Id); exited: $($fixtureProc.HasExited)"
+          if ($fixtureProc.HasExited) { throw "Fixture process exited before UI was observed; check quoting/Windows-session constraints." }
           try {
             python lab/windows-playtest/playtest.py --pid $fixtureProc.Id --scenario lab/windows-playtest/tests/fixture-scenario.json --title 'OpenLRR Fixture' --out lab/windows-playtest/out/fixture
             if ($LASTEXITCODE -ne 0) { throw "Windows GUI fixture failed. Inspect report rather than assuming desktop access." }
