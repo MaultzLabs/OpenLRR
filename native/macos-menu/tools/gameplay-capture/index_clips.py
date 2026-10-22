@@ -168,13 +168,16 @@ def build_index(session: Path, clip_directory: Path,
                 if source == "mac_input":
                     kind = event.get("event")
                     if kind in ("left_down", "left_up", "right_down", "right_up",
-                                "key_down", "key_up", "scroll", "mouse_move"):
+                                "key_down", "key_up", "modifier_changed", "scroll", "mouse_move"):
                         row["input_event"] = kind
                         # Reconstruct button hit-tests and user timing without
                         # copying text typed in other applications.
                         keycode = event.get("keycode")
                         if type(keycode) is int and 0 <= keycode <= 255:
                             row["keycode"] = keycode
+                        modifiers = event.get("modifier_flags")
+                        if type(modifiers) is int and 0 <= modifiers <= 0x1fffff:
+                            row["modifier_flags"] = modifiers
                         for field in ("x", "y", "scroll_y"):
                             value = event.get(field)
                             if type(value) in (int, float) and math.isfinite(value) and -20000 <= value <= 20000:
@@ -202,10 +205,13 @@ def build_index(session: Path, clip_directory: Path,
                             all(type(a) is int and -(2**31) <= a <= 2**31 - 1
                                 for a in arguments)):
                         row["arguments"] = arguments
-                    for field in ("pc", "frame"):
+                    for field in ("pc", "frame", "argc", "game_tick_ms"):
                         num = event.get(field)
                         if type(num) is int and 0 <= num <= 2**32 - 1:
                             row[field] = num
+                    result = event.get("result")
+                    if type(result) is int and -(2**31) <= result < 2**31:
+                        row["result"] = result
                     kind = event.get("kind")
                     if kind in ("action", "predicate"):
                         row["function_kind"] = kind
