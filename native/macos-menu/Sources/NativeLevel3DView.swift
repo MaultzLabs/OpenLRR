@@ -453,12 +453,12 @@ final class NativeMissionWorkspace: NSView {
             frame: frame, world: world, objects: objects,
             resources: resources, textureSet: textureSet)
         self.level2D = NativeLevelView(frame: frame, world: world)
-        self.level2D.excavationState = level3D.excavationState
         self.mode = NSSegmentedControl(labels: ["3D Terrain", "2D MAP"],
                                        trackingMode: .selectOne, target: nil, action: nil)
         self.status = NSTextField(labelWithString:
             "Original \(world.width)×\(world.height) tiles · Drag to orbit · Scroll to zoom · Click a tile")
         super.init(frame: frame)
+        level2D.excavationState = level3D.excavationState
         if let nerpsState {
             let policy = NativeTutorialInputPolicy(flags: nerpsState.tutorialFlags)
             level3D.tutorialPolicy = policy
