@@ -28,6 +28,31 @@ sys.modules[spec.name] = first
 spec.loader.exec_module(first)
 
 
+def integrated_preflight(probe: capture.WindowProbe, *,
+                         inputs: bool, wine_log: Path | None,
+                         nerps_log: Path | None) -> list[str]:
+    """Prevent another silent input failure; make missing internals explicit."""
+    status = probe.diagnose()
+    if status.get("screen_recording_permission") is False:
+        raise capture.CaptureError(
+            "Screen Recording permission is missing. Allow Terminal in "
+            "System Settings > Privacy & Security > Screen & System Audio "
+            "Recording, then reopen Terminal.")
+    if inputs and status.get("input_monitoring_permission") is False:
+        raise capture.CaptureError(
+            "Input Monitoring permission is missing. Allow the Terminal/"
+            "game-window helper under System Settings > Privacy & Security "
+            "> Input Monitoring, then reopen Terminal. No recording began.")
+    warnings = []
+    if not inputs:
+        warnings.append("Input recording explicitly disabled.")
+    if wine_log is None:
+        warnings.append("No Wine debug source: DirectDraw/API calls WILL NOT be recorded.")
+    if nerps_log is None:
+        warnings.append("No instrumented NERPs source: internal game script calls WILL NOT be recorded.")
+    return warnings
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--app", type=Path, help="explicit original Wine OpenLRR .app")
@@ -81,7 +106,7 @@ def main(argv: list[str] | None = None) -> int:
     video_binary, split_binary = video_session.build_video_tools()
     input_binary = None if args.no_input else capture.build_probe()
     finder_probe = capture.WindowProbe(input_binary or capture.build_probe())
-    print("Continuous 30-FPS-style game-window recording prepared.", flush=True)
+    for warning in integrated_preflight(\n            finder_probe, inputs=input_binary is not None,\n            wine_log=args.wine_log, nerps_log=args.nerps_log):\n        print("INTEGRATION WARNING: " + warning, flush=True)\n    print("Continuous 30-FPS-style game-window recording prepared.", flush=True)
     print("Recording ONLY your Rock Raiders window, no desktop, no upload.",
           flush=True)
 
@@ -135,7 +160,7 @@ def main(argv: list[str] | None = None) -> int:
         file.write("\n")
     archive = session.with_name(session.name + "-timeline-review.zip")
     count = capture.package_review(session, archive, include_frames=False)
-    print("Recorded " + args.session + " video + synchronized inputs.")
+    streams = result.get("diagnostic_streams", {})\n    print("Diagnostic stream coverage: " + json.dumps(streams, sort_keys=True))\n    if not result.get("diagnostic_complete", False):\n        print("WARNING: The session is NOT a complete video/input/Wine/NERPs trace.")\n    print("Recorded " + args.session + " video; input and internals only if observed.")
     if result.get("video_partial"):
         print("WARNING: The final clip may be incomplete after closing Wine. "
               "Earlier finalized clips are preserved and ready.")
