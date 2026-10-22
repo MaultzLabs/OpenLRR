@@ -1,0 +1,24 @@
+{
+  "steps": [
+    {
+      "action": "capture"
+    },
+    {
+      "action": "ensure_no_nerps"
+    },
+    {
+      "action": "assert_title",
+      "pattern": "OpenLRR Menu Fixture - No NERPs"
+    },
+    {
+      "action": "ensure_no_nerps"
+    },
+    {
+      "action": "assert_title",
+      "pattern": "OpenLRR Menu Fixture - No NERPs"
+    },
+    {
+      "action": "assert_alive"
+    }
+  ]
+}
