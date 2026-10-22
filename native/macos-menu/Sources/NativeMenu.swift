@@ -731,12 +731,18 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
             let manifest = try LevelRuntimeResources(config: config, identifier: identifier)
             let world = try LevelWorld(manifest: manifest, resources: resources)
             let placements = try? OriginalObjectList(manifest: manifest, resources: resources)
+            // Decode the authentic retail .npl from the user's WAD. No
+            // substitute tutorial content or fabricated missing functions.
+            let script = try? NERPsScript.load(levelIdentifier: identifier,
+                                                config: config, resources: resources)
+            let missionNERPs = script.map { NativeNERPsGameState(script: $0) }
 
             // Mission selection changes the scene in the existing window, as
             // the retail game does. Never spawn another NSWindow per mission.
             let viewer = try NativeMissionWorkspace(
                 frame: root.bounds, world: world, objects: placements,
-                resources: resources, textureSet: manifest.textureSetSetting)
+                resources: resources, textureSet: manifest.textureSetSetting,
+                nerpsState: missionNERPs)
             viewer.originalCursor = canvas.gameCursor
             viewer.onBack = { [weak self] in self?.returnToMainMenu() }
             missionView?.removeFromSuperview()
