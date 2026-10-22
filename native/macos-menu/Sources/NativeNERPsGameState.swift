@@ -16,6 +16,12 @@ final class NativeNERPsGameState {
     // This is a script-visible latch, not an invented mission-completion UI.
     private(set) var objectiveSwitch: Int32 = 0
     private(set) var tutorialFlags: Int32 = 0
+    /// Camera masks change when original ClickOnly* functions execute.
+    private(set) var allowCameraMovementMask: UInt32 = 0
+    private(set) var suppressMessageArrow = false
+    var inputPolicy: NativeTutorialInputPolicy {
+        NativeTutorialInputPolicy(flags: tutorialFlags)
+    }
     // The native 3D view currently supports ONE selected original OL Pilot.
     // GetMiniFigureSelected must reflect an actual click, never a made-up
     // starting unit count from the map file.
@@ -228,6 +234,42 @@ final class NativeNERPsGameState {
                                 invoke: { [unowned self] _ in
             let lines = self.messages?.lines.count ?? 0
             return self.acknowledgedMessageCount >= UInt32(lines) ? 1 : 0
+        })
+        // Retail NPL 0xC9–0xCE drive the tutorial's accepted inputs.
+        // Preserve the original flags and camera-mask subtraction.
+        callbacks[0xc9] = .init(kind: .action(arity: 1),
+                                invoke: { [unowned self] args in
+            self.allowCameraMovementMask = UInt32(bitPattern: args[0]) &<< 12
+            return 0
+        })
+        callbacks[0xca] = .init(kind: .action(arity: 0),
+                                invoke: { [unowned self] _ in
+            self.tutorialFlags = NativeTutorialInputPolicy.scriptMask(
+                kind: .objects, allowCameraMovementMask: self.allowCameraMovementMask)
+            return 0
+        })
+        callbacks[0xcb] = .init(kind: .action(arity: 0),
+                                invoke: { [unowned self] _ in
+            self.tutorialFlags = NativeTutorialInputPolicy.scriptMask(
+                kind: .map, allowCameraMovementMask: self.allowCameraMovementMask)
+            return 0
+        })
+        callbacks[0xcc] = .init(kind: .action(arity: 0),
+                                invoke: { [unowned self] _ in
+            self.tutorialFlags = NativeTutorialInputPolicy.scriptMask(
+                kind: .icons, allowCameraMovementMask: self.allowCameraMovementMask)
+            return 0
+        })
+        callbacks[0xcd] = .init(kind: .action(arity: 0),
+                                invoke: { [unowned self] _ in
+            self.tutorialFlags = NativeTutorialInputPolicy.scriptMask(
+                kind: .none, allowCameraMovementMask: self.allowCameraMovementMask)
+            return 0
+        })
+        callbacks[0xce] = .init(kind: .action(arity: 1),
+                                invoke: { [unowned self] args in
+            self.suppressMessageArrow = args[0] != 0
+            return 0
         })
         callbacks[0x5d] = .init(kind: .expression(arity: 0),
                                 invoke: { [unowned self] _ in self.tutorialFlags })
