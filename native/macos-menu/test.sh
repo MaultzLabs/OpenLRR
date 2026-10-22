@@ -14,7 +14,8 @@ tmp10="$(mktemp /tmp/openlrr-lightwave-test.XXXXXXXX)"
 tmp11="$(mktemp /tmp/openlrr-lightwave-scene-test.XXXXXXXX)"
 tmp12="$(mktemp /tmp/openlrr-texture-set-test.XXXXXXXX)"
 tmp13="$(mktemp /tmp/openlrr-nerps-runtime-test.XXXXXXXX)"
-trap 'rm -f "$tmp1" "$tmp2" "$tmp3" "$tmp4" "$tmp5" "$tmp6" "$tmp7" "$tmp8" "$tmp9" "$tmp10" "$tmp11" "$tmp12" "$tmp13"' EXIT
+tmp14="$(mktemp /tmp/openlrr-nerps-game-state-test.XXXXXXXX)"
+trap 'rm -f "$tmp1" "$tmp2" "$tmp3" "$tmp4" "$tmp5" "$tmp6" "$tmp7" "$tmp8" "$tmp9" "$tmp10" "$tmp11" "$tmp12" "$tmp13" "$tmp14"' EXIT
 swiftc -O Sources/WadArchive.swift Tests/WadArchiveTests.swift -o "$tmp1"
 "$tmp1"
 swiftc -O Sources/WadArchive.swift Sources/GameResources.swift \
@@ -74,3 +75,10 @@ swiftc -O Sources/WadArchive.swift Sources/GameResources.swift \
   Sources/LegoConfig.swift Sources/NERPsScript.swift \
   Sources/NERPsRuntime.swift Tests/NERPsRuntimeTests.swift -o "$tmp13"
 "$tmp13"
+
+# Persistent NERPs game state from original C++ callbacks; no retail assets.
+swiftc -O Sources/WadArchive.swift Sources/GameResources.swift \
+  Sources/LegoConfig.swift Sources/NERPsScript.swift \
+  Sources/NERPsRuntime.swift Sources/NativeNERPsGameState.swift \
+  Tests/NativeNERPsGameStateTests.swift -o "$tmp14"
+"$tmp14"
