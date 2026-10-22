@@ -100,6 +100,34 @@ jobs:
           if-no-files-found: ignore
           retention-days: 3
 
+  compile-original-openlrr-dll:
+    # One-time check: can this branch build the actual Windows engine DLL?
+    # No retail game assets, graphics DLLs, or Windows installation required.
+    if: github.event_name == 'push' && contains(github.event.head_commit.message, '[build-openlrr]')
+    needs: scenario-validation
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: microsoft/setup-msbuild@v2
+      - name: Compile x86 original OpenLRR game logic DLL
+        shell: pwsh
+        run: |
+          msbuild openlrr.sln /t:openlrr /p:Configuration=Release /p:Platform=x86 /m
+          if ($LASTEXITCODE -ne 0) { throw "OpenLRR.dll x86 build failed" }
+          if (-not (Test-Path bin/openlrr.dll)) { throw "Expected original game logic DLL absent" }
+          Write-Host "Successfully built in-repository x86 OpenLRR engine DLL"
+      - name: Save compiled open-source engine DLL for private testing
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-original-openlrr-windows-engine-x86
+          path: bin/openlrr.dll
+          if-no-files-found: error
+          retention-days: 3
+
   private-original-windows-game:
     if: github.event_name == 'workflow_dispatch' && inputs.run_private_game
     needs: scenario-validation
