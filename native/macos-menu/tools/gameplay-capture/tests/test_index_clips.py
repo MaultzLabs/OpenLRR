@@ -41,14 +41,16 @@ class ClipIndexTests(unittest.TestCase):
         self.write_events([
             {"source": "video", "event": "capture_started", "unix_s": 1792620000},
             {"source": "mac_input", "event": "left_down", "unix_s": 1792620012,
-             "typed_password": "DO NOT COPY", "x": 15, "y": 20},
+             "typed_password": "DO NOT COPY", "x": 15, "y": 20,
+             "x_normalized": 0.125, "y_normalized": 0.25, "keycode": 12},
             {"source": "wine_api", "event": "sampled_log_batch",
-             "channel": "ddraw", "operation": "blt",
+             "channel": "ddraw", "operation": "blt", "count": 4,
              "unix_s": 1792620014, "private_path": "/Users/secret"},
             {"source": "openlrr_menu", "event": "win32_menu_command",
              "menu_id": 603, "unix_s": 1792620095},
             {"source": "nerps", "event": "runtime_function",
              "function": "GetCrystals", "function_id": 55,
+             "args": [3, 7], "pc": 21, "frame": 101, "kind": "predicate",
              "unix_s": 1792620100, "raw_private": "DO NOT COPY"},
             {"source": "malicious", "event": "do_not_emit", "unix_s": 1792620101},
             {"source": "mac_input", "event": "right_down", "unix_s": 1792620150}
@@ -59,9 +61,16 @@ class ClipIndexTests(unittest.TestCase):
         self.assertEqual(len(result["clips"]), 2)
         self.assertEqual(result["clips"][0]["sources"]["mac_input"], 1)
         self.assertEqual(result["clips"][0]["sources"]["wine_api"], 1)
+        first = result["clips"][0]["events"]
+        self.assertTrue(any(x.get("keycode") == 12 and
+                            x.get("x_normalized") == 0.125 for x in first))
+        self.assertTrue(any(x.get("wine_operation") == "blt" and
+                            x.get("wine_call_count") == 4 for x in first))
         last = result["clips"][1]["events"]
         self.assertTrue(any(x.get("openlrr_command") == "IDM_EXIT" for x in last))
-        self.assertTrue(any(x.get("function") == "GetCrystals" for x in last))
+        self.assertTrue(any(x.get("function") == "GetCrystals" and
+                            x.get("arguments") == [3, 7] and
+                            x.get("pc") == 21 for x in last))
         self.assertTrue(any(x.get("source_hint", "").endswith("NERPsRuntime_Execute")
                             for x in last))
         data = json.dumps(result)
