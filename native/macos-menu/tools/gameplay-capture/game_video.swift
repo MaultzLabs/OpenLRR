@@ -145,6 +145,11 @@ final class Recorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
                 emit("segment_finalize_failed", extra: ["part": part, "stage": "invalid_duration"])
                 return false
             }
+            let video = try await asset.loadTracks(withMediaType: .video)
+            guard !video.isEmpty else {
+                emit("segment_finalize_failed", extra: ["part": part, "stage": "verify_asset"])
+                return false
+            }
             let audio = try? await asset.loadTracks(withMediaType: .audio)
             emit("segment_complete", extra: [
                 "part": part, "start_offset_s": startOffset,
