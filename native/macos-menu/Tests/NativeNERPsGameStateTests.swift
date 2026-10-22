@@ -166,6 +166,12 @@ private func encode(_ operations: [(UInt16, UInt16)]) throws -> NERPsScript {
         precondition(guideFunctions[0xc8]!.invoke([]) == 0)
         precondition(guideState.acknowledgedMessageCount == 1)
         precondition(guideState.recentMessageNumbers == [1])
+        // The original tutorial may re-run SetMessagePermit 0 and the same
+        // message every frame. One real click must stay acknowledged.
+        precondition(guideFunctions[0x31]!.invoke([0]) == 0)
+        precondition(guideFunctions[0x10]!.invoke([1, 0]) == 0)
+        precondition(!guideState.messageNeedsAdvance)
+        precondition(guideState.acknowledgedMessageCount == 1)
 
         precondition(guideFunctions[0x31]!.invoke([0]) == 0)
         precondition(guideFunctions[0x10]!.invoke([2, 1]) == 0)
