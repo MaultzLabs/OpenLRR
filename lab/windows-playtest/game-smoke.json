@@ -1,0 +1,20 @@
+{
+  "steps": [
+    {
+      "action": "capture"
+    },
+    {
+      "action": "assert_alive"
+    },
+    {
+      "action": "wait",
+      "seconds": 2
+    },
+    {
+      "action": "capture"
+    },
+    {
+      "action": "assert_alive"
+    }
+  ]
+}
