@@ -50,6 +50,44 @@ private func encode(_ operations: [(UInt16, UInt16)]) throws -> NERPsScript {
         precondition(callbacks[0x5d]!.invoke([]) == 7)
         precondition(state.tutorialFlags == 7)
 
+        // Verify the REAL original NPL bytecode IDs for tutorial input gating.
+        // C9=AllowCameraMovement; CA=ClickOnlyObjects; CB=ClickOnlyMap;
+        // CC=ClickOnlyIcon; CD=DisallowAll.
+        precondition(callbacks[0xcd]!.invoke([]) == 0)
+        precondition(state.tutorialFlags == 0x1fff)
+        precondition(callbacks[0xca]!.invoke([]) == 0)
+        precondition(state.tutorialFlags == 0x1fff & ~Int32(0xc))
+        var policy = NativeTutorialInputPolicy(flags: state.tutorialFlags)
+        precondition(policy.permits(.object) && policy.permits(.map))
+        precondition(!policy.permits(.camera))
+        precondition(callbacks[0xc9]!.invoke([1]) == 0)
+        precondition(state.allowCameraMovement)
+        precondition(callbacks[0xcb]!.invoke([]) == 0)
+        policy = NativeTutorialInputPolicy(flags: state.tutorialFlags)
+        precondition(policy.permits(.map) && policy.permits(.camera))
+        precondition(!policy.permits(.object))
+        precondition(callbacks[0xcc]!.invoke([]) == 0)
+        policy = NativeTutorialInputPolicy(flags: state.tutorialFlags)
+        precondition(policy.permits(.icon) && policy.permits(.camera))
+        precondition(!policy.permits(.map))
+        precondition(callbacks[0xc9]!.invoke([0]) == 0)
+        precondition(!state.allowCameraMovement)
+        precondition(callbacks[0xcd]!.invoke([]) == 0)
+        precondition(state.tutorialFlags == 0x1fff)
+
+        // Crucially, the actual NPL interpreter (not only a direct callback)
+        // must update the same UI permission state during a script tick.
+        let restrictScript = NativeNERPsGameState(script: try encode([
+            (0, 1), (2, 0xc9), (0, 1), // AllowCameraMovement(1)
+            (0, 1), (2, 0xcb)          // ClickOnlyMap()
+        ]))
+        let restrictTick = try restrictScript.tick(elapsedMilliseconds: 16)
+        precondition(restrictTick.actionsExecuted == 2)
+        let scriptPolicy = NativeTutorialInputPolicy(flags: restrictScript.tutorialFlags)
+        precondition(scriptPolicy.permits(.map))
+        precondition(scriptPolicy.permits(.camera))
+        precondition(!scriptPolicy.permits(.object))
+
         let before = state.timers
         do {
             try state.advanceTimers(milliseconds: -.infinity)
