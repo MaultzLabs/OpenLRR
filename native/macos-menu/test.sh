@@ -81,7 +81,7 @@ swiftc -O Sources/WadArchive.swift Sources/GameResources.swift \
 swiftc -O Sources/WadArchive.swift Sources/GameResources.swift \
   Sources/LegoConfig.swift Sources/NERPsScript.swift \
   Sources/NERPsRuntime.swift Sources/NativeNERPsMessageFile.swift \
-  Sources/NativeNERPsGameState.swift Tests/NativeNERPsGameStateTests.swift -o "$tmp14"
+  Sources/NativeNERPsGameState.swift Sources/NativeTutorialInputPolicy.swift Tests/NativeNERPsGameStateTests.swift -o "$tmp14"
 "$tmp14"
 
 # Original tutorial interaction restrictions: portable without AppKit or WADs.
