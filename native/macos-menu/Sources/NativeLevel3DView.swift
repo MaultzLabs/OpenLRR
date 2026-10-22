@@ -19,6 +19,7 @@ final class NativeLevel3DView: SCNView {
     private let navigation: NativeLevelNavigation
     private var raiderMarkers: [String: SCNNode] = [:]
     private var selectedRaider: String?
+    private var commandRevision = 0
     var onTileSelected: ((LevelWorld.Tile) -> Void)?
     var originalCursor: NSCursor? {
         didSet { if let window { window.invalidateCursorRects(for: self) } }
@@ -250,6 +251,7 @@ final class NativeLevel3DView: SCNView {
     }
 
     private func selectRaider(_ id: String) {
+        commandRevision &+= 1
         selectedRaider = id
         for (identifier, marker) in raiderMarkers {
             marker.geometry?.firstMaterial?.emission.contents =
@@ -261,7 +263,7 @@ final class NativeLevel3DView: SCNView {
         if let vehicle = placement?.drivingIdentifier {
             onInteractionMessage?("\(id) is driving \(vehicle); vehicle controls not yet ported.")
         } else {
-            onInteractionMessage?("Selected original Rock Raider \(id). Left-click to move; right-click mineable rock to preview digging.")
+            onInteractionMessage?("Selected original Rock Raider \(id). Right-click exposed floor to walk, or mineable rock to preview digging.")
         }
     }
 
@@ -285,6 +287,7 @@ final class NativeLevel3DView: SCNView {
             onInteractionMessage?("Route exceeds 512 preview steps; select a closer destination.")
             return
         }
+        commandRevision &+= 1
         marker.removeAllActions()
         let actions: [SCNAction] = route.dropFirst().map { tile in
             SCNAction.move(to: worldPosition(x: Double(tile.x) + 0.5,
@@ -320,8 +323,12 @@ final class NativeLevel3DView: SCNView {
         let target = NativeLevelNavigation.Position(
             x: Int(floor(Double(point.x) + Double(world.width) / 2)),
             y: Int(floor(Double(point.z) + Double(world.height) / 2)))
+        if navigation.canWalk(target) {
+            commandMove(to: target)
+            return
+        }
         guard excavation.canTarget(target) else {
-            onInteractionMessage?("Not an exposed, drillable rock wall.")
+            onInteractionMessage?("Not a drillable wall or traversable cavern.")
             return
         }
         let current = marker.presentation.position
@@ -344,6 +351,8 @@ final class NativeLevel3DView: SCNView {
             onInteractionMessage?("No discovered route to an adjacent drilling position.")
             return
         }
+        commandRevision &+= 1
+        let revision = commandRevision
         marker.removeAllActions()
         var actions: [SCNAction] = route.dropFirst().map { tile in
             SCNAction.move(to: worldPosition(x: Double(tile.x) + 0.5,
@@ -355,20 +364,21 @@ final class NativeLevel3DView: SCNView {
             // NSView status and scene-graph rebuilds belong on main.
             DispatchQueue.main.async { [weak self, weak node] in
                 guard let self, let node, self.selectedRaider == id,
+                      self.commandRevision == revision,
                       self.raiderMarkers[id] === node else { return }
-            guard self.excavation.dig(at: target, from: standing) == .dug else {
-                self.onInteractionMessage?("Excavation rejected; tile state changed.")
-                return
-            }
-            do {
-                self.terrainMesh = try NativeTerrainMesh(
-                    world: self.world, excavation: self.excavation)
-                if let scene = self.scene { self.renderTerrain(in: scene) }
-                self.onInteractionMessage?(
-                    "Diagnostic excavation at (\(target.x), \(target.y)); drilling time, rubble and resources NOT yet simulated.")
-            } catch {
-                self.onInteractionMessage?("Terrain rebuilding failed: \(error)")
-            }
+                guard self.excavation.dig(at: target, from: standing) == .dug else {
+                    self.onInteractionMessage?("Excavation rejected; tile state changed.")
+                    return
+                }
+                do {
+                    self.terrainMesh = try NativeTerrainMesh(
+                        world: self.world, excavation: self.excavation)
+                    if let scene = self.scene { self.renderTerrain(in: scene) }
+                    self.onInteractionMessage?(
+                        "Diagnostic excavation at (\(target.x), \(target.y)); drilling time, rubble and resources NOT yet simulated.")
+                } catch {
+                    self.onInteractionMessage?("Terrain rebuilding failed: \(error)")
+                }
             }
         })
         marker.runAction(SCNAction.sequence(actions))
@@ -392,9 +402,6 @@ final class NativeLevel3DView: SCNView {
             let z = Int(floor(Double(point.z) + Double(world.height) / 2))
             if let tile = world.tile(x: x, y: z) {
                 onTileSelected?(tile)
-                if selectedRaider != nil {
-                    commandMove(to: NativeLevelNavigation.Position(x: x, y: z))
-                }
             }
         }
         super.mouseDown(with: event) // Keep the native orbit camera controller.
