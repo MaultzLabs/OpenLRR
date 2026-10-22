@@ -163,10 +163,17 @@ final class NativeNERPsGameState {
         // Original NPL function IDs: SetMessagePermit and SetMessage.
         callbacks[0x31] = .init(kind: .action(arity: 1),
                                 invoke: { [unowned self] args in
-            self.messagePermit = args[0] != 0
+            let newPermit = args[0] != 0
+            let changed = newPermit != self.messagePermit
+            self.messagePermit = newPermit
             self.messageText = nil
-            self.lastMessageNumber = nil
-            self.messageNeedsAdvance = false
+            // A script can execute SetMessagePermit(0) and the same
+            // SetMessage on *every* frame. Repeated permit values must
+            // not manufacture another player acknowledgement after Next.
+            if changed {
+                self.lastMessageNumber = nil
+                self.messageNeedsAdvance = false
+            }
             return args[0]
         })
         callbacks[0x10] = .init(kind: .action(arity: 2),
