@@ -351,8 +351,11 @@ final class NativeLevel3DView: SCNView {
                            duration: 0.25)
         }
         actions.append(SCNAction.run { [weak self] node in
-            guard let self, self.selectedRaider == id,
-                  self.raiderMarkers[id] === node else { return }
+            // SceneKit can execute action blocks on its renderer thread;
+            // NSView status and scene-graph rebuilds belong on main.
+            DispatchQueue.main.async { [weak self, weak node] in
+                guard let self, let node, self.selectedRaider == id,
+                      self.raiderMarkers[id] === node else { return }
             guard self.excavation.dig(at: target, from: standing) == .dug else {
                 self.onInteractionMessage?("Excavation rejected; tile state changed.")
                 return
@@ -365,6 +368,7 @@ final class NativeLevel3DView: SCNView {
                     "Diagnostic excavation at (\(target.x), \(target.y)); drilling time, rubble and resources NOT yet simulated.")
             } catch {
                 self.onInteractionMessage?("Terrain rebuilding failed: \(error)")
+            }
             }
         })
         marker.runAction(SCNAction.sequence(actions))
