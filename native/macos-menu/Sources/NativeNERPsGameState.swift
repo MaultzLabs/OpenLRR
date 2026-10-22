@@ -16,6 +16,10 @@ final class NativeNERPsGameState {
     // This is a script-visible latch, not an invented mission-completion UI.
     private(set) var objectiveSwitch: Int32 = 0
     private(set) var tutorialFlags: Int32 = 0
+    // The native 3D view currently supports ONE selected original OL Pilot.
+    // GetMiniFigureSelected must reflect an actual click, never a made-up
+    // starting unit count from the map file.
+    private(set) var selectedRockRaiderCount: Int32 = 0
     private(set) var completedTicks = 0
     // In retail NERPs, 0 permits messages; nonzero suppresses them.
     private(set) var messagePermit = true
@@ -86,6 +90,12 @@ final class NativeNERPsGameState {
         return result
     }
 
+    /// Called by actual selection events in NativeLevel3DView, not from a
+    /// simulated user or a placeholder mission.
+    func reportRockRaiderSelection(_ selected: Bool) {
+        selectedRockRaiderCount = selected ? 1 : 0
+    }
+
     /// Only proven functions are available. If bytecode reaches another ID,
     /// NERPsRuntime throws rather than manufacturing gameplay outcomes.
     func functions() -> [Int: NERPsRuntime.Function] {
@@ -142,6 +152,13 @@ final class NativeNERPsGameState {
             guard self.objectiveSwitch != 0 else { return 0 }
             self.objectiveSwitch = 0
             return 1
+        })
+        // Original NPL 0x50: CountSelectedUnits_ByObjectName(PILOT).
+        // Until multi-selection is ported this is the actual single
+        // selected Rock Raider from the OL object and native viewport.
+        callbacks[0x50] = .init(kind: .expression(arity: 0),
+                                invoke: { [unowned self] _ in
+            self.selectedRockRaiderCount
         })
         // Original NPL function IDs: SetMessagePermit and SetMessage.
         callbacks[0x31] = .init(kind: .action(arity: 1),
