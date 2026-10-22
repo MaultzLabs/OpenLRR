@@ -159,6 +159,70 @@ def pump_video_stdout(pipe: Any, timeline: capture.Timeline, state: dict,
             state["last_error"] = event
 
 
+def diagnostic_coverage(timeline_path: Path, *, video_verified: bool,
+                        input_requested: bool, wine_attached: bool,
+                        nerps_attached: bool) -> dict[str, Any]:
+    """Report actual synchronized streams; requested != delivered.
+
+    No raw Wine lines, typed text or unrelated applications are read.
+    A ready input listener is distinct from actual game input events.
+    """
+    inputs = 0
+    wine_batches = 0
+    nerps_calls = 0
+    listener_ready = False
+    with timeline_path.open("r", encoding="utf-8", errors="replace") as stream:
+        for number, line in enumerate(stream):
+            if number >= 1_000_000:
+                break
+            if len(line) > 12000:
+                continue
+            try:
+                record = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(record, dict):
+                continue
+            source, event = record.get("source"), record.get("event")
+            if source == "capture_control" and event == "input_monitor_ready":
+                listener_ready = True
+            elif source == "mac_input" and event in (
+                "left_down", "left_up", "right_down", "right_up",
+                "mouse_move", "scroll", "key_down", "key_up"
+            ):
+                inputs += 1
+            elif source == "wine_api" and event == "sampled_log_batch":
+                wine_batches += 1
+            elif source == "nerps" and event == "runtime_function":
+                nerps_calls += 1
+
+    streams = {
+        "video": "verified" if video_verified else "missing",
+        "input": ("observed" if inputs else
+                  "monitor_ready_no_game_events" if listener_ready else
+                  "monitor_not_verified" if input_requested else
+                  "not_configured"),
+        "wine": ("observed" if wine_batches else
+                 "attached_no_matching_calls" if wine_attached else
+                 "not_configured"),
+        "nerps": ("observed" if nerps_calls else
+                  "attached_no_events" if nerps_attached else
+                  "not_configured"),
+    }
+    return {
+        "streams": streams,
+        "input_monitor_ready": listener_ready,
+        "input_events": inputs,
+        "wine_event_batches": wine_batches,
+        "nerps_events": nerps_calls,
+        "all_streams_observed": (
+            streams["video"] == "verified" and
+            all(streams[s] == "observed" for s in ("input", "wine", "nerps"))
+        ),
+        "warning": "Wine batches use host log-read time, not exact API call times."
+    }
+
+
 def continuous_capture(
     probe: capture.WindowProbe,
     game: capture.GameWindow,
@@ -319,6 +383,10 @@ def continuous_capture(
                                    0o600), "w", encoding="utf-8") as listing:
                 json.dump(contents, listing, sort_keys=True, indent=2)
                 listing.write("\n")
+        coverage = diagnostic_coverage(
+            session / "timeline.jsonl", video_verified=good,
+            input_requested=input_binary is not None,
+            wine_attached=raw_wine is not None, nerps_attached=nerps is not None)
         result = {
             "schema_version": 2,
             "scope": "game_window_only",
@@ -341,6 +409,12 @@ def continuous_capture(
             "audio_track_present": any(x["audio_track_present"] for x in verified),
             "microphone_recorded": False,
             "input_monitor_requested": input_binary is not None,
+            "diagnostic_streams": coverage["streams"],
+            "diagnostic_complete": coverage["all_streams_observed"],
+            "input_monitor_ready": coverage["input_monitor_ready"],
+            "input_events_captured": coverage["input_events"],
+            "wine_events_captured": coverage["wine_event_batches"],
+            "nerps_events_captured": coverage["nerps_events"],
             "wine_trace_captured_locally": raw_wine is not None,
             "wine_log_batches": raw_wine.events.batches_written if raw_wine else 0,
             "wine_log_time_basis": "host_log_read_not_game_call_time",
