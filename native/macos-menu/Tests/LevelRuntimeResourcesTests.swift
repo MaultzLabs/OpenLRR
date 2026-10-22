@@ -270,7 +270,7 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         precondition(guardWorld.dig(at: .init(x: 0, y: 0),
                                     from: .init(x: 1, y: 0)) == .blocked)
         precondition(excavation.dig(at: .init(x: 0, y: 1),
-                                    from: .init(x: 0, y: 0)) == .noStandingRoom)
+                                    from: .init(x: 1, y: 1)) == .noStandingRoom)
         // Compare an isolated single drilling step: new floor polygons must
         // replace the mined wall top, while all existing MAP tiles remain.
         let firstDigOnly = NativeExcavationState(world: corridorWorld)
