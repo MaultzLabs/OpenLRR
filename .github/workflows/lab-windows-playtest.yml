@@ -51,8 +51,26 @@ jobs:
           try {
             python lab/windows-playtest/playtest.py --pid $fixtureProc.Id --scenario lab/windows-playtest/tests/fixture-scenario.json --title 'OpenLRR Fixture' --out lab/windows-playtest/out/fixture
             if ($LASTEXITCODE -ne 0) { throw "Windows GUI fixture failed. Inspect report rather than assuming desktop access." }
+            # Verify the spectator HTTP viewer captures the SAME synthetic HWND,
+            # before we attempt to expose any real retail game through a tunnel.
+            $spectatorProc = Start-Process python -ArgumentList @('lab/windows-playtest/spectator.py','--pid',"$($fixtureProc.Id)",'--title','OpenLRR','--port','8765') -PassThru
+            $viewerFrame = Join-Path $env:RUNNER_TEMP 'openlrr-spectator-test.jpg'
+            $viewerReady = $false
+            for ($attempt = 0; $attempt -lt 20; $attempt++) {
+              Start-Sleep -Milliseconds 300
+              try {
+                Invoke-WebRequest -Uri 'http://127.0.0.1:8765/frame.jpg' -OutFile $viewerFrame -TimeoutSec 2
+                $viewerReady = $true
+                break
+              } catch { }
+            }
+            if (-not $viewerReady) { throw 'Read-only spectator cannot capture the synthetic game window.' }
+            $jpeg = [System.IO.File]::ReadAllBytes($viewerFrame)
+            if ($jpeg.Length -lt 16 -or $jpeg[0] -ne 255 -or $jpeg[1] -ne 216) { throw 'Viewer response is not a JPEG frame.' }
+            Write-Host "Spectator served a real window-only JPEG frame ($($jpeg.Length) bytes)."
           }
           finally {
+            if ($spectatorProc -and -not $spectatorProc.HasExited) { Stop-Process -Id $spectatorProc.Id -Force -ErrorAction SilentlyContinue }
             if (-not $fixtureProc.HasExited) { Stop-Process -Id $fixtureProc.Id -Force -ErrorAction SilentlyContinue }
           }
       - name: Publish synthetic-only diagnostics
