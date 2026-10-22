@@ -106,6 +106,31 @@ private func encode(_ operations: [(UInt16, UInt16)]) throws -> NERPsScript {
             preconditionFailure("Oversized NERP message file accepted")
         } catch NativeNERPsMessageFile.MessageError.oversized {}
 
+        // Original NERPs objective-switch functions (BF/C0) are a one-shot
+        // latch, NOT a persistent objective-visible boolean. A second read
+        // must return false even when the set value was greater than one.
+        precondition(callbacks[0xc0]!.invoke([]) == 0)
+        precondition(callbacks[0xbf]!.invoke([7]) == 7)
+        precondition(state.objectiveSwitch == 7)
+        precondition(callbacks[0xc0]!.invoke([]) == 1)
+        precondition(state.objectiveSwitch == 0)
+        precondition(callbacks[0xc0]!.invoke([]) == 0)
+        precondition(callbacks[0xbf]!.invoke([0]) == 0)
+        precondition(callbacks[0xc0]!.invoke([]) == 0)
+
+        // Exercise the real interpreter: a true switch sets R0; the
+        // second GetObjectiveSwitch is false, so SetR1 is suppressed.
+        let objective = NativeNERPsGameState(script: try encode([
+            (0, 1), (2, 0xbf), (0, 1),
+            (2, 0xc0), (2, 0x19), (0, 1),
+            (2, 0xc0), (2, 0x1a), (0, 1)
+        ]))
+        let objectiveTick = try objective.tick(elapsedMilliseconds: 16)
+        precondition(objectiveTick.actionsExecuted == 2)
+        precondition(objective.registers[0] == 1)
+        precondition(objective.registers[1] == 0)
+        precondition(objective.objectiveSwitch == 0)
+
         // Separate level sessions cannot accidentally share runtime state.
         let fresh = NativeNERPsGameState(script: try encode([]))
         precondition(fresh.registers == Array(repeating: 0, count: 8))

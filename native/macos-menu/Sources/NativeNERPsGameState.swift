@@ -12,6 +12,9 @@ final class NativeNERPsGameState {
     let script: NERPsScript
     private(set) var registers = [Int32](repeating: 0, count: 8)
     private(set) var timers = [Float](repeating: 0, count: 4)
+    // NERPFunc__GetObjectiveSwitch consumes the one-shot objective signal.
+    // This is a script-visible latch, not an invented mission-completion UI.
+    private(set) var objectiveSwitch: Int32 = 0
     private(set) var tutorialFlags: Int32 = 0
     private(set) var completedTicks = 0
     // In retail NERPs, 0 permits messages; nonzero suppresses them.
@@ -90,6 +93,20 @@ final class NativeNERPsGameState {
                 return 1
             })
         }
+        // Original NPL IDs 0xBF / 0xC0: objective switch is a one-shot
+        // notification. GetObjectiveSwitch returns true once and clears it
+        // (NERPsFunctions.cpp), not the current objective's visible state.
+        callbacks[0xbf] = .init(kind: .action(arity: 1),
+                                invoke: { [unowned self] args in
+            self.objectiveSwitch = args[0]
+            return args[0]
+        })
+        callbacks[0xc0] = .init(kind: .expression(arity: 0),
+                                invoke: { [unowned self] _ in
+            guard self.objectiveSwitch != 0 else { return 0 }
+            self.objectiveSwitch = 0
+            return 1
+        })
         // Original NPL function IDs: SetMessagePermit and SetMessage.
         callbacks[0x31] = .init(kind: .action(arity: 1),
                                 invoke: { [unowned self] args in
