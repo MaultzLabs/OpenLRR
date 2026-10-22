@@ -33,8 +33,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="report only safe window counts and permission; do not launch or record")
     ap.add_argument("--fps", type=int, default=30,
                     help="continuous MP4 requested FPS (default 30)")
-    ap.add_argument("--segment-seconds", type=int, default=90,
-                    help="finalize an MP4 while game is open, every 20–300 sec (default 90)")
+    ap.add_argument("--segment-seconds", type=int, default=60,
+                    help="finalize an MP4 while game is open, every 20–300 sec (default 60)")
     ap.add_argument("--session", choices=("menu", "full"), default="full",
                     help="menu: 15-minute diagnostic recording; full: menu through tutorial (default)")
     ap.add_argument("--max-minutes", type=int,
@@ -138,11 +138,17 @@ def main(argv: list[str] | None = None) -> int:
         print("WARNING: The final clip may be incomplete after closing Wine. "
               "Earlier finalized clips are preserved and ready.")
     print("Ready-to-share video clips: " + str(clips))
-    print("Clip count: " + str(info["clip_count"]))
+    print("Clip count: " + str(len(info["clips"])))
+    print("Per-clip code/input indices created during play: " +
+          str(result.get("clips_indexed_during_recording", 0)))
+    if result.get("clip_index_failures", 0):
+        print("Clip index warning: " + str(result["clip_index_failures"]) +
+              " sidecars were not created; the full timeline remains saved.")
     print("Timeline review ZIP: " + str(archive))
     print("Video/input/code correlation index: " + str(clips / "analysis-index.json"))
     print("Private local capture session: " + str(session))
-    print("Share the finished clips and timeline ZIP after reviewing them.")
+    print("Share each MP4 with its matching part-XXXX.evidence.json.")
+    print("The timeline ZIP and complete analysis-index.json are also saved.")
     # Finder only REVEALS the local clips, never sends any files.
     try:
         subprocess.run(["/usr/bin/open", str(clips)],

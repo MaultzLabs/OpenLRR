@@ -72,11 +72,23 @@ def first_capture_time(timeline: Path) -> float | None:
 
 
 def build_index(session: Path, clip_directory: Path,
-                *, source_root: Path | None = None) -> dict:
-    manifest = clip_directory / "clips.json"
-    if not manifest.is_file() or manifest.is_symlink() or manifest.stat().st_size > 1_000_000:
-        raise ValueError("No verified, reasonably-sized clips.json manifest")
-    data = json.loads(manifest.read_text())
+                *, source_root: Path | None = None,
+                clip_metadata: list[dict] | None = None,
+                max_events_per_clip: int = 300) -> dict:
+    """Index a finished session OR one newly finalized clip during play.
+
+    Providing clip_metadata avoids requiring a session-ending clips.json.
+    The original synchronized timeline stays intact for full reconstruction.
+    """
+    if not 1 <= max_events_per_clip <= 50_000:
+        raise ValueError("Invalid per-clip event bound")
+    if clip_metadata is None:
+        manifest = clip_directory / "clips.json"
+        if not manifest.is_file() or manifest.is_symlink() or manifest.stat().st_size > 1_000_000:
+            raise ValueError("No verified, reasonably-sized clips.json manifest")
+        data = json.loads(manifest.read_text())
+    else:
+        data = {"schema": "openlrr-window-video-clips-v1", "clips": clip_metadata}
     if data.get("schema") != "openlrr-window-video-clips-v1":
         raise ValueError("Unrecognized clip manifest")
     raw_clips = data.get("clips", [])
@@ -95,7 +107,7 @@ def build_index(session: Path, clip_directory: Path,
             raise ValueError("Unsafe clip metadata")
         clips.append({
             "file": name, "start_s": start, "duration_s": duration,
-            "bytes": int(size), "sources": {}, "events": []
+            "bytes": int(size), "sources": {}, "events": [], "events_omitted": 0
         })
     if len({c["file"] for c in clips}) != len(clips):
         raise ValueError("Duplicate clip filename")
@@ -161,8 +173,10 @@ def build_index(session: Path, clip_directory: Path,
                     channel = event.get("channel")
                     if channel in ("ddraw", "d3drm", "d3d", "dsound", "dinput", "winmm"):
                         row["wine_channel"] = channel
-                if len(matching["events"]) < 300:
+                if len(matching["events"]) < max_events_per_clip:
                     matching["events"].append(row)
+                else:
+                    matching["events_omitted"] += 1
     return {
         "schema": SCHEMA,
         "time_basis": "host_unix_clock_relative_to_capture_started_approximate",
@@ -173,7 +187,8 @@ def build_index(session: Path, clip_directory: Path,
         "events_outside_clips": missed,
         "source_mapping": SOURCE_HINTS,
         "no_nerps_trace_is_not_proof_scripts_did_not_run": True,
-        "no_wine_trace_is_not_proof_no_windows_calls_occured": True,
+        "no_wine_trace_is_not_proof_no_windows_calls_occurred": True,
+        "indexes_all_known_sources_without_fabricating_missing_logs": True,
         "clips": clips,
     }
 

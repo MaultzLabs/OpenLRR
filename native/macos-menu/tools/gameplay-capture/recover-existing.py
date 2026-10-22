@@ -17,6 +17,7 @@ import sys
 import capture
 import video_session
 import index_clips
+import live_clip_index
 
 
 def recover(source: Path, *, chunk_seconds: int = 120) -> int:
@@ -58,6 +59,15 @@ def recover(source: Path, *, chunk_seconds: int = 120) -> int:
         json.dumps(correlation, sort_keys=True, indent=2) + "\n",
         encoding="utf-8")
     os.chmod(destination / "analysis-index.json", 0o600)
+    try:
+        details = live_clip_index.index_existing_clips(source.parent, destination)
+        print("Generated " + str(len(details)) +
+              " private per-clip input/code evidence files.")
+    except (ValueError, OSError) as error:
+        # Never throw away playable video because old input telemetry is
+        # unavailable, malformed, or a sidecar already exists.
+        print("Recovered MP4s are safe, but per-clip evidence could not "
+              "be indexed: " + type(error).__name__, file=sys.stderr)
     print("Recovery succeeded. Created " + str(count) + " separate MP4 clips.")
     print("Recovery folder: " + str(destination))
     print("Original remains unchanged: " + str(source))

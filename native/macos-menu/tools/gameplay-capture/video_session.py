@@ -17,6 +17,7 @@ import time
 from typing import Any
 
 import capture
+import live_clip_index
 
 ROOT = Path(__file__).resolve().parent
 VIDEO_SWIFT = ROOT / "game_video.swift"
@@ -71,7 +72,8 @@ def build_video_tools() -> tuple[Path, Path]:
             build_swift_video_tool(SPLIT_SWIFT, "game_video_split", main_struct=True))
 
 
-def pump_video_stdout(pipe: Any, timeline: capture.Timeline, state: dict) -> None:
+def pump_video_stdout(pipe: Any, timeline: capture.Timeline, state: dict,
+                      on_segment=None) -> None:
     for line in pipe:
         if len(line) > 4096:
             continue
@@ -125,14 +127,29 @@ def pump_video_stdout(pipe: Any, timeline: capture.Timeline, state: dict) -> Non
                     safe["duration_s"] > 0):
                 segments = state.setdefault("segments", [])
                 if len(segments) < 500 and all(x["part"] != part for x in segments):
-                    segments.append({
+                    segment = {
                         "part": part,
                         "file": f"part-{part:04d}.mp4",
                         "start_s": safe["start_offset_s"],
                         "duration_s": safe["duration_s"],
                         "bytes": safe["bytes"],
                         "audio_track_present": safe.get("audio_track_present", False)
-                    })
+                    }
+                    segments.append(segment)
+                    # SCRecordingOutput has finalized this MP4, and the next
+                    # clip can be recording now. Index immediately, locally.
+                    if on_segment is not None:
+                        try:
+                            on_segment(segment)
+                            state["clips_indexed_live"] = state.get("clips_indexed_live", 0) + 1
+                        except (ValueError, OSError, KeyError, TypeError):
+                            state["clip_index_failures"] = state.get("clip_index_failures", 0) + 1
+                            timeline.write({
+                                "source": "capture_control",
+                                "event": "clip_index_failed",
+                                "unix_s": time.time(), "monotonic_s": time.monotonic(),
+                                "part": part
+                            })
         if event == "segment_finalize_failed":
             state["partial"] = True
         if event == "capture_complete":
@@ -175,6 +192,7 @@ def continuous_capture(
     video_thread: threading.Thread | None = None
     stop = threading.Event()
     state: dict = {}
+    clip_indexer = live_clip_index.LiveClipIndexer(session, clip_dir)
     started = time.monotonic()
     began = time.time()
     reason = "video_not_started"
@@ -193,7 +211,8 @@ def continuous_capture(
             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL, text=True, bufsize=1)
         video_thread = threading.Thread(target=pump_video_stdout,
-                                        args=(recording.stdout, timeline, state),
+                                        args=(recording.stdout, timeline, state,
+                                              clip_indexer.write),
                                         daemon=True)
         video_thread.start()
         if input_binary is not None:
@@ -311,6 +330,8 @@ def continuous_capture(
             "video_complete": good,
             "video_partial": partial,
             "completed_segment_count": len(verified),
+            "clips_indexed_during_recording": state.get("clips_indexed_live", 0),
+            "clip_index_failures": state.get("clip_index_failures", 0),
             "video_filename": None,  # separate finalized MP4 clips
             "video_duration_s": sum(x["duration_s"] for x in verified) if good else None,
             "video_start_unix_s": state.get("video_start_unix_s"),
