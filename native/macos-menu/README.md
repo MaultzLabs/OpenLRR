@@ -87,6 +87,16 @@ not use Wine, the original Windows EXE, DirectDraw, or any injected DLLs.
   collisions, AI, original character animations, model meshes, drilling,
   vehicle movement, resource collection and mission objectives remain unported.
   All original files and saved games remain read-only.
+- **First native wall-excavation prototype:** after selecting an original OL
+  Rock Raider, clicking a visible mineable wall finds the shortest discovered
+  four-way route to an adjacent cavern tile. The Raider walks to that face,
+  then removes the wall **in mission-local memory**. The SceneKit cave mesh
+  rebuilds to show floor in the opened tile, and the 2D inspector and
+  subsequent walking routes use the same updated state. Immovable rock,
+  hidden cells, liquids, diagonal or inaccessible orders are never
+  excavated. The original WADs, MAPs and saves remain untouched. Drill
+  duration is provisional; original drilling animation, rubble, resources,
+  object collision and multi-unit task scheduling remain unported.
 - Experimental macOS playback of the original `SFX_AmbientMusicLoop` sound using
   AVFoundation. Resolves configured WAVs from the WADs or loose
   `Data/Sounds/Streamed/` files; falls back to the original `Atmosdel.wav`
@@ -120,7 +130,7 @@ and can show original OL spawn positions with prototype click-to-move pathing
 on exposed terrain. The proxies and movement are diagnostic, not retail
 character meshes or simulated Rock Raider gameplay. The original Direct3D renderer, precise retail material transitions, detailed
 wall/roof meshes, the in-game HUD, minifigure models/animations, collision,
-AI, drilling/building, vehicle systems, inventory, objective completion and
+AI, authentic mining/rubble/building, vehicle systems, inventory, objective completion and
 executable NERPs have **not** been ported. Native menu audio remains experimental.
 See [ORIGINAL_PC_REFERENCE.md](ORIGINAL_PC_REFERENCE.md) for verified Windows
 gameplay recording timestamps and specific restoration criteria.
