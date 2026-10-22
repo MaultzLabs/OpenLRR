@@ -360,7 +360,9 @@ final class NativeMissionWorkspace: NSView {
             "Original \(world.width)×\(world.height) tiles · Drag to orbit · Scroll to zoom · Click a tile")
         super.init(frame: frame)
         if let nerpsState {
-            level3D.tutorialPolicy = NativeTutorialInputPolicy(flags: nerpsState.tutorialFlags)
+            let policy = NativeTutorialInputPolicy(flags: nerpsState.tutorialFlags)
+            level3D.tutorialPolicy = policy
+            level2D.tutorialPolicy = policy
         }
         wantsLayer = true
         level2D.isHidden = true
@@ -424,7 +426,9 @@ final class NativeMissionWorkspace: NSView {
         previousTickTime = now
         do {
             let result = try nerpsState.tick(elapsedMilliseconds: Float(elapsed * 1000))
-            level3D.tutorialPolicy = NativeTutorialInputPolicy(flags: nerpsState.tutorialFlags)
+            let policy = NativeTutorialInputPolicy(flags: nerpsState.tutorialFlags)
+            level3D.tutorialPolicy = policy
+            level2D.tutorialPolicy = policy
             // Text-only preview; original Next-arrow interaction and
             // synchronized Chief audio have not yet been implemented.
             if let text = nerpsState.messageText, !text.isEmpty {
