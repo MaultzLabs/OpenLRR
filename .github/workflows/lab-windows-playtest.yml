@@ -16,7 +16,8 @@ permissions:
   contents: read
 concurrency:
   group: windows-playtest-${{ github.ref }}-${{ github.event_name }}
-  cancel-in-progress: true
+  # Preserve one-off engine builds even when concurrent lab work commits.
+  cancel-in-progress: false
 jobs:
   scenario-validation:
     runs-on: ubuntu-24.04
