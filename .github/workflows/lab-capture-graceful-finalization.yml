@@ -1,7 +1,7 @@
 name: Verify rolling live MP4 recording shutdown and recovery
 on:
   push:
-    branches: [lab-capture-graceful-finalization-v1, lab-capture-90s-finalized-validation-v1]
+    branches: [lab-capture-graceful-finalization-v1, lab-capture-90s-finalized-validation-v1, lab-capture-integrated-stream-readiness-v1]
     paths:
       - native/macos-menu/tools/gameplay-capture/**
       - .github/workflows/lab-capture-graceful-finalization.yml
@@ -37,4 +37,4 @@ jobs:
           xcrun swiftc -O -target arm64-apple-macos15.0 -framework Cocoa -framework CoreGraphics -framework CoreMedia -framework ScreenCaptureKit -framework AVFoundation game_video.swift -o /tmp/openlrr-rolling-video
           /usr/bin/lipo -archs /tmp/openlrr-rolling-video | grep -qx arm64
           xcrun swiftc -O -parse-as-library -target arm64-apple-macos15.0 -framework Cocoa -framework CoreGraphics -framework CoreMedia -framework ScreenCaptureKit -framework AVFoundation video_split.swift -o /tmp/openlrr-video-split
-          /usr/bin/lipo -archs /tmp/openlrr-video-split | grep -qx arm64
+          /usr/bin/lipo -archs /tmp/openlrr-video-split | grep -qx arm64\n          xcrun swiftc -O -target arm64-apple-macos15.0 -framework Cocoa -framework CoreGraphics window_probe.swift -o /tmp/openlrr-window-probe\n          /usr/bin/lipo -archs /tmp/openlrr-window-probe | grep -qx arm64
