@@ -106,7 +106,11 @@ def main(argv: list[str] | None = None) -> int:
     video_binary, split_binary = video_session.build_video_tools()
     input_binary = None if args.no_input else capture.build_probe()
     finder_probe = capture.WindowProbe(input_binary or capture.build_probe())
-    for warning in integrated_preflight(\n            finder_probe, inputs=input_binary is not None,\n            wine_log=args.wine_log, nerps_log=args.nerps_log):\n        print("INTEGRATION WARNING: " + warning, flush=True)\n    print("Continuous 30-FPS-style game-window recording prepared.", flush=True)
+    for warning in integrated_preflight(
+            finder_probe, inputs=input_binary is not None,
+            wine_log=args.wine_log, nerps_log=args.nerps_log):
+        print("INTEGRATION WARNING: " + warning, flush=True)
+    print("Continuous 30-FPS-style game-window recording prepared.", flush=True)
     print("Recording ONLY your Rock Raiders window, no desktop, no upload.",
           flush=True)
 
@@ -160,7 +164,11 @@ def main(argv: list[str] | None = None) -> int:
         file.write("\n")
     archive = session.with_name(session.name + "-timeline-review.zip")
     count = capture.package_review(session, archive, include_frames=False)
-    streams = result.get("diagnostic_streams", {})\n    print("Diagnostic stream coverage: " + json.dumps(streams, sort_keys=True))\n    if not result.get("diagnostic_complete", False):\n        print("WARNING: The session is NOT a complete video/input/Wine/NERPs trace.")\n    print("Recorded " + args.session + " video; input and internals only if observed.")
+    streams = result.get("diagnostic_streams", {})
+    print("Diagnostic stream coverage: " + json.dumps(streams, sort_keys=True))
+    if not result.get("diagnostic_complete", False):
+        print("WARNING: The session is NOT a complete video/input/Wine/NERPs trace.")
+    print("Recorded " + args.session + " video; input and internals only if observed.")
     if result.get("video_partial"):
         print("WARNING: The final clip may be incomplete after closing Wine. "
               "Earlier finalized clips are preserved and ready.")
