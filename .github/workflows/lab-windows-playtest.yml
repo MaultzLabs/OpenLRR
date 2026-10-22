@@ -147,6 +147,40 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+  synthetic-cheats-dropdown:
+    needs: scenario-validation
+    runs-on: windows-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install window-only capture dependency
+        run: python -m pip install "Pillow>=11.2,<12"
+      - name: Click real Win32 Cheats > No NERPs via native menu
+        shell: pwsh
+        run: |
+          $fixture = (Resolve-Path 'lab/windows-playtest/tests/menu_fixture.ps1').Path
+          $argFile = '"' + $fixture + '"'
+          $fixtureProc = Start-Process powershell.exe -ArgumentList @('-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-File', $argFile) -PassThru
+          Start-Sleep -Seconds 2
+          try {
+            if ($fixtureProc.HasExited) { throw "Native Cheats menu fixture failed to start" }
+            python lab/windows-playtest/playtest.py --pid $fixtureProc.Id --scenario lab/windows-playtest/tests/menu-scenario.json --title 'OpenLRR Menu Fixture' --out lab/windows-playtest/out/cheats-dropdown
+            if ($LASTEXITCODE -ne 0) { throw "The Cheats > No NERPs menu click or postcondition failed" }
+          }
+          finally {
+            if (-not $fixtureProc.HasExited) { Stop-Process -Id $fixtureProc.Id -Force -ErrorAction SilentlyContinue }
+          }
+      - name: Save synthetic menu interaction evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-synthetic-native-cheats-menu-evidence
+          path: lab/windows-playtest/out/cheats-dropdown/
+          if-no-files-found: ignore
+          retention-days: 3
+
   private-original-windows-game:
     if: github.event_name == 'workflow_dispatch' && inputs.run_private_game
     needs: scenario-validation
