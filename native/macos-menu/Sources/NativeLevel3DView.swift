@@ -16,6 +16,9 @@ final class NativeLevel3DView: SCNView {
     private let navigation: NativeLevelNavigation
     private var raiderMarkers: [String: SCNNode] = [:]
     private var selectedRaider: String?
+    var tutorialInputPolicy = NativeTutorialInputPolicy.unrestricted {
+        didSet { allowsCameraControl = tutorialInputPolicy.canMoveCamera }
+    }
     var onTileSelected: ((LevelWorld.Tile) -> Void)?
     var originalCursor: NSCursor? {
         didSet { if let window { window.invalidateCursorRects(for: self) } }
@@ -283,8 +286,9 @@ final class NativeLevel3DView: SCNView {
         if let pilot = hits.first(where: { hit in
             raiderMarkers.values.contains(where: { $0 === hit.node })
         })?.node, let id = raiderMarkers.first(where: { $0.value === pilot })?.key {
-            selectRaider(id)
-        } else if let terrainHit = hits.first(where: {
+            if tutorialInputPolicy.canSelectObjects { selectRaider(id) }
+        } else if tutorialInputPolicy.canClickMap,
+                  let terrainHit = hits.first(where: {
             $0.node.name?.hasPrefix("Retail MAP /") == true
         }) {
             let point = terrainHit.worldCoordinates
@@ -420,6 +424,10 @@ final class NativeMissionWorkspace: NSView {
         previousTickTime = now
         do {
             let result = try nerpsState.tick(elapsedMilliseconds: Float(elapsed * 1000))
+            // Original tutorial script flags now gate both actual mission views.
+            let policy = nerpsState.inputPolicy
+            level3D.tutorialInputPolicy = policy
+            level2D.tutorialInputPolicy = policy
             // Original message text and one-shot acknowledgement.
             // Chief sound playback is still unimplemented.
             refreshTutorialMessage()
@@ -444,13 +452,14 @@ final class NativeMissionWorkspace: NSView {
         }
         tutorialMessage.stringValue = text
         tutorialMessage.isHidden = false
-        nextMessageButton.isHidden = nerpsState.nextArrowDisabled
+        nextMessageButton.isHidden = nerpsState.nextArrowDisabled ||
+                                     nerpsState.suppressMessageArrow
         nextMessageButton.isEnabled = nerpsState.messageNeedsAdvance
     }
 
     @objc private func advanceTutorialMessage(_ sender: NSButton) {
         guard let state = nerpsState, state.messageNeedsAdvance,
-              !state.nextArrowDisabled else { return }
+              !state.nextArrowDisabled, !state.suppressMessageArrow else { return }
         state.advanceMessage()
         refreshTutorialMessage()
         focusActiveView()
