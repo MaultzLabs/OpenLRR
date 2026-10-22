@@ -76,6 +76,11 @@ jobs:
           persist-credentials: false
       - name: Install window-only capture dependency
         run: python -m pip install "Pillow>=11.2,<12"
+      - name: Identify original executable's imported DLL dependencies
+        shell: pwsh
+        run: |
+          python -m pip install "pefile>=2024.8.26,<2027"
+          python lab/windows-playtest/pe_import_probe.py OpenLRR.exe
       - name: Probe OpenLRR.exe in clean hosted Windows session
         shell: pwsh
         run: |
