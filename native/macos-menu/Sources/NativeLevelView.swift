@@ -7,6 +7,7 @@ import Foundation
 /// does not impersonate the original 3D engine or invent functional units.
 final class NativeLevelView: NSView {
     let world: LevelWorld
+    var tutorialPolicy = NativeTutorialInputPolicy.unrestricted
     var onExit: (() -> Void)?
     var originalCursor: NSCursor? {
         didSet { if let window { window.invalidateCursorRects(for: self) } }
@@ -164,14 +165,16 @@ final class NativeLevelView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        if point.y >= 75 && point.y < bounds.height - 57 {
+        if tutorialPolicy.permits(.map), point.y >= 75 &&
+            point.y < bounds.height - 57 {
             selected = tile(at: point)
         }
-        previousDragPoint = point
+        previousDragPoint = tutorialPolicy.permits(.camera) ? point : nil
         needsDisplay = true
     }
 
     override func mouseDragged(with event: NSEvent) {
+        guard tutorialPolicy.permits(.camera) else { return }
         let point = convert(event.locationInWindow, from: nil)
         if let last = previousDragPoint {
             cameraX -= (point.x - last.x) / tileSize
@@ -187,14 +190,19 @@ final class NativeLevelView: NSView {
     }
 
     override func scrollWheel(with event: NSEvent) {
+        guard tutorialPolicy.permits(.camera) else { return }
         zoomBy(event.scrollingDeltaY > 0 ? 1.12 : 1.0 / 1.12)
     }
 
     override func magnify(with event: NSEvent) {
+        guard tutorialPolicy.permits(.camera) else { return }
         zoomBy(1 + event.magnification)
     }
 
     override func keyDown(with event: NSEvent) {
+        // Escape is an application-level escape hatch, not a camera command.
+        if event.keyCode == 53 { onExit?(); return }
+        guard tutorialPolicy.permits(.camera) else { return }
         let step = max(1, 35 / tileSize)
         switch event.keyCode {
         case 123, 0: cameraX -= step // Left / A
