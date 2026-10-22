@@ -169,10 +169,45 @@ def build_index(session: Path, clip_directory: Path,
                     if kind in ("left_down", "left_up", "right_down", "right_up",
                                 "key_down", "key_up", "scroll", "mouse_move"):
                         row["input_event"] = kind
+                        # Reconstruct button hit-tests and user timing without
+                        # copying text typed in other applications.
+                        keycode = event.get("keycode")
+                        if type(keycode) is int and 0 <= keycode <= 255:
+                            row["keycode"] = keycode
+                        for field in ("x", "y", "scroll_y"):
+                            value = event.get(field)
+                            if type(value) in (int, float) and -20000 <= value <= 20000:
+                                row[field] = value
+                        for field in ("x_normalized", "y_normalized"):
+                            value = event.get(field)
+                            if type(value) in (int, float) and 0 <= value <= 1:
+                                row[field] = value
                 if source == "wine_api":
                     channel = event.get("channel")
                     if channel in ("ddraw", "d3drm", "d3d", "dsound", "dinput", "winmm"):
                         row["wine_channel"] = channel
+                    operation = event.get("operation")
+                    if operation in ("blt", "bltfast", "flip", "lock", "unlock",
+                                     "render", "update", "createsurface",
+                                     "directdrawcreate", "getdevicestate",
+                                     "getdevicedata", "other"):
+                        row["wine_operation"] = operation
+                    count = event.get("count")
+                    if type(count) is int and 1 <= count <= 10_000_000:
+                        row["wine_call_count"] = count
+                if source == "nerps":
+                    arguments = event.get("args")
+                    if (isinstance(arguments, list) and len(arguments) <= 3 and
+                            all(type(a) is int and -(2**31) <= a <= 2**31 - 1
+                                for a in arguments)):
+                        row["arguments"] = arguments
+                    for field in ("pc", "frame"):
+                        num = event.get(field)
+                        if type(num) is int and 0 <= num <= 2**32 - 1:
+                            row[field] = num
+                    kind = event.get("kind")
+                    if kind in ("action", "predicate"):
+                        row["function_kind"] = kind
                 if len(matching["events"]) < max_events_per_clip:
                     matching["events"].append(row)
                 else:
