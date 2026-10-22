@@ -156,16 +156,27 @@ guard CGPreflightListenEventAccess() else {
 }
 NSApplication.shared.setActivationPolicy(.prohibited)
 
-// No textual keystrokes, clipboard data, or activity in other apps.
-let approvedKeys: Set<UInt16> = [
-    0, 1, 2, 13,   // A, S, D, W
-    15, 24, 27, 36, 49, 53, // R, +/- , Enter, Space, Escape
-    123, 124, 125, 126 // four arrows
-]
+// Log game-focused hardware keycodes, never text, clipboard or input
+// outside the verified game window. A short hardcoded WASD subset misses
+// actual Rock Raiders hotkeys and mislabels normal play as no input.
+let gameOwnerHints = ["wine", "wineskin", "whisky", "crossover",
+                      "sikarugir", "rock raiders", "legorr", "openlrr"]
+func gameIsFrontmost(_ target: WindowRecord) -> Bool {
+    // Wine's visible game window PID may differ from the active Wineskin
+    // wrapper app PID. Require the *actual* topmost on-screen normal window
+    // to be this game, plus a verified active Wine/game application.
+    guard windowRecords().first(where: { $0.onscreen })?.id == target.id,
+          let foreground = NSWorkspace.shared.frontmostApplication else {
+        return false
+    }
+    if Int(foreground.processIdentifier) == target.pid { return true }
+    let activeName = (foreground.localizedName ?? "").lowercased()
+    return gameOwnerHints.contains(where: activeName.contains)
+}
 let mask: NSEvent.EventTypeMask = [
     .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp,
     .mouseMoved, .leftMouseDragged, .rightMouseDragged,
-    .scrollWheel, .keyDown, .keyUp
+    .scrollWheel, .keyDown, .keyUp, .flagsChanged
 ]
 var lastMove: TimeInterval = 0
 let observer = NSEvent.addGlobalMonitorForEvents(matching: mask) { event in
@@ -173,11 +184,7 @@ let observer = NSEvent.addGlobalMonitorForEvents(matching: mask) { event in
     // Require the exact target game window to be foremost within its app,
     // not merely some foreground Wine window or a similarly titled browser.
     guard let target = gameWindow(id: id, pid: pid), target.onscreen,
-          let foregroundPID = NSWorkspace.shared.frontmostApplication?.processIdentifier,
-          Int(foregroundPID) == pid,
-          windowRecords().first(where: { $0.pid == pid && $0.onscreen })?.id == id else {
-        return
-    }
+          gameIsFrontmost(target) else { return }
     let now = ProcessInfo.processInfo.systemUptime
     var data: [String: Any] = [
         "source": "mac_input", "monotonic_s": now,
@@ -185,10 +192,11 @@ let observer = NSEvent.addGlobalMonitorForEvents(matching: mask) { event in
         "window_id": id
     ]
     switch event.type {
-    case .keyDown, .keyUp:
-        guard approvedKeys.contains(event.keyCode) else { return }
-        data["event"] = event.type == .keyDown ? "key_down" : "key_up"
+    case .keyDown, .keyUp, .flagsChanged:
+        data["event"] = event.type == .keyDown ? "key_down" :
+                        (event.type == .keyUp ? "key_up" : "modifier_changed")
         data["keycode"] = Int(event.keyCode)
+        data["modifier_flags"] = Int(event.modifierFlags.rawValue & 0x1fffff)
     case .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp,
          .mouseMoved, .leftMouseDragged, .rightMouseDragged, .scrollWheel:
         guard let position = event.cgEvent?.location else { return }

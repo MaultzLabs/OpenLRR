@@ -1,3 +1,36 @@
+## Standard laboratory capture — every stream is mandatory
+
+The normal `first-level-video.py` launch no longer offers `--no-input`,
+`--wine-log` or `--nerps-log`. Every run requires window video/audio,
+game-scoped mouse and **all hardware keycodes** (never typed text),
+Wine graphics/audio debug output and instrumented OpenLRR menu/NERPs
+runtime output on a shared timeline.
+
+Before launching the game, the coordinator verifies Screen Recording and
+Input Monitoring permissions and automatically discovers the following
+private, recent files:
+
+- `~/Library/Caches/OpenLRR-GameplayCapture/active-traces/wine-debug.log`
+- `~/Library/Caches/OpenLRR-GameplayCapture/active-traces/nerps-events.jsonl`
+
+Both the containing folder and trace files must be private and non-symlinked;
+mere file presence is **not** proof of actual recorded calls. The final
+`manifest.json` checks real events per stream and marks any incomplete
+session as a failure. `--diagnose` checks the safe status without starting
+the game.
+
+**Producer not yet wired:** the normal unmodified Wine wrapper does NOT
+automatically emit complete Wine/DirectDraw or internal NERPs traces. An
+isolated instrumented OpenLRR launcher must produce those files before a
+complete run can start. Until then, the coordinator deliberately refuses
+to create another video-only session. It never patches your working Wine
+installation or invents missing runtime events.
+
+The remaining sections describe historical experiments, including older
+optional commands; they are not the standard all-stream launcher.
+
+---
+
 ## End-to-end capture integrity preflight
 
 The recorder now checks macOS Screen Recording and Input Monitoring

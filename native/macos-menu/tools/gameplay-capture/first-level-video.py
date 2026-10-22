@@ -16,6 +16,7 @@ import sys
 import capture
 import video_session
 import index_clips
+import trace_sources
 
 DEFAULT_SEGMENT_SECONDS = 90
 
@@ -28,29 +29,20 @@ sys.modules[spec.name] = first
 spec.loader.exec_module(first)
 
 
-def integrated_preflight(probe: capture.WindowProbe, *,
-                         inputs: bool, wine_log: Path | None,
-                         nerps_log: Path | None) -> list[str]:
-    """Prevent another silent input failure; make missing internals explicit."""
+def integrated_preflight(probe: capture.WindowProbe) -> None:
+    """Video AND game-window input are mandatory for every lab recording."""
     status = probe.diagnose()
-    if status.get("screen_recording_permission") is False:
+    if status.get("screen_recording_permission") is not True:
         raise capture.CaptureError(
-            "Screen Recording permission is missing. Allow Terminal in "
-            "System Settings > Privacy & Security > Screen & System Audio "
-            "Recording, then reopen Terminal.")
-    if inputs and status.get("input_monitoring_permission") is False:
+            "Screen Recording permission is unavailable. Enable Terminal "
+            "under System Settings > Privacy & Security > Screen & System "
+            "Audio Recording and reopen Terminal. No game launched.")
+    if status.get("input_monitoring_permission") is not True:
         raise capture.CaptureError(
-            "Input Monitoring permission is missing. Allow the Terminal/"
-            "game-window helper under System Settings > Privacy & Security "
-            "> Input Monitoring, then reopen Terminal. No recording began.")
-    warnings = []
-    if not inputs:
-        warnings.append("Input recording explicitly disabled.")
-    if wine_log is None:
-        warnings.append("No Wine debug source: DirectDraw/API calls WILL NOT be recorded.")
-    if nerps_log is None:
-        warnings.append("No instrumented NERPs source: internal game script calls WILL NOT be recorded.")
-    return warnings
+            "Input Monitoring permission is unavailable for the Terminal/"
+            "game-window helper. Enable it under System Settings > Privacy "
+            "& Security > Input Monitoring and reopen Terminal. "
+            "No game launched.")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -67,12 +59,6 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--max-minutes", type=int,
                     help="optional safety limit; defaults to 15 min menu / 120 min full")
     ap.add_argument("--wait-seconds", type=int, default=360)
-    ap.add_argument("--wine-log", type=Path,
-                    help="optional existing Wine debug log, raw text stays local")
-    ap.add_argument("--nerps-log", type=Path,
-                    help="optional existing instrumented NERPs JSONL stream")
-    ap.add_argument("--no-input", action="store_true",
-                    help="disable game-key and mouse-event capture")
     args = ap.parse_args(argv)
     if sys.platform != "darwin":
         raise capture.CaptureError("Continuous window video requires macOS")
@@ -91,6 +77,8 @@ def main(argv: list[str] | None = None) -> int:
         # No video tool compilation, no game launch and no capture.
         finder = capture.WindowProbe(capture.build_probe())
         info = finder.diagnose()
+        _, stream_status = trace_sources.discover()
+        info["mandatory_traces"] = stream_status
         print(json.dumps(info, sort_keys=True))
         if info.get("screen_recording_permission") is False:
             print("Terminal needs Screen Recording permission. "
@@ -101,15 +89,15 @@ def main(argv: list[str] | None = None) -> int:
                   "title. No unrelated window will be recorded.")
         return 0
 
-    # Compile all helpers before launching, avoiding a long compiler pause
-    # after the game appears. None modifies the Wine prefix or game files.
+    # Every laboratory run requires connected diagnostic providers.
+    # Refuse an expensive video-only run *before* opening the original game.
+    traces = trace_sources.require()
+    # Compile all helpers before launching, avoiding a compiler pause
+    # while the game is running. The existing Wine installation is untouched.
     video_binary, split_binary = video_session.build_video_tools()
-    input_binary = None if args.no_input else capture.build_probe()
-    finder_probe = capture.WindowProbe(input_binary or capture.build_probe())
-    for warning in integrated_preflight(
-            finder_probe, inputs=input_binary is not None,
-            wine_log=args.wine_log, nerps_log=args.nerps_log):
-        print("INTEGRATION WARNING: " + warning, flush=True)
+    input_binary = capture.build_probe()
+    finder_probe = capture.WindowProbe(input_binary)
+    integrated_preflight(finder_probe)
     print("Continuous 30-FPS-style game-window recording prepared.", flush=True)
     print("Recording ONLY your Rock Raiders window, no desktop, no upload.",
           flush=True)
@@ -145,7 +133,7 @@ def main(argv: list[str] | None = None) -> int:
         finder_probe, game, session, video_binary,
         video_fps=args.fps, max_seconds=args.max_minutes * 60,
         segment_seconds=args.segment_seconds,
-        wine_log=args.wine_log, nerps_log=args.nerps_log,
+        wine_log=traces.wine, nerps_log=traces.nerps,
         input_binary=input_binary)
     if not result["video_complete"]:
         print("Video did not finalize successfully. Review the local"
@@ -168,7 +156,7 @@ def main(argv: list[str] | None = None) -> int:
     print("Diagnostic stream coverage: " + json.dumps(streams, sort_keys=True))
     if not result.get("diagnostic_complete", False):
         print("WARNING: The session is NOT a complete video/input/Wine/NERPs trace.")
-    print("Recorded " + args.session + " video; input and internals only if observed.")
+    print("Captured " + args.session + " with mandatory streams; see coverage for verified events.")
     if result.get("video_partial"):
         print("WARNING: The final clip may be incomplete after closing Wine. "
               "Earlier finalized clips are preserved and ready.")
@@ -191,7 +179,7 @@ def main(argv: list[str] | None = None) -> int:
                        timeout=12, check=False)
     except (OSError, subprocess.TimeoutExpired):
         pass
-    return 0
+    return 0 if result.get("diagnostic_complete", False) else 2
 
 
 if __name__ == "__main__":

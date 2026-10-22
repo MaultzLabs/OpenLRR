@@ -262,16 +262,20 @@ class VideoSessionTests(unittest.TestCase):
                 return {"screen_recording_permission": True,
                         "input_monitoring_permission": False}
         with self.assertRaisesRegex(capture.CaptureError, "Input Monitoring"):
-            launcher.integrated_preflight(Denied(), inputs=True,
-                                          wine_log=None, nerps_log=None)
+            launcher.integrated_preflight(Denied())
 
         class Approved:
             def diagnose(self):
                 return {"screen_recording_permission": True,
                         "input_monitoring_permission": True}
-        warnings = launcher.integrated_preflight(
-            Approved(), inputs=True, wine_log=None, nerps_log=None)
-        self.assertEqual(len(warnings), 2)
+        self.assertIsNone(launcher.integrated_preflight(Approved()))
+
+    def test_lab_recordings_require_no_optional_trace_flags(self):
+        launcher = (ROOT / "first-level-video.py").read_text()
+        for removed in ("--no-input", "--wine-log", "--nerps-log"):
+            self.assertNotIn(removed, launcher)
+        self.assertIn("traces = trace_sources.require()", launcher)
+
 
 if __name__ == "__main__":
     unittest.main()
