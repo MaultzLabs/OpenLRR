@@ -49,9 +49,9 @@ class RecoveryTests(unittest.TestCase):
     def test_recovery_writes_separate_clips_without_replacing_master(self):
         (self.root / "timeline.jsonl").write_text(
             json.dumps({"source": "video", "event": "capture_started",
-                        "unix_s": 1792620000}) + "\\n" +
+                        "unix_s": 1792620000}) + "\n" +
             json.dumps({"source": "openlrr_menu", "event": "win32_menu_command",
-                        "menu_id": 603, "unix_s": 1792620015}) + "\\n")
+                        "menu_id": 603, "unix_s": 1792620015}) + "\n")
         def fake_split(cmd, **kw):
             if str(cmd[0]).endswith("mock-split"):
                 dest = Path(cmd[2])
