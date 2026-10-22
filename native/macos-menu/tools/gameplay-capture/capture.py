@@ -31,7 +31,8 @@ MAX_CAPTURE_SECONDS = 4 * 60 * 60
 MAX_LOCAL_TRACE_BYTES = 20_000_000
 ALLOWED_EVENT_NAMES = {
     "left_down", "left_up", "right_down", "right_up", "mouse_move",
-    "scroll", "key_down", "key_up", "game_window_closed"
+    "scroll", "key_down", "key_up", "game_window_closed",
+    "input_monitor_ready"
 }
 ALLOWED_NERPS_FIELDS = {"function", "opcode", "instruction", "args", "pc", "frame"}
 MAX_INPUT_LINE = 4096

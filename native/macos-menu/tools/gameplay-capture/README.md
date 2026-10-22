@@ -1,3 +1,25 @@
+## End-to-end capture integrity preflight
+
+The recorder now checks macOS Screen Recording and Input Monitoring
+permission **before launching the game**. A missing input-monitor permission
+fails early instead of silently generating a ten-minute video without any
+input diagnostics. The input helper emits an `input_monitor_ready` handshake;
+the post-session manifest separately counts **actually observed** mouse/keyboard
+events, Wine log batches, and NERPs runtime events.
+
+Read `manifest.json` fields `diagnostic_streams` and
+`diagnostic_complete`. A video can be verified while inputs or internals
+are missing: this is reported as an **incomplete integrated trace**, not
+a complete recording. A ready input helper is not proof that any mouse or
+key events were received. Without supplied `--wine-log` and `--nerps-log`
+sources, Wine/NERPs instrumentation remains `not_configured`; the
+original retail/Wine game does **not** emit full internal traces by default.
+
+These checks do not modify the working Wine game or add intrusive tracing.
+For faithful source/runtime correlation, a separate isolated opt-in
+instrumented build remains necessary. Wine logs use host read timestamps,
+not exact DirectDraw call timestamps.
+
 # Rock Raiders Gameplay Capture Lab — macOS
 
 

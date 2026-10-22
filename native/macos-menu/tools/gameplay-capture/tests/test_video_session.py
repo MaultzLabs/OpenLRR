@@ -218,5 +218,60 @@ class VideoSessionTests(unittest.TestCase):
         self.assertNotIn("desktop_capture", video_session.ALLOWED_VIDEO_EVENTS)
 
 
+    def test_capture_integrity_cannot_confuse_requested_with_observed(self):
+        timeline = self.root / "coverage.jsonl"
+        timeline.write_text("\n".join(json.dumps(x) for x in [
+            {"source": "video", "event": "capture_started"},
+            {"source": "capture_control", "event": "input_monitor_ready"},
+            {"source": "mac_input", "event": "left_down", "keycode": 1},
+            {"source": "wine_api", "event": "sampled_log_batch"},
+            {"source": "nerps", "event": "runtime_function", "function_id": 2},
+        ]) + "\n")
+        complete = video_session.diagnostic_coverage(
+            timeline, video_verified=True, input_requested=True,
+            wine_attached=True, nerps_attached=True)
+        self.assertTrue(complete["all_streams_observed"])
+        self.assertEqual(complete["streams"],
+                         {"video": "verified", "input": "observed",
+                          "wine": "observed", "nerps": "observed"})
+        absent = video_session.diagnostic_coverage(
+            timeline, video_verified=False, input_requested=False,
+            wine_attached=False, nerps_attached=False)
+        self.assertFalse(absent["all_streams_observed"])
+        self.assertEqual(absent["streams"]["video"], "missing")
+
+    def test_integrity_reports_missing_events_and_permissions(self):
+        from importlib import util
+        spec = util.spec_from_file_location(
+            "capture_integrated_preflight", ROOT / "first-level-video.py")
+        launcher = util.module_from_spec(spec)
+        spec.loader.exec_module(launcher)
+        path = self.root / "empty-timeline.jsonl"
+        path.write_text(json.dumps({"source": "video",
+                                    "event": "capture_started"}) + "\n")
+        result = video_session.diagnostic_coverage(
+            path, video_verified=True, input_requested=True,
+            wine_attached=False, nerps_attached=False)
+        self.assertFalse(result["all_streams_observed"])
+        self.assertEqual(result["streams"]["input"], "monitor_not_verified")
+        self.assertEqual(result["streams"]["wine"], "not_configured")
+        self.assertEqual(result["streams"]["nerps"], "not_configured")
+
+        class Denied:
+            def diagnose(self):
+                return {"screen_recording_permission": True,
+                        "input_monitoring_permission": False}
+        with self.assertRaisesRegex(capture.CaptureError, "Input Monitoring"):
+            launcher.integrated_preflight(Denied(), inputs=True,
+                                          wine_log=None, nerps_log=None)
+
+        class Approved:
+            def diagnose(self):
+                return {"screen_recording_permission": True,
+                        "input_monitoring_permission": True}
+        warnings = launcher.integrated_preflight(
+            Approved(), inputs=True, wine_log=None, nerps_log=None)
+        self.assertEqual(len(warnings), 2)
+
 if __name__ == "__main__":
     unittest.main()
