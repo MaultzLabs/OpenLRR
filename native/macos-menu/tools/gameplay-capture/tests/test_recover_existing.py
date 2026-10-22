@@ -50,10 +50,10 @@ class RecoveryTests(unittest.TestCase):
         def fake_split(cmd, **kw):
             if str(cmd[0]).endswith("mock-split"):
                 dest = Path(cmd[2])
-                (dest / "part-0001.mp4").write_bytes(b"finished-clip")
+                (dest / "part-0001.mp4").write_bytes(b"c" * 6000)
                 (dest / "clips.json").write_text(json.dumps({
                     "schema": "openlrr-window-video-clips-v1", "clip_count": 1,
-                    "clips": [{"file": "part-0001.mp4", "start_s": 0, "duration_s": 120, "bytes": 13}]
+                    "clips": [{"file": "part-0001.mp4", "start_s": 0, "duration_s": 120, "bytes": 6000}]
                 }))
             return mock.Mock(returncode=0, stdout="", stderr="")
         with (mock.patch.object(sys, "platform", "darwin"),
@@ -63,6 +63,57 @@ class RecoveryTests(unittest.TestCase):
             self.assertEqual(recover.recover(self.source), 0)
         self.assertEqual(self.source.read_bytes(), self.original)
         self.assertTrue((self.root / "recovered-clips" / "part-0001.mp4").exists())
+        self.assertTrue((self.root / "recovered-clips" / "upload-evidence.zip").exists())
+        from zipfile import ZipFile
+        with ZipFile(self.root / "recovered-clips" / "upload-evidence.zip") as bundle:
+            self.assertIn("analysis-index.json", bundle.namelist())
+            self.assertIn("part-0001.evidence.json", bundle.namelist())
+            self.assertNotIn("game-window-master.mp4", bundle.namelist())
+
+    def test_validation_rejects_missing_or_size_mismatched_clips(self):
+        destination = self.root / "recovered-clips"
+        destination.mkdir()
+        (destination / "part-0001.mp4").write_bytes(b"x" * 6000)
+        manifest = {"schema": "openlrr-window-video-clips-v1",
+                    "clip_count": 1,
+                    "clips": [{"file": "part-0001.mp4", "start_s": 0,
+                               "duration_s": 120, "bytes": 6001}]}
+        (destination / "clips.json").write_text(json.dumps(manifest))
+        with self.assertRaisesRegex(ValueError, "size differs"):
+            recover.validate_exported_clips(destination)
+        self.assertEqual(self.source.read_bytes(), self.original)
+
+    def test_validation_rejects_oversized_and_discontinuous_timestamps(self):
+        destination = self.root / "recovered-clips"
+        destination.mkdir()
+        (destination / "part-0001.mp4").write_bytes(b"x" * 6000)
+        (destination / "part-0002.mp4").write_bytes(b"y" * 6000)
+        manifest = {"schema": "openlrr-window-video-clips-v1",
+                    "clip_count": 2,
+                    "clips": [{"file": "part-0001.mp4", "start_s": 0,
+                               "duration_s": 120, "bytes": 6000},
+                              {"file": "part-0002.mp4", "start_s": 125,
+                               "duration_s": 60, "bytes": 6000}]}
+        listing = destination / "clips.json"
+        listing.write_text(json.dumps(manifest))
+        with self.assertRaisesRegex(ValueError, "discontinuous"):
+            recover.validate_exported_clips(destination)
+        manifest["clips"][1]["start_s"] = 120
+        manifest["clips"][0]["bytes"] = 151 * 1024 * 1024
+        listing.write_text(json.dumps(manifest))
+        with self.assertRaisesRegex(ValueError, "oversized"):
+            recover.validate_exported_clips(destination)
+
+    def test_validation_rejects_symlinked_clip(self):
+        destination = self.root / "recovered-clips"
+        destination.mkdir()
+        (destination / "part-0001.mp4").symlink_to(self.source)
+        (destination / "clips.json").write_text(json.dumps({
+            "schema": "openlrr-window-video-clips-v1", "clip_count": 1,
+            "clips": [{"file": "part-0001.mp4", "start_s": 0,
+                       "duration_s": 120, "bytes": 6000}]}))
+        with self.assertRaisesRegex(ValueError, "MP4 missing"):
+            recover.validate_exported_clips(destination)
 
     def test_never_overwrite_existing_recovery_folder(self):
         (self.root / "recovered-clips").mkdir()

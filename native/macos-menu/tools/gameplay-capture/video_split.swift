@@ -32,7 +32,13 @@ enum ExportFailure: Error { case invalid, asset, export, excess }
             guard duration.isFinite, duration > 0 else {
                 throw ExportFailure.asset
             }
-            let maxBytes: Int64 = 180 * 1024 * 1024
+            // 150 MiB provides upload headroom under the 512 MB per-file cap.
+            // Passthrough copies encoded samples; no quality-losing re-encode.
+            let maxBytes: Int64 = 150 * 1024 * 1024
+            let originalVideo = try await asset.loadTracks(withMediaType: .video)
+            let originalAudio = try await asset.loadTracks(withMediaType: .audio)
+            guard !originalVideo.isEmpty else { throw ExportFailure.asset }
+            let sourceHasAudio = !originalAudio.isEmpty
             var index = 0
             var descriptors: [[String: Any]] = []
 
@@ -68,6 +74,19 @@ enum ExportFailure: Error { case invalid, asset, export, excess }
                     try? FileManager.default.removeItem(at: url)
                     throw ExportFailure.export
                 }
+                // A successful export status alone does not prove a playable
+                // video or that the original audio track survived the split.
+                let clipAsset = AVURLAsset(url: url)
+                let outputDurationTime = try await clipAsset.load(.duration)
+                let outputDuration = CMTimeGetSeconds(outputDurationTime)
+                let outputVideo = try await clipAsset.loadTracks(withMediaType: .video)
+                let outputAudio = try await clipAsset.loadTracks(withMediaType: .audio)
+                guard outputDuration.isFinite, outputDuration > 0,
+                      !outputVideo.isEmpty,
+                      (!sourceHasAudio || !outputAudio.isEmpty) else {
+                    try? FileManager.default.removeItem(at: url)
+                    throw ExportFailure.export
+                }
                 if count > maxBytes {
                     try FileManager.default.removeItem(at: url)
                     guard length > 30 else {
@@ -85,7 +104,9 @@ enum ExportFailure: Error { case invalid, asset, export, excess }
                 index += 1
                 descriptors.append([
                     "file": name, "start_s": start,
-                    "duration_s": length, "bytes": count
+                    "duration_s": length, "decoded_duration_s": outputDuration,
+                    "audio_track_present": !outputAudio.isEmpty,
+                    "video_track_present": true, "bytes": count
                 ])
             }
             var start = 0.0
@@ -100,7 +121,8 @@ enum ExportFailure: Error { case invalid, asset, export, excess }
                 "total_duration_s": duration,
                 "clip_count": descriptors.count,
                 "max_bytes_per_clip": maxBytes,
-                "time_basis": "relative_to_video_start",
+                "source_audio_track_present": sourceHasAudio,
+                "time_basis": "requested_source_time_range_start; exported samples may align to keyframes",
                 "clips": descriptors
             ]
             guard let bytes = try? JSONSerialization.data(
@@ -111,7 +133,7 @@ enum ExportFailure: Error { case invalid, asset, export, excess }
             try bytes.write(to: manifest, options: .atomic)
             try FileManager.default.setAttributes(
                 [.posixPermissions: 0o600], ofItemAtPath: manifest.path)
-            print("Generated \(descriptors.count) private MP4 clips under 180 MiB each.")
+            print("Generated \(descriptors.count) verified MP4 clips under 150 MiB each.")
         } catch {
             fputs("Video splitting incomplete. Original master is untouched.\n", stderr)
             exit(3)
