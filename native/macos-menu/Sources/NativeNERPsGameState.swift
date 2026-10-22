@@ -16,6 +16,9 @@ final class NativeNERPsGameState {
     // This is a script-visible latch, not an invented mission-completion UI.
     private(set) var objectiveSwitch: Int32 = 0
     private(set) var tutorialFlags: Int32 = 0
+    // Source: NERPFunc__AllowCameraMovement in NERPsFunctions.cpp stores
+    // a 0x1000 flag, later cleared from restrictive tutorial masks.
+    private(set) var allowCameraMovement = false
     private(set) var completedTicks = 0
     // In retail NERPs, 0 permits messages; nonzero suppresses them.
     private(set) var messagePermit = true
@@ -130,6 +133,32 @@ final class NativeNERPsGameState {
             self.tutorialFlags = args[0]
             return self.tutorialFlags
         })
+
+        // Original NPL IDs from RRU's NERPs function table (0xC9-0xCD).
+        // C++ implementations: NERPsFunctions.cpp::NERPFunc__AllowCameraMovement,
+        // ClickOnlyObjects, ClickOnlyMap, ClickOnlyIcon, DisallowAll.
+        //
+        // These set DISABLE bits for the UI, rather than fabricating mission
+        // progress. There is still no native implementation for most tasks.
+        callbacks[0xc9] = .init(kind: .action(arity: 1),
+                                invoke: { [unowned self] args in
+            self.allowCameraMovement = args[0] != 0
+            return 0
+        })
+        func clickOnly(_ enabledBits: UInt32) -> NERPsRuntime.Function {
+            .init(kind: .action(arity: 0), invoke: { [unowned self] _ in
+                var disabled = NativeTutorialInputPolicy.allDisabledMask & ~enabledBits
+                if self.allowCameraMovement { disabled &= ~UInt32(0x1000) }
+                self.tutorialFlags = Int32(bitPattern: disabled)
+                return 0
+            })
+        }
+        // ClickOnlyObjects also enables map targeting: original C++ clears
+        // NOMAP | NOOBJECTS. This is unintuitive but source-confirmed.
+        callbacks[0xca] = clickOnly(0x4 | 0x8)
+        callbacks[0xcb] = clickOnly(0x4)
+        callbacks[0xcc] = clickOnly(0x1)
+        callbacks[0xcd] = clickOnly(0)
         return callbacks
     }
 }
