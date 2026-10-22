@@ -215,6 +215,23 @@ private func encode(_ operations: [(UInt16, UInt16)]) throws -> NERPsScript {
         _ = try messageProgress.tick(elapsedMilliseconds: 10)
         precondition(messageProgress.registers[0] == 77)
 
+        // Original NPL 0x50 counts selected Pilot units; it must react
+        // to actual selection callbacks from the native OL-driven 3D view.
+        let pilotSelection = NativeNERPsGameState(script: try encode([
+            (2, 0x50), (2, 0x19), (0, 1)
+        ]))
+        precondition(pilotSelection.functions()[0x50]!.invoke([]) == 0)
+        _ = try pilotSelection.tick(elapsedMilliseconds: 16)
+        precondition(pilotSelection.registers[0] == 0)
+        pilotSelection.reportRockRaiderSelection(true)
+        precondition(pilotSelection.selectedRockRaiderCount == 1)
+        precondition(pilotSelection.functions()[0x50]!.invoke([]) == 1)
+        _ = try pilotSelection.tick(elapsedMilliseconds: 16)
+        precondition(pilotSelection.registers[0] == 1)
+        pilotSelection.reportRockRaiderSelection(false)
+        precondition(pilotSelection.functions()[0x50]!.invoke([]) == 0)
+        precondition(pilotSelection.selectedRockRaiderCount == 0)
+
         // Separate level sessions cannot accidentally share runtime state.
         let fresh = NativeNERPsGameState(script: try encode([]))
         precondition(fresh.registers == Array(repeating: 0, count: 8))
