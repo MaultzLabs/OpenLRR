@@ -240,6 +240,55 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         precondition(NativeLevelNavigation(world: corridorWorld, maximumTiles: 10)
                       .route(from: origin, to: destination) == nil)
 
+        // Excavation is a session-only overlay: the original MAP bytes stay
+        // intact, while drilling expands passable terrain and changes the mesh.
+        let excavation = NativeExcavationState(world: corridorWorld)
+        let dynamicRouting = NativeLevelNavigation(world: corridorWorld,
+                                                   excavation: excavation)
+        let drillFrom = NativeLevelNavigation.Position(x: 2, y: 0)
+        let drillTarget = NativeLevelNavigation.Position(x: 3, y: 0)
+        precondition(!dynamicRouting.canWalk(drillTarget))
+        precondition(excavation.dig(at: drillTarget, from: origin) == .dug)
+        precondition(excavation.opened.count == 1)
+        precondition(dynamicRouting.canWalk(drillTarget))
+        precondition(dynamicRouting.route(from: origin, to: drillTarget) ==
+                     [origin, drillTarget])
+        precondition(corridorWorld.tile(x: 3, y: 0)?.excavation == .wall)
+        precondition(corridorWorld.predugMap.value(x: 3, y: 0) == 0)
+        precondition(excavation.excavation(at: drillTarget) == .exposed)
+        precondition(excavation.terrain(at: drillTarget) == .tunnel)
+        precondition(excavation.dig(at: drillTarget, from: origin) == .blocked)
+        precondition(excavation.dig(at: .init(x: 40, y: 40),
+                                    from: origin) == .outsideMap)
+        let secondWall = NativeLevelNavigation.Position(x: 3, y: 1)
+        precondition(excavation.dig(at: secondWall, from: origin) == .notAdjacent)
+        precondition(excavation.dig(at: secondWall,
+                                    from: .init(x: 3, y: 0)) == .dug)
+        precondition(dynamicRouting.canWalk(secondWall))
+        precondition(!dynamicRouting.canWalk(.init(x: 1, y: 0))) // Lava.
+        let guardWorld = NativeExcavationState(world: nativeWorld)
+        precondition(guardWorld.dig(at: .init(x: 0, y: 0),
+                                    from: .init(x: 1, y: 0)) == .blocked)
+        precondition(excavation.dig(at: .init(x: 0, y: 1),
+                                    from: .init(x: 1, y: 1)) == .noStandingRoom)
+        // Compare an isolated single drilling step: new floor polygons must
+        // replace the mined wall top, while all existing MAP tiles remain.
+        let firstDigOnly = NativeExcavationState(world: corridorWorld)
+        let beforeDigMesh = try NativeTerrainMesh(world: corridorWorld)
+        precondition(firstDigOnly.dig(at: drillTarget, from: drillFrom) == .dug)
+        let afterDigMesh = try NativeTerrainMesh(world: corridorWorld,
+                                                excavation: firstDigOnly)
+        precondition(afterDigMesh.tileCount == beforeDigMesh.tileCount)
+        let cavernTrianglesBefore = beforeDigMesh.surfaces.first(where: {
+            $0.material == .cavernFloor
+        })?.triangleCount ?? 0
+        let cavernTrianglesAfter = afterDigMesh.surfaces.first(where: {
+            $0.material == .cavernFloor
+        })?.triangleCount ?? 0
+        precondition(cavernTrianglesAfter == cavernTrianglesBefore + 2)
+        precondition(NativeLevelNavigation(world: corridorWorld)
+                     .route(from: origin, to: drillTarget) == nil)
+
         // Source-grounded original BMP world atlas paths. A synthetic WAD
         // tests lookup without redistributing a copyrighted actual image.
         let textureWad = syntheticWad([
