@@ -307,6 +307,11 @@ final class NativeMissionWorkspace: NSView {
     private let level2D: NativeLevelView
     private let mode: NSSegmentedControl
     private let status: NSTextField
+    private let nerpsInfo: NSTextField
+    private let nerpsState: NativeNERPsGameState?
+    private var nerpsTimer: Timer?
+    private var previousTickTime: TimeInterval?
+    private var nerpsHalted = false
     var originalCursor: NSCursor? {
         didSet {
             level3D.originalCursor = originalCursor
@@ -321,7 +326,11 @@ final class NativeMissionWorkspace: NSView {
     }
 
     init(frame: NSRect, world: LevelWorld, objects: OriginalObjectList?,
-         resources: GameResources, textureSet: String?) throws {
+         resources: GameResources, textureSet: String?,
+         nerpsState: NativeNERPsGameState? = nil) throws {
+        self.nerpsState = nerpsState
+        self.nerpsInfo = NSTextField(labelWithString:
+            nerpsState == nil ? "Original NERPs script unavailable" : "NERPs script loaded; preparing native callbacks")
         self.level3D = try NativeLevel3DView(
             frame: frame, world: world, objects: objects,
             resources: resources, textureSet: textureSet)
@@ -345,6 +354,12 @@ final class NativeMissionWorkspace: NSView {
         status.drawsBackground = true
         status.lineBreakMode = .byTruncatingTail
         addSubview(status)
+        nerpsInfo.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        nerpsInfo.textColor = .systemYellow
+        nerpsInfo.backgroundColor = NSColor(calibratedWhite: 0.12, alpha: 0.85)
+        nerpsInfo.drawsBackground = true
+        nerpsInfo.lineBreakMode = .byTruncatingTail
+        addSubview(nerpsInfo)
         level3D.onTileSelected = { [weak self] tile in
             self?.status.stringValue =
                 "Original (\(tile.x), \(tile.y)) · \(tile.terrain.rawValue) · \(tile.excavation.rawValue) · Height \(tile.heightCode)"
@@ -361,6 +376,38 @@ final class NativeMissionWorkspace: NSView {
 
     required init?(coder: NSCoder) { nil }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        nerpsTimer?.invalidate()
+        nerpsTimer = nil
+        previousTickTime = nil
+        guard window != nil, nerpsState != nil, !nerpsHalted else { return }
+        nerpsTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0,
+                                          repeats: true) { [weak self] _ in
+            self?.advanceNERPs()
+        }
+    }
+
+    deinit { nerpsTimer?.invalidate() }
+
+    private func advanceNERPs() {
+        guard let nerpsState, !nerpsHalted else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        let elapsed = previousTickTime.map { max(0, now - $0) } ?? 0
+        previousTickTime = now
+        do {
+            let result = try nerpsState.tick(elapsedMilliseconds: Float(elapsed * 1000))
+            nerpsInfo.stringValue =
+                "Original NERPs: \(nerpsState.completedTicks) ticks · " +
+                "\(result.functionCalls) calls this tick · tutorial flags \(nerpsState.tutorialFlags)"
+        } catch {
+            nerpsHalted = true
+            nerpsTimer?.invalidate()
+            nerpsTimer = nil
+            nerpsInfo.stringValue = "NERPs halted (unsupported original call): \(error)"
+        }
+    }
+
     override func layout() {
         super.layout()
         level3D.frame = bounds
@@ -370,6 +417,8 @@ final class NativeMissionWorkspace: NSView {
                             width: 212, height: 34)
         status.frame = NSRect(x: 12, y: 12, width: max(0, bounds.width - 24),
                               height: 26)
+        nerpsInfo.frame = NSRect(x: 12, y: 42, width: max(0, bounds.width - 24),
+                                height: 19)
     }
 
     func focusActiveView() {
