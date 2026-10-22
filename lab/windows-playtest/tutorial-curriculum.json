@@ -1,0 +1,135 @@
+{
+  "schema_version": 1,
+  "purpose": "Source-grounded training curriculum for an automated player; not evidence of completed gameplay.",
+  "reference_sources": [
+    "https://www.youtube.com/watch?v=2jQ93-cdJeY",
+    "https://kb.rockraidersunited.com/LEGO_Rock_Raiders_(video_game)",
+    "https://device.report/m/27ed71d23ff2d89d1f01a24db43a96cfa09360bbff0304e0d58a05b5ab3d1b9c"
+  ],
+  "game": "LEGO Rock Raiders (1999 Windows)",
+  "training": [
+    {
+      "order": 1,
+      "name": "Moving Rock Raiders",
+      "video_start_seconds": 359,
+      "skills": [
+        "select_raider",
+        "move_raider"
+      ],
+      "observation_targets": [
+        "raider_selected",
+        "raider_reaches_target_tile"
+      ],
+      "validation": "Confirm movement from in-game state or two time-separated game-window observations"
+    },
+    {
+      "order": 2,
+      "name": "Rock Types And Drilling",
+      "video_start_seconds": 616,
+      "skills": [
+        "inspect_rock_type",
+        "designate_drilling",
+        "wait_for_drill_completion"
+      ],
+      "observation_targets": [
+        "wall_marked",
+        "wall_removed",
+        "new_tile_accessible"
+      ],
+      "validation": "Verify target wall changes state; a click by itself does not prove drilling"
+    },
+    {
+      "order": 3,
+      "name": "Building Rock Raider HQ",
+      "video_start_seconds": 747,
+      "skills": [
+        "clear_rubble",
+        "collect_ore",
+        "place_power_path",
+        "build_structure"
+      ],
+      "observation_targets": [
+        "rubble_cleared",
+        "building_site_active",
+        "building_finished"
+      ],
+      "validation": "Verify completed building and resources consumed"
+    },
+    {
+      "order": 4,
+      "name": "Moving Rock Raider Vehicles",
+      "video_start_seconds": 1400,
+      "skills": [
+        "select_vehicle",
+        "move_vehicle"
+      ],
+      "observation_targets": [
+        "vehicle_selected",
+        "vehicle_changes_tile"
+      ],
+      "validation": "Verify vehicle displacement without relying solely on the cursor"
+    },
+    {
+      "order": 5,
+      "name": "Using Explosives",
+      "video_start_seconds": 1728,
+      "skills": [
+        "prepare_explosives",
+        "assign_explosive_action",
+        "retreat"
+      ],
+      "observation_targets": [
+        "explosive_delivered",
+        "blast_happened",
+        "blocked_wall_removed"
+      ],
+      "validation": "Verify obstruction cleared while units remain safe"
+    },
+    {
+      "order": 6,
+      "name": "Constructing Advanced Buildings",
+      "video_start_seconds": 1936,
+      "skills": [
+        "accumulate_resources",
+        "place_power_paths",
+        "construct_advanced_building"
+      ],
+      "observation_targets": [
+        "prerequisites_met",
+        "advanced_building_completed"
+      ],
+      "validation": "Verify original objective and building completion"
+    },
+    {
+      "order": 7,
+      "name": "Drilling With Vehicles",
+      "video_start_seconds": 2658,
+      "skills": [
+        "assign_driver",
+        "select_drilling_vehicle",
+        "drill_wall"
+      ],
+      "observation_targets": [
+        "vehicle_drilling",
+        "wall_removed"
+      ],
+      "validation": "Verify mining progress from actual mission or captured state"
+    },
+    {
+      "order": 8,
+      "name": "Defending Rock Raider HQ",
+      "video_start_seconds": 2873,
+      "skills": [
+        "identify_hostile",
+        "deploy_defense",
+        "protect_hq"
+      ],
+      "observation_targets": [
+        "threat_defended",
+        "hq_survives"
+      ],
+      "validation": "Verify HQ survives the tutorial's threat"
+    }
+  ],
+  "progression_rule": "Do not mark an exercise learned until the original Windows game has produced validated evidence. Static references alone are not gameplay."
+}
