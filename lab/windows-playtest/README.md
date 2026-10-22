@@ -148,3 +148,46 @@ controller able to verify mission state rather than merely sending scripts.
 The new spectator only solves the **watching** component, not game setup or
 AI decision-making. Portable viewer tests use fake frames. Do not interpret
 their success as a successful original-game stream.
+
+
+## Main experimental target: first regular mission, not Tutorial 1
+
+The first tutorial is too scripted to establish general movement or AI-task
+behavior. **Run the first normal mission** and disable the retail mission
+scripts through the EXISTING Windows menu item:
+
+**Cheats > No NERPs** (original label: \`No &NERPs\`).
+
+The source of truth is \`resources/OpenLRR.rc\` with menu command
+\`IDM_NONERPS\`. \`src/openlrr/OpenLRR.cpp\` handles this menu command using
+\`Lego_SetNoNERPs(!Lego_IsNoNERPs())\`, toggling
+\`GAME1_DEBUG_NONERPS\`. \`game/GameState.cpp\` skips
+\`NERPsRuntime_Execute\` and script-timer updates while the flag is set.
+Core gameplay, rendering, object, AI and task updates are not disabled by
+this flag. **Some non-scripted C++ objective checks remain active**, so
+observe rather than assume that mission completion is impossible.
+
+For the first mission sandbox, use:
+\`lab/windows-playtest/first-mission-sandbox.json\`.
+It starts with window capture, **finds and clicks the actual native Windows
+Cheats > No NERPs menu item by label** (not fixed coordinates), verifies
+the checked menu state, then captures evidence. Repeated calls are
+idempotent: an already-checked No NERPs menu remains checked.
+
+Example on the private runner, after the first mission is already visible:
+
+    py lab\windows-playtest\playtest.py --pid 1234 --scenario lab\windows-playtest\first-mission-sandbox.json --out C:\OpenLRR-Private-Reports\mission1
+
+Substitute the process ID on that VM, not the user's Mac. The bounded
+scenario does not yet navigate the main menu, operate Rock Raiders,
+or prove that five crystals do not trigger mission completion. Those
+are the next evidence gates, not completed tests.
+
+### Verified Windows UI automation
+
+A GitHub-hosted Windows runner passed the **synthetic native Win32 Cheats menu
+test**. It clicked the drop-down, toggled the actual native menu item's
+checked state, and repeated the action without turning it off. This is
+proof of the controller and menu interaction, **not** of original game
+launch or gameplay. The original game still needs legacy graphics
+components and private retail WAD assets before actual play.
