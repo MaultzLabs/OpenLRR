@@ -114,6 +114,7 @@ if mode == "diagnose" {
     }
     emit([
         "screen_recording_permission": CGPreflightScreenCaptureAccess(),
+        "input_monitoring_permission": CGPreflightListenEventAccess(),
         "eligible_game_windows": windows.filter { $0.safeIdentity }.count,
         "wine_like_windows": wine.count,
         "wine_like_untitled_windows": wine.filter { $0.title.isEmpty }.count,
@@ -146,6 +147,12 @@ if mode == "inspect" {
 guard gameWindow(id: id, pid: pid) != nil else {
     fputs("game window no longer exists: refusing global input monitor\n", stderr)
     exit(3)
+}
+// Refuse to silently launch an input-less session. This checks the helper\u0027s
+// own macOS Input Monitoring permission without requesting broad access.
+guard CGPreflightListenEventAccess() else {
+    fputs("Input Monitoring permission is missing for the game-window helper.\n", stderr)
+    exit(4)
 }
 NSApplication.shared.setActivationPolicy(.prohibited)
 
@@ -216,7 +223,7 @@ guard let observer else {
     exit(4)
 }
 
-// Stops even if the parent capture supervisor exits.
+// An installed NSEvent monitor is not proof of delivered clicks/keys.\n// The coordinator also counts actual game-scoped events.\nemit(["source": "capture_control", "event": "input_monitor_ready",\n      "window_id": id, "unix_s": Date().timeIntervalSince1970,\n      "monotonic_s": ProcessInfo.processInfo.systemUptime])\n\n// Stops even if the parent capture supervisor exits.
 let guardTimer = Timer(timeInterval: 0.25, repeats: true) { _ in
     if gameWindow(id: id, pid: pid) == nil {
         emit(["source": "capture_control", "event": "game_window_closed",
