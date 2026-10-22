@@ -155,10 +155,15 @@ def changed(a, b):
     return sum(ImageStat.Stat(ImageChops.difference(a, b)).mean) / 3
 
 
-def execute(win, pid, steps, dest, title_pattern, start_timeout=25):
+def execute(win, pid, steps, dest, title_pattern, start_timeout=25, launched_process=None):
     deadline = time.monotonic() + start_timeout
     matches = []
     while time.monotonic() < deadline:
+        if launched_process is not None and launched_process.poll() is not None:
+            raise ProbeError(
+                f"Target Windows executable exited before game window appeared "
+                f"(process exit code {launched_process.returncode})"
+            )
         matches = win.windows(pid, title_pattern)
         if len(matches) == 1:
             break
@@ -230,7 +235,7 @@ def main(argv=None):
         else:
             pid = opts.pid
         report["pid"] = pid
-        report["events"] = execute(win, pid, steps, opts.out, opts.title, opts.startup_timeout)
+        report["events"] = execute(win, pid, steps, opts.out, opts.title, opts.startup_timeout, proc)
         report["status"] = "passed"
     except Exception as exc:
         report["error"] = str(exc)
