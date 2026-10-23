@@ -33,6 +33,8 @@ struct LightWaveObject {
 
     let vertices: [Vertex]
     let triangles: [Triangle]
+    struct Color { let red: UInt8; let green: UInt8; let blue: UInt8 }
+    let surfaceColors: [String: Color]
     let surfaceNames: [String]
 
     init(data: Data) throws {
@@ -59,6 +61,7 @@ struct LightWaveObject {
         var pointRange: Range<Int>?
         var polygonRange: Range<Int>?
         var surfaceRange: Range<Int>?
+        var colorChunks: [Range<Int>] = []
         while position + 8 <= end {
             let fourCC = String(decoding: data[position..<(position + 4)],
                                 as: UTF8.self)
@@ -72,6 +75,7 @@ struct LightWaveObject {
             case "PNTS": pointRange = chunkStart..<chunkEnd
             case "POLS": polygonRange = chunkStart..<chunkEnd
             case "SRFS": surfaceRange = chunkStart..<chunkEnd
+            case "SURF": colorChunks.append(chunkStart..<chunkEnd)
             default: break
             }
             position = chunkEnd + (length & 1)
@@ -185,6 +189,30 @@ struct LightWaveObject {
         guard !decodedTriangles.isEmpty else {
             throw MeshError.invalid("no model triangles")
         }
+        var colors: [String: Color] = [:]
+        for chunk in colorChunks {
+            guard let endName = data[chunk].firstIndex(of: 0) else {
+                throw MeshError.invalid("unterminated SURF name")
+            }
+            let name = String(decoding: data[chunk.lowerBound..<endName], as: UTF8.self)
+            let nameLength = endName - chunk.lowerBound + 1
+            var offset = endName + 1 + (nameLength & 1)
+            while offset + 6 <= chunk.upperBound {
+                let tag = String(decoding: data[offset..<(offset + 4)], as: UTF8.self)
+                let length = Int(be16(offset + 4))
+                offset += 6
+                guard length <= chunk.upperBound - offset else {
+                    throw MeshError.invalid("truncated SURF subchunk")
+                }
+                if tag == "COLR" {
+                    guard length >= 3 else { throw MeshError.invalid("short COLR") }
+                    colors[name] = Color(red: data[offset], green: data[offset + 1], blue: data[offset + 2])
+                }
+                offset += length + (length & 1)
+            }
+            guard offset == chunk.upperBound else { throw MeshError.invalid("SURF alignment") }
+        }
+        surfaceColors = colors
         vertices = decodedVertices
         triangles = decodedTriangles
         surfaceNames = decodedSurfaces

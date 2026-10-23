@@ -16,6 +16,10 @@ final class NativeLevel3DView: SCNView {
     private let navigation: NativeLevelNavigation
     private var raiderMarkers: [String: SCNNode] = [:]
     private var selectedRaider: String?
+    private var raiderModels: [String: OriginalRaiderModel] = [:]
+    private var modelTimer: Timer?
+    private(set) var modelSummary = "Original Raider models unavailable; diagnostic proxies"
+    deinit { modelTimer?.invalidate() }
     var tutorialInputPolicy = NativeTutorialInputPolicy.unrestricted {
         didSet { allowsCameraControl = tutorialInputPolicy.canMoveCamera }
     }
@@ -33,7 +37,7 @@ final class NativeLevel3DView: SCNView {
     override var acceptsFirstResponder: Bool { true }
 
     init(frame: NSRect, world: LevelWorld, objects: OriginalObjectList?,
-         resources: GameResources, textureSet: String?) throws {
+         resources: GameResources, textureSet: String?, config: LegoConfig? = nil, blockSize: Double = 40) throws {
         self.world = world
         self.terrainMesh = try NativeTerrainMesh(world: world)
         self.originalObjects = objects
@@ -149,6 +153,7 @@ final class NativeLevel3DView: SCNView {
         ambient.light?.color = NSColor(calibratedWhite: 0.40, alpha: 1)
         scene.rootNode.addChildNode(ambient)
 
+        let activities = config.flatMap { try? OriginalRaiderActivities.load(config: $0, resources: resources) }
         // Debug proxies mark REAL retail OL placements: no fabricated Raider
         // or building spawns, and no claim of original LightWave models.
         if let objects {
@@ -172,10 +177,24 @@ final class NativeLevel3DView: SCNView {
                 scene.rootNode.addChildNode(marker)
                 if placement.isRockRaider {
                     raiderMarkers[placement.identifier] = marker
+                    if let activities,
+                       let model = try? OriginalRaiderModel(activities: activities, resources: resources, blockSize: blockSize) {
+                        marker.geometry = nil
+                        marker.addChildNode(model.root)
+                        raiderModels[placement.identifier] = model
+                    }
                 }
             }
         }
 
+        if !raiderModels.isEmpty {
+            modelSummary = "\(raiderModels.count)/\(raiderMarkers.count) original animated Raider models (texture mapping pending)"
+            modelTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
+                guard let self else { return }
+                let now = ProcessInfo.processInfo.systemUptime
+                for model in self.raiderModels.values { model.update(time: now) }
+            }
+        }
         self.scene = scene
         self.pointOfView = camera
     }
@@ -282,10 +301,17 @@ final class NativeLevel3DView: SCNView {
                 DispatchQueue.main.async { [weak self, weak node] in
                     guard let self, let node, self.motionGenerations[id] == generation else { return }
                     node.position = self.worldPosition(x: x, z: y)
+                    if distance > 0.0001 { node.eulerAngles.y = Float(atan2(target.x - start.x, target.y - start.y)) }
                 }
             }
         }
-        marker.runAction(SCNAction.sequence(actions))
+        raiderModels[id]?.setMoving(true)
+        marker.runAction(SCNAction.sequence(actions)) { [weak self] in
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.motionGenerations[id] == generation else { return }
+                self.raiderModels[id]?.setMoving(false)
+            }
+        }
         onInteractionMessage?("Rock Raider \(id): walking to the clicked position with wall clearance.")
     }
 
@@ -294,9 +320,15 @@ final class NativeLevel3DView: SCNView {
         let hits = hitTest(location, options: [.firstFoundOnly: false])
         // Select a real OL Pilot proxy first, but still permit terrain picks
         // through other objects such as building or ore markers.
-        if let pilot = hits.first(where: { hit in
-            raiderMarkers.values.contains(where: { $0 === hit.node })
-        })?.node, let id = raiderMarkers.first(where: { $0.value === pilot })?.key {
+        let pickedRaider = hits.compactMap { hit -> String? in
+            var node: SCNNode? = hit.node
+            while let current = node {
+                if let id = raiderMarkers.first(where: { $0.value === current })?.key { return id }
+                node = current.parent
+            }
+            return nil
+        }.first
+        if let id = pickedRaider {
             if tutorialInputPolicy.canSelectObjects { selectRaider(id) }
         } else if tutorialInputPolicy.canClickMap,
                   let terrainHit = hits.first(where: {
@@ -348,7 +380,7 @@ final class NativeMissionWorkspace: NSView {
 
     init(frame: NSRect, world: LevelWorld, objects: OriginalObjectList?,
          resources: GameResources, textureSet: String?,
-         nerpsState: NativeNERPsGameState? = nil) throws {
+         nerpsState: NativeNERPsGameState? = nil, config: LegoConfig? = nil, blockSize: Double = 40) throws {
         self.nerpsState = nerpsState
         self.nerpsInfo = NSTextField(labelWithString:
             nerpsState == nil ? "Original NERPs script unavailable" : "NERPs script loaded; preparing native callbacks")
@@ -358,7 +390,7 @@ final class NativeMissionWorkspace: NSView {
         self.nextMessageButton.isHidden = true
         self.level3D = try NativeLevel3DView(
             frame: frame, world: world, objects: objects,
-            resources: resources, textureSet: textureSet)
+            resources: resources, textureSet: textureSet, config: config, blockSize: blockSize)
         self.level2D = NativeLevelView(frame: frame, world: world)
         self.mode = NSSegmentedControl(labels: ["3D Terrain", "2D MAP"],
                                        trackingMode: .selectOne, target: nil, action: nil)
@@ -408,7 +440,7 @@ final class NativeMissionWorkspace: NSView {
             self?.nerpsState?.reportRockRaiderSelection(true)
         }
         if let objects {
-            status.stringValue = "\(objects.rockRaiders.count) Rock Raiders • \(level3D.textureSummary) • click a Raider to select"
+            status.stringValue = "\(objects.rockRaiders.count) Rock Raiders • \(level3D.textureSummary) • \(level3D.modelSummary) • click a Raider to select"
         } else {
             status.stringValue = "\(level3D.textureSummary) • original OL objects unavailable"
         }
