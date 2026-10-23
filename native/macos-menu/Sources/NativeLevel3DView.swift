@@ -174,6 +174,7 @@ final class NativeLevel3DView: SCNView {
                 let marker = SCNNode(geometry: geometry)
                 marker.name = "Original OL: \(placement.identifier) / \(placement.type)"
                 marker.position = worldPosition(x: placement.x, z: placement.y)
+                marker.eulerAngles = SCNVector3(0, Float(placement.headingDegrees * .pi / 180), 0)
                 scene.rootNode.addChildNode(marker)
                 if placement.isRockRaider {
                     raiderMarkers[placement.identifier] = marker
@@ -252,8 +253,11 @@ final class NativeLevel3DView: SCNView {
         selectedRaider = id
         onRockRaiderSelected?(id)
         for (identifier, marker) in raiderMarkers {
-            marker.geometry?.firstMaterial?.emission.contents =
-                identifier == id ? NSColor.systemYellow : NSColor.black
+            let highlight = identifier == id ? NSColor(calibratedWhite: 0.15, alpha: 1) : NSColor.black
+            marker.geometry?.firstMaterial?.emission.contents = highlight
+            marker.enumerateChildNodes { part, _ in
+                for material in part.geometry?.materials ?? [] { material.emission.contents = highlight }
+            }
         }
         let placement = originalObjects?.rockRaiders.first(where: {
             $0.identifier == id
