@@ -754,7 +754,8 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
             let viewer = try NativeMissionWorkspace(
                 frame: root.bounds, world: world, objects: placements,
                 resources: resources, textureSet: manifest.textureSetSetting,
-                nerpsState: missionNERPs)
+                nerpsState: missionNERPs, config: config,
+                blockSize: Double(config.valueUnderGame(identifier.components(separatedBy: "::") + ["BlockSize"]) ?? "40") ?? 40)
             viewer.originalCursor = canvas.gameCursor
             viewer.onBack = { [weak self] in self?.returnToMainMenu() }
             missionView?.removeFromSuperview()

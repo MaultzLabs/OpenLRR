@@ -26,6 +26,7 @@ struct LightWaveScene {
     struct Object {
         let filename: String?          // nil for a LightWave null/group object.
         let keys: [MotionKey]
+        let pivot: [Double]
         let parentIndex: Int?          // 1-based index as encoded by LWSC 1.
 
         func channels(at frame: Double) -> [Double] {
@@ -73,6 +74,7 @@ struct LightWaveScene {
             var name: String?
             var keys: [MotionKey] = []
             var parent: Int?
+            var pivot = [0.0, 0.0, 0.0]
         }
         var pending: [Pending] = []
         var cursor = 2
@@ -118,6 +120,12 @@ struct LightWaveScene {
                     let value = Int(arguments(line))
                     pending[pending.count - 1].parent = value
                 }
+            case "PivotPoint":
+                let values = arguments(line).split(whereSeparator: \.isWhitespace).compactMap { Double($0) }
+                guard !pending.isEmpty, values.count == 3, values.allSatisfy(\.isFinite) else {
+                    throw SceneError.invalid("invalid pivot")
+                }
+                pending[pending.count - 1].pivot = values
             case "ObjectMotion":
                 guard !pending.isEmpty, cursor + 2 < lines.count,
                       Int(lines[cursor+1]) == 9,
@@ -156,11 +164,20 @@ struct LightWaveScene {
               fps > 0 && fps <= 240 else {
             throw SceneError.invalid("invalid animation frame range or frame rate")
         }
+        for index in pending.indices {
+            var seen = Set<Int>(), current = index
+            while let parent = pending[current].parent, parent != 0 {
+                guard (1...pending.count).contains(parent), seen.insert(current).inserted else {
+                    throw SceneError.invalid("invalid or cyclic parent hierarchy")
+                }
+                current = parent - 1
+            }
+        }
         self.firstFrame = firstFrame
         self.lastFrame = lastFrame
         self.framesPerSecond = fps
         self.objects = pending.map { Object(filename: $0.name, keys: $0.keys,
-                                             parentIndex: $0.parent) }
+                                             pivot: $0.pivot, parentIndex: $0.parent) }
     }
 
     /// Resolve a classic relative object reference against the directory

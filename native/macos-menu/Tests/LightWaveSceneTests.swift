@@ -59,6 +59,11 @@ import Foundation
                 preconditionFailure("Unexpected error: \(error)")
             }
         }
+        let pivotScene = try LightWaveScene(data: Data("LWSC\n1\nLoadObject Body.lwo\nPivotPoint 1 2 3".utf8))
+        precondition(pivotScene.objects[0].pivot == [1, 2, 3])
+        mustReject("self parent", "LWSC\n1\nLoadObject A.lwo\nParentObject 1")
+        mustReject("missing parent", "LWSC\n1\nLoadObject A.lwo\nParentObject 2")
+        mustReject("parent cycle", "LWSC\n1\nLoadObject A.lwo\nParentObject 2\nLoadObject B.lwo\nParentObject 1")
         mustReject("wrong version", "LWSC\n3\nFirstFrame 0\nLastFrame 20")
         mustReject("invalid frame", "LWSC\n1\nFirstFrame 20\nLastFrame 0")
         mustReject("oversized animation", "LWSC\n1\nFirstFrame 0\nLastFrame 100000")

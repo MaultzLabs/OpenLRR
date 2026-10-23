@@ -43,6 +43,14 @@ import Foundation
         precondition(mesh.triangles[1].third == 3)
         precondition(mesh.vertices[2].z == 1)
 
+        let colorPayload = Array("Ground".utf8) + [0, 0] + Array("COLR".utf8) + be16(4) + [255, 180, 0, 0]
+        let colored = try LightWaveObject(data: lwob([
+            chunk("PNTS", points), chunk("SRFS", names), chunk("POLS", quad), chunk("SURF", colorPayload)
+        ]))
+        precondition(colored.surfaceColors["Ground"]?.red == 255)
+        precondition(colored.surfaceColors["Ground"]?.green == 180)
+        precondition(colored.surfaceColors["Ground"]?.blue == 0)
+
         func mustReject(_ name: String, _ data: Data) {
             do {
                 _ = try LightWaveObject(data: data)
@@ -53,6 +61,10 @@ import Foundation
                 preconditionFailure("Unexpected LWOB error: \(error)")
             }
         }
+        mustReject("truncated surface color", lwob([
+            chunk("PNTS", points), chunk("SRFS", names), chunk("POLS", quad),
+            chunk("SURF", Array("Ground".utf8) + [0, 0] + Array("COLR".utf8) + be16(4) + [255, 0])
+        ]))
         mustReject("missing header", Data([0, 1, 2, 3]))
         mustReject("bad FORM size", Data(model.dropLast()))
         mustReject("no POLS", lwob([chunk("PNTS", points)]))

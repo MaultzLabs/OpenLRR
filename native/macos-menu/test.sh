@@ -15,7 +15,8 @@ tmp11="$(mktemp /tmp/openlrr-lightwave-scene-test.XXXXXXXX)"
 tmp12="$(mktemp /tmp/openlrr-texture-set-test.XXXXXXXX)"
 tmp13="$(mktemp /tmp/openlrr-nerps-runtime-test.XXXXXXXX)"
 tmp14="$(mktemp /tmp/openlrr-nerps-game-state-test.XXXXXXXX)"
-trap 'rm -f "$tmp1" "$tmp2" "$tmp3" "$tmp4" "$tmp5" "$tmp6" "$tmp7" "$tmp8" "$tmp9" "$tmp10" "$tmp11" "$tmp12" "$tmp13" "$tmp14"' EXIT
+tmp15="$(mktemp /tmp/openlrr-raider-model-test.XXXXXXXX)"
+trap 'rm -f "$tmp1" "$tmp2" "$tmp3" "$tmp4" "$tmp5" "$tmp6" "$tmp7" "$tmp8" "$tmp9" "$tmp10" "$tmp11" "$tmp12" "$tmp13" "$tmp14" "$tmp15"' EXIT
 swiftc -O Sources/WadArchive.swift Tests/WadArchiveTests.swift -o "$tmp1"
 "$tmp1"
 swiftc -O Sources/WadArchive.swift Sources/GameResources.swift \
@@ -83,3 +84,9 @@ swiftc -O Sources/WadArchive.swift Sources/GameResources.swift \
   Sources/NativeTutorialInputPolicy.swift Sources/NativeNERPsGameState.swift \
   Tests/NativeNERPsGameStateTests.swift -o "$tmp14"
 "$tmp14"
+
+# Original Raider activity references and original mesh/scene parsers.
+swiftc -O Sources/WadArchive.swift Sources/GameResources.swift Sources/LegoConfig.swift \
+  Sources/LightWaveObject.swift Sources/LightWaveScene.swift Sources/OriginalRaiderModel.swift \
+  Tests/OriginalRaiderModelTests.swift -o "$tmp15"
+"$tmp15"
