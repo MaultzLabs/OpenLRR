@@ -78,6 +78,15 @@ import Foundation
         precondition(choices.count >= 2 && choices.first == broken)
         precondition(choices.contains(wrappedWav))
 
+        let musicFolder = installed.appendingPathComponent("mUsIc")
+        try fm.createDirectory(at: musicFolder, withIntermediateDirectories: true)
+        for name in ["Track00.ogg", "Track01.m4a", "Atmosdel.wav", "Track99.wav"] {
+            try Data([1, 2, 3]).write(to: musicFolder.appendingPathComponent(name))
+        }
+        let missionTracks = OriginalMissionTrackLocator.locate(beside: wad, home: home)
+        precondition(missionTracks.playable.map { $0.lastPathComponent } == ["Track01.m4a"])
+        precondition(missionTracks.ogg.map { $0.lastPathComponent } == ["Track00.ogg"])
+
         // Do not follow traversal or arbitrary formats from untrusted CFG.
         precondition(OriginalAudioFileLocator.locate("../Sounds/Atmosdel.wav", beside: wad) == nil)
         precondition(OriginalAudioFileLocator.locate("/etc/passwd.wav", beside: wad) == nil)

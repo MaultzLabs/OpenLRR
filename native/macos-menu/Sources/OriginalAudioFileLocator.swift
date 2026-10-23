@@ -182,3 +182,45 @@ struct OriginalAudioFileLocator {
         return directory
     }
 }
+
+/// RRU Music Fix uses Music/Track00...Track98.ogg. Native playback accepts
+/// converted equivalents; OGG is discovered separately to explain conversion.
+struct OriginalMissionTrackLocator {
+    static func locate(beside wad: URL, home: URL = FileManager.default.homeDirectoryForCurrentUser,
+                       extraRoot: URL? = nil) -> (playable: [URL], ogg: [URL]) {
+        let fm = FileManager.default
+        let install = wad.deletingLastPathComponent()
+        let cache = home.appendingPathComponent("Library/Application Support/RockRaidersNativeMenu/ConvertedMedia")
+        let roots = [install, install.deletingLastPathComponent(), cache]
+            + OriginalAudioFileLocator.automaticAudioRoots(home: home)
+            + (extraRoot.map { [$0] } ?? [])
+        var folders = [cache, cache.appendingPathComponent("Music")]
+        if let extraRoot { folders.append(extraRoot) }
+        for root in roots {
+            if let entries = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) {
+                folders += entries.filter { $0.lastPathComponent.lowercased() == "music" }
+            }
+        }
+        var playable: [URL] = [], ogg: [URL] = []
+        var seen = Set<String>()
+        for folder in folders {
+            let entries = (try? fm.contentsOfDirectory(at: folder,
+                includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey])) ?? []
+            for file in entries.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+                let name = file.deletingPathExtension().lastPathComponent.lowercased()
+                guard name.count == 7, name.hasPrefix("track"),
+                      let number = Int(name.suffix(2)), (0...98).contains(number),
+                      let info = try? file.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+                      info.isRegularFile == true, let size = info.fileSize,
+                      (1...100_000_000).contains(size),
+                      seen.insert(file.standardizedFileURL.path).inserted else { continue }
+                switch file.pathExtension.lowercased() {
+                case "wav", "m4a", "mp3", "aif", "aiff": playable.append(file)
+                case "ogg": ogg.append(file)
+                default: break
+                }
+            }
+        }
+        return (playable, ogg)
+    }
+}

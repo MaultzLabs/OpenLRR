@@ -557,6 +557,7 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
     private var backToMenuButton: NSButton!
     private var status: NSTextField!
     private let originalAudio = OriginalMenuAudio()
+    private let missionAudio = OriginalMissionAudio()
     private let buttonAudio = OriginalMenuButtonAudio()
     private let selectedWadDefaultsKey = "OriginalGameWadURL.v1"
     private let audioFolderDefaultsKey = "OriginalGameAudioFolderURL.v1"
@@ -620,16 +621,16 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
         let locateSounds = NSButton(title: "Locate Sounds…", target: self,
                                     action: #selector(chooseOriginalSoundsFolder))
         locateSounds.toolTip = "Select an original Data, Sounds or Streamed folder (only if audio is missing)."
-        let restoreAudio = NSButton(title: "Get Original Audio…", target: self,
-                                    action: #selector(openOriginalAudioResource))
-        restoreAudio.toolTip = "Open Rock Raiders United's original menu WAV page; review its download terms."
         let preview = NSButton(title: "First Level", target: self,
                                action: #selector(openFirstOriginalLevel))
         preview.toolTip = "Open the first original mission terrain with camera and tile inspection."
         let about = NSButton(title: "About", target: self, action: #selector(aboutPrototype))
         let quit = NSButton(title: "Quit", target: NSApp,
                             action: #selector(NSApplication.terminate(_:)))
-        let buttons = NSStackView(views: [preview, open, restoreAudio, locateSounds, about, quit])
+        let music = NSButton(title: "Mission Music…", target: self,
+                             action: #selector(chooseMissionMusic))
+        music.toolTip = "Select your original CD soundtrack audio files for missions."
+        let buttons = NSStackView(views: [preview, open, music, locateSounds, about, quit])
         toolbarButtons = buttons
         backToMenuButton = NSButton(title: "← Back to Main Menu",
                                     target: self, action: #selector(backToMenu))
@@ -758,6 +759,11 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
             viewer.onBack = { [weak self] in self?.returnToMainMenu() }
             missionView?.removeFromSuperview()
             missionView = viewer
+            originalAudio.stop()
+            buttonAudio.stop()
+            let musicStatus = activeWadURL.map {
+                missionAudio.start(config: config, beside: $0, extraRoot: selectedAudioFolder)
+            } ?? "Mission soundtrack unavailable"
             root.missionView = viewer
             root.addSubview(viewer, positioned: .above, relativeTo: canvas)
             canvas.isHidden = true
@@ -780,6 +786,7 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
             viewer.focusActiveView()
             window.makeKeyAndOrderFront(nil)
             status.stringValue = "\(world.title) • \(world.width)×\(world.height) blocks • \(placements?.rockRaiders.count ?? 0) Rock Raiders"
+            status.stringValue += " • \(musicStatus)"
             status.toolTip = status.stringValue
         } catch {
             presentLevelError("\(identifier): \(error)")
@@ -791,6 +798,7 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
     }
 
     private func returnToMainMenu() {
+        missionAudio.stop()
         missionView?.removeFromSuperview()
         missionView = nil
         root.missionView = nil
@@ -805,7 +813,7 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
         root.needsLayout = true
         root.layoutSubtreeIfNeeded()
         window.makeFirstResponder(canvas)
-        status.stringValue = "Original menu • select a mission to continue"
+        restartOriginalAudio()
         status.toolTip = status.stringValue
     }
 
@@ -852,8 +860,21 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
         }
     }
 
+    @objc private func chooseMissionMusic() {
+        let panel = NSOpenPanel()
+        panel.title = "Select original Rock Raiders soundtrack tracks"
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = true
+        panel.allowedFileTypes = ["wav", "mp3", "m4a", "aiff", "aif"]
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, let self else { return }
+            self.missionAudio.setTracks(panel.urls)
+            self.status.stringValue = "Original soundtrack selected for missions"
+        }
+    }
+
     private func restartOriginalAudio() {
-        guard let activeWadURL, let activeResources, let activeConfig else { return }
+        guard missionView == nil, let activeWadURL, let activeResources, let activeConfig else { return }
         let result = originalAudio.start(config: activeConfig,
                                          resources: activeResources,
                                          beside: activeWadURL,
@@ -863,6 +884,7 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
     }
 
     private func load(_ url: URL, automatic: Bool = false) {
+        missionAudio.stop()
         originalAudio.stop()
         buttonAudio.stop()
         activeWadURL = nil
@@ -942,7 +964,7 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
     func applicationDidBecomeActive(_ notification: Notification) {
         // When someone downloads/extracts the RRU audio and comes back to
         // the app, silently retry discovery; never interrupt playing audio.
-        if !originalAudio.isPlaying { restartOriginalAudio() }
+        if missionView == nil && !originalAudio.isPlaying { restartOriginalAudio() }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }

@@ -246,7 +246,9 @@ final class NativeLevel3DView: SCNView {
         }
     }
 
-    private func commandMove(to destination: NativeLevelNavigation.Position) {
+    private var motionGenerations: [String: UUID] = [:]
+
+    private func commandMove(to destination: NativeLevelNavigation.Point) {
         guard let id = selectedRaider, let marker = raiderMarkers[id] else { return }
         if let placement = originalObjects?.rockRaiders.first(where: {
             $0.identifier == id
@@ -255,27 +257,36 @@ final class NativeLevel3DView: SCNView {
             return
         }
         let current = marker.presentation.position
-        let from = NativeLevelNavigation.Position(
-            x: Int(floor(Double(current.x) + Double(world.width) / 2)),
-            y: Int(floor(Double(current.z) + Double(world.height) / 2)))
-        guard let route = navigation.route(from: from, to: destination) else {
-            onInteractionMessage?("No discovered walkable route to (\(destination.x), \(destination.y)).")
+        let from = NativeLevelNavigation.Point(
+            x: Double(current.x) + Double(world.width) / 2,
+            y: Double(current.z) + Double(world.height) / 2)
+        guard let route = navigation.continuousRoute(from: from, to: destination) else {
+            onInteractionMessage?("No route with enough clearance for the Rock Raider.")
             return
         }
-        guard route.count <= 512 else {
-            onInteractionMessage?("Route exceeds 512 preview steps; select a closer destination.")
-            return
-        }
+        let generation = UUID()
+        motionGenerations[id] = generation
         marker.removeAllActions()
-        let actions: [SCNAction] = route.dropFirst().map { tile in
-            SCNAction.move(to: worldPosition(x: Double(tile.x) + 0.5,
-                                              z: Double(tile.y) + 0.5),
-                           duration: 0.25)
+        marker.position = current // Retarget from the visible position without snapping.
+        var previous = from
+        let actions: [SCNAction] = route.dropFirst().map { target in
+            let start = previous
+            previous = target
+            let distance = hypot(target.x - start.x, target.y - start.y)
+            // Sample the original height field during motion, including slope
+            // changes inside a segment. Planar motion follows a checked sweep.
+            return SCNAction.customAction(duration: max(distance / 4.0, 0.001)) { [weak self] node, elapsed in
+                let t = min(1.0, Double(elapsed) / max(distance / 4.0, 0.001))
+                let x = start.x + (target.x - start.x) * t
+                let y = start.y + (target.y - start.y) * t
+                DispatchQueue.main.async { [weak self, weak node] in
+                    guard let self, let node, self.motionGenerations[id] == generation else { return }
+                    node.position = self.worldPosition(x: x, z: y)
+                }
+            }
         }
-        if !actions.isEmpty {
-            marker.runAction(SCNAction.sequence(actions))
-        }
-        onInteractionMessage?("Rock Raider \(id): moving \(max(0, route.count - 1)) tiles to (\(destination.x), \(destination.y)).")
+        marker.runAction(SCNAction.sequence(actions))
+        onInteractionMessage?("Rock Raider \(id): walking to the clicked position with wall clearance.")
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -297,7 +308,9 @@ final class NativeLevel3DView: SCNView {
             if let tile = world.tile(x: x, y: z) {
                 onTileSelected?(tile)
                 if selectedRaider != nil {
-                    commandMove(to: NativeLevelNavigation.Position(x: x, y: z))
+                    commandMove(to: NativeLevelNavigation.Point(
+                        x: Double(point.x) + Double(world.width) / 2,
+                        y: Double(point.z) + Double(world.height) / 2))
                 }
             }
         }

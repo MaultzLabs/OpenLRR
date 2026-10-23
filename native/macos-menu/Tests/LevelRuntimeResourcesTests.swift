@@ -31,6 +31,35 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
 
 @main struct LevelRuntimeResourcesTests {
     static func main() throws {
+        let referenced = try LegoConfig(text: """
+        Lego* {
+          Textures {
+            Rock {
+              TextureBaseName World\\WorldTextures\\RockSplit\\Rock
+            }
+          }
+          Levels {
+            Level01 {
+              TextureSet Textures::Rock
+            }
+          }
+        }
+        """)
+        let referencedLevel = try LevelRuntimeResources(config: referenced, identifier: "Levels::Level01")
+        precondition(referencedLevel.textureSetSetting == "World\\WorldTextures\\RockSplit\\Rock")
+        let missingReference = try LegoConfig(text: """
+        Lego* {
+          Levels {
+            Level01 {
+              TextureSet Textures::Missing
+            }
+          }
+        }
+        """)
+        do {
+            _ = try LevelRuntimeResources(config: missingReference, identifier: "Levels::Level01")
+            preconditionFailure("Missing reference must not choose a different biome")
+        } catch LevelRuntimeResources.RuntimeError.invalid { }
         let cfg = try LegoConfig(text: """
         Lego* {
           Levels {
@@ -239,6 +268,22 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
                                    to: NativeLevelNavigation.Position(x: 1, y: 0)) == nil)
         precondition(NativeLevelNavigation(world: corridorWorld, maximumTiles: 10)
                       .route(from: origin, to: destination) == nil)
+
+        let preciseStart = NativeLevelNavigation.Point(x: 2.45, y: 0.55)
+        let preciseGoal = NativeLevelNavigation.Point(x: 0.65, y: 2.6)
+        let continuous = routing.continuousRoute(from: preciseStart, to: preciseGoal)!
+        precondition(continuous.first == preciseStart && continuous.last == preciseGoal)
+        precondition(continuous.count > 2) // A direct line would cut through rock.
+        precondition(!routing.segmentIsClear(from: preciseStart, to: preciseGoal))
+        for pair in zip(continuous, continuous.dropFirst()) {
+            precondition(routing.segmentIsClear(from: pair.0, to: pair.1))
+        }
+        precondition(routing.continuousRoute(from: preciseStart,
+            to: .init(x: 2.65, y: 0.65)) == [preciseStart, .init(x: 2.65, y: 0.65)])
+        precondition(routing.continuousRoute(from: preciseStart,
+            to: .init(x: 2.95, y: 1.5)) == nil) // Center fits; body would clip wall.
+        precondition(!routing.segmentIsClear(from: .init(x: .nan, y: 1), to: preciseGoal))
+        precondition(!routing.segmentIsClear(from: .init(x: 0.1, y: 2.5), to: preciseGoal))
 
         // Source-grounded original BMP world atlas paths. A synthetic WAD
         // tests lookup without redistributing a copyrighted actual image.

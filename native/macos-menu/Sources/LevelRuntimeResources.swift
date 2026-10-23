@@ -66,8 +66,21 @@ struct LevelRuntimeResources {
         // rejects working missions such as Levels::Level01.
         let textureDescriptor = config.valueUnderGame(path + ["TextureSet"])?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        self.textureSetSetting = (textureDescriptor?.utf8.count ?? 0) <= 2048
-            ? textureDescriptor : nil
+        if let descriptor = textureDescriptor, descriptor.contains("::") {
+            let reference = descriptor.components(separatedBy: "::")
+            // Retail TextureSet is a reference to Textures::{Rock,Ice,Lava}.
+            // Resolve its TextureBaseName instead of treating :: as atlas fields.
+            guard reference.count == 2, reference[0].lowercased() == "textures",
+                  !reference[1].isEmpty,
+                  let prefix = config.valueUnderGame(reference + ["TextureBaseName"]),
+                  !prefix.isEmpty, prefix.utf8.count <= 2048 else {
+                throw RuntimeError.invalid("unresolved TextureSet reference: \(descriptor)")
+            }
+            self.textureSetSetting = prefix
+        } else {
+            self.textureSetSetting = (textureDescriptor?.utf8.count ?? 0) <= 2048
+                ? textureDescriptor : nil
+        }
         self.objectListPath = try safePath("OListFile")
         self.scriptPath = try safePath("NERPFile")
         self.scriptMessagePath = try safePath("NERPMessageFile")
