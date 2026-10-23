@@ -31,6 +31,35 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
 
 @main struct LevelRuntimeResourcesTests {
     static func main() throws {
+        let referenced = try LegoConfig(text: """
+        Lego* {
+          Textures {
+            Rock {
+              TextureBaseName World\\WorldTextures\\RockSplit\\Rock
+            }
+          }
+          Levels {
+            Level01 {
+              TextureSet Textures::Rock
+            }
+          }
+        }
+        """)
+        let referencedLevel = try LevelRuntimeResources(config: referenced, identifier: "Levels::Level01")
+        precondition(referencedLevel.textureSetSetting == "World\\WorldTextures\\RockSplit\\Rock")
+        let missingReference = try LegoConfig(text: """
+        Lego* {
+          Levels {
+            Level01 {
+              TextureSet Textures::Missing
+            }
+          }
+        }
+        """)
+        do {
+            _ = try LevelRuntimeResources(config: missingReference, identifier: "Levels::Level01")
+            preconditionFailure("Missing reference must not choose a different biome")
+        } catch LevelRuntimeResources.RuntimeError.invalid { }
         let cfg = try LegoConfig(text: """
         Lego* {
           Levels {

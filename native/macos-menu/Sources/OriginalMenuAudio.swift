@@ -33,7 +33,8 @@ final class OriginalMenuAudio {
                additionalAudioRoot: URL? = nil) -> String {
         stop()
 
-        if let enabled = (config.value("LegoRR", "SoundOn") ??
+        if let enabled = (config.valueUnderGame(["Main", "SoundOn"]) ??
+                          config.value("LegoRR", "SoundOn") ??
                           config.valueUnderGame(["SoundOn"]))?.uppercased(),
            ["FALSE", "NO", "OFF", "0"].contains(enabled) {
             return "SoundOn is disabled in Lego.cfg"
@@ -106,7 +107,8 @@ final class OriginalMenuButtonAudio {
                    beside wadURL: URL, extraAudioRoot: URL? = nil) {
         stop()
         // The same SoundOn setting governs SFX and menu ambience.
-        if let flag = (config.value("LegoRR", "SoundOn") ??
+        if let flag = (config.valueUnderGame(["Main", "SoundOn"]) ??
+                          config.value("LegoRR", "SoundOn") ??
                        config.valueUnderGame(["SoundOn"]))?.uppercased(),
            ["FALSE", "NO", "OFF", "0"].contains(flag) { return }
         let samples = try? SoundSampleCatalog(config: config).samples(named: "SFX_Okay")
@@ -137,6 +139,68 @@ final class OriginalMenuButtonAudio {
         guard let player else { return }
         player.currentTime = 0
         player.play()
+    }
+}
+
+/// Gameplay CD music is separate from SFX_AmbientMusicLoop.
+/// Game.cpp Lego_SetMusicPlaying uses SoundMode::Once and selects the next
+/// track on completion. Only explicitly selected user-owned tracks are read.
+final class OriginalMissionAudio: NSObject, AVAudioPlayerDelegate {
+    private let defaultsKey = "OriginalMissionSoundtrackPaths.v1"
+    private var player: AVAudioPlayer?
+    private var active = false
+    private var previous: URL?
+    private var tracks: [URL] = []
+
+    func setTracks(_ urls: [URL]) {
+        UserDefaults.standard.set(urls.map { $0.path }, forKey: defaultsKey)
+    }
+
+    func stop() {
+        active = false
+        player?.delegate = nil
+        player?.stop()
+        player = nil
+    }
+
+    @discardableResult
+    func start(config: LegoConfig, beside wad: URL, extraRoot: URL?) -> String {
+        stop()
+        if let flag = config.valueUnderGame(["Main", "MusicOn"]),
+           ["FALSE", "NO", "OFF", "0"].contains(flag.uppercased()) { return "Mission music disabled" }
+        let selected = (UserDefaults.standard.stringArray(forKey: defaultsKey) ?? [])
+            .map { URL(fileURLWithPath: $0) }
+        let discovered = OriginalMissionTrackLocator.locate(beside: wad, extraRoot: extraRoot)
+        tracks = selected.isEmpty ? discovered.playable : selected
+        active = true
+        playNext()
+        if player != nil { return "Original mission soundtrack" }
+        if !discovered.ogg.isEmpty { return "RRU OGG tracks found: convert with tools/convert-original-media.sh for native playback" }
+        return "Mission soundtrack missing: select original tracks with Mission Music…"
+    }
+
+    private func playNext() {
+        guard active else { return }
+        // Try each file at most once. Missing or undecodable tracks cannot
+        // cause a recursive retry loop or substitute menu ambience.
+        let candidates = tracks.filter { $0 != previous }.shuffled()
+            + tracks.filter { $0 == previous }
+        for url in candidates {
+            guard let next = try? AVAudioPlayer(contentsOf: url) else { continue }
+            next.numberOfLoops = 0
+            next.delegate = self
+            next.prepareToPlay()
+            guard next.play() else { continue }
+            player = next
+            previous = url
+            return
+        }
+        player = nil
+    }
+
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        guard active, self.player === player else { return }
+        if flag { playNext() } else { stop() }
     }
 }
 
