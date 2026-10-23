@@ -301,7 +301,7 @@ final class NativeLevel3DView: SCNView {
                 DispatchQueue.main.async { [weak self, weak node] in
                     guard let self, let node, self.motionGenerations[id] == generation else { return }
                     node.position = self.worldPosition(x: x, z: y)
-                    if distance > 0.0001 { node.eulerAngles.y = Float(atan2(target.x - start.x, target.y - start.y)) }
+                    if distance > 0.0001 { node.eulerAngles = SCNVector3(0, Float(atan2(target.x - start.x, target.y - start.y)), 0) }
                 }
             }
         }
