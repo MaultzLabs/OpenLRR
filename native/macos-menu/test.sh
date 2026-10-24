@@ -90,3 +90,12 @@ swiftc -O Sources/WadArchive.swift Sources/GameResources.swift Sources/LegoConfi
   Sources/LightWaveObject.swift Sources/LightWaveScene.swift Sources/OriginalRaiderModel.swift \
   Tests/OriginalRaiderModelTests.swift -o "$tmp15"
 "$tmp15"
+
+# Mission HUD configuration is portable; AppKit rendering is checked by build.sh.
+(
+  mission_ui_test="$(mktemp /tmp/openlrr-mission-ui-test.XXXXXXXX)"
+  trap 'rm -f "$mission_ui_test"' EXIT
+  swiftc -O Sources/LegoConfig.swift Sources/OriginalMissionMessageUI.swift \
+    Tests/OriginalMissionMessageUITests.swift -o "$mission_ui_test"
+  "$mission_ui_test"
+)
