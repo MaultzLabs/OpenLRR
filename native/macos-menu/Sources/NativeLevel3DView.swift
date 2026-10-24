@@ -18,10 +18,19 @@ final class NativeLevel3DView: SCNView {
     private var selectedRaider: String?
     private var raiderModels: [String: OriginalRaiderModel] = [:]
     private var modelTimer: Timer?
+    private let overheadCamera = SCNNode()
+    private let firstPersonCamera = SCNNode()
+    private var firstPersonRaider: String?
+    private var firstPersonController: NativeFirstPersonController?
+    private var heldKeys = Set<UInt16>()
+    private var lastSimulationTime: TimeInterval?
     private(set) var modelSummary = "Original Raider models unavailable; diagnostic proxies"
     deinit { modelTimer?.invalidate() }
     var tutorialInputPolicy = NativeTutorialInputPolicy.unrestricted {
-        didSet { allowsCameraControl = tutorialInputPolicy.canMoveCamera }
+        didSet {
+            if !tutorialInputPolicy.canMoveCamera { leaveFirstPerson() }
+            allowsCameraControl = firstPersonRaider == nil && tutorialInputPolicy.canMoveCamera
+        }
     }
     var onTileSelected: ((LevelWorld.Tile) -> Void)?
     var originalCursor: NSCursor? {
@@ -136,7 +145,7 @@ final class NativeLevel3DView: SCNView {
         let centerZ = Float(cameraZ) - Float(world.height) / 2
         let centerY = (world.elevation(atX: cameraX, y: cameraZ) ?? 0)
                       * NativeTerrainMesh.previewHeightScale
-        let camera = SCNNode()
+        let camera = overheadCamera
         camera.camera = SCNCamera()
         camera.camera?.zNear = 0.1
         camera.camera?.zFar = max(400, Double(max(world.width, world.height) * 3))
@@ -146,6 +155,10 @@ final class NativeLevel3DView: SCNView {
                                      centerZ + 12)
         camera.look(at: SCNVector3(centerX, centerY, centerZ))
         scene.rootNode.addChildNode(camera)
+        firstPersonCamera.camera = SCNCamera()
+        firstPersonCamera.camera?.zNear = 0.03
+        firstPersonCamera.camera?.zFar = camera.camera?.zFar ?? 400
+        scene.rootNode.addChildNode(firstPersonCamera)
 
         let ambient = SCNNode()
         ambient.light = SCNLight()
@@ -190,11 +203,10 @@ final class NativeLevel3DView: SCNView {
 
         if !raiderModels.isEmpty {
             modelSummary = "\(raiderModels.count)/\(raiderMarkers.count) original animated Raider models (texture mapping pending)"
-            modelTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
-                guard let self else { return }
-                let now = ProcessInfo.processInfo.systemUptime
-                for model in self.raiderModels.values { model.update(time: now) }
-            }
+        }
+        // Also drives first-person held-key movement if retail models are absent.
+        modelTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
+            self?.advanceFrame()
         }
         self.scene = scene
         self.pointOfView = camera
@@ -237,9 +249,110 @@ final class NativeLevel3DView: SCNView {
         }
     }
 
+    private static let movementKeys: Set<UInt16> = [0, 1, 2, 13, 123, 124, 125, 126]
+
     override func keyDown(with event: NSEvent) {
-        if event.keyCode == 53 { onExit?(); return }
+        // F enters a selected original OL Raider's first-person view.
+        // Key bindings are provisional until checked against original input.
+        if event.keyCode == 3 {
+            if !event.isARepeat {
+                if firstPersonRaider == nil { enterFirstPerson() }
+                else { leaveFirstPerson() }
+            }
+            return
+        }
+        if event.keyCode == 53 {
+            if firstPersonRaider != nil { leaveFirstPerson() }
+            else { onExit?() }
+            return
+        }
+        if firstPersonRaider != nil {
+            if Self.movementKeys.contains(event.keyCode) { heldKeys.insert(event.keyCode) }
+            return
+        }
         super.keyDown(with: event)
+    }
+
+    override func keyUp(with event: NSEvent) {
+        if Self.movementKeys.contains(event.keyCode) {
+            heldKeys.remove(event.keyCode)
+            return
+        }
+        super.keyUp(with: event)
+    }
+
+    override func resignFirstResponder() -> Bool {
+        heldKeys.removeAll() // Never keep walking when the window loses focus.
+        return super.resignFirstResponder()
+    }
+
+    private func enterFirstPerson() {
+        guard tutorialInputPolicy.canMoveCamera else {
+            onInteractionMessage?("NERPs tutorial currently restricts camera control.")
+            return
+        }
+        guard let id = selectedRaider, let marker = raiderMarkers[id] else {
+            onInteractionMessage?("Select an original Rock Raider before pressing F.")
+            return
+        }
+        if originalObjects?.rockRaiders.first(where: { $0.identifier == id })?.drivingIdentifier != nil {
+            onInteractionMessage?("First-person vehicle controls are not yet ported.")
+            return
+        }
+        let current = marker.presentation.position
+        let position = NativeLevelNavigation.Point(
+            x: Double(current.x) + Double(world.width) / 2,
+            y: Double(current.z) + Double(world.height) / 2)
+        guard let controller = NativeFirstPersonController(
+            navigation: navigation, position: position, heading: Double(marker.eulerAngles.y)) else {
+            onInteractionMessage?("Raider is outside the discovered walkable area.")
+            return
+        }
+        motionGenerations[id] = UUID()
+        marker.removeAllActions() // Cancel click routing before direct control.
+        marker.position = current
+        raiderModels[id]?.setMoving(false)
+        firstPersonRaider = id
+        firstPersonController = controller
+        heldKeys.removeAll()
+        marker.isHidden = true // Camera is a separate scene node, not hidden.
+        allowsCameraControl = false
+        pointOfView = firstPersonCamera
+        advanceFrame()
+        onInteractionMessage?("First-person Raider \(id): W/S or ↑/↓ move, A/D or ←/→ turn; F/Esc return.")
+    }
+
+    func leaveFirstPerson() {
+        guard let id = firstPersonRaider else { return }
+        firstPersonRaider = nil
+        firstPersonController = nil
+        heldKeys.removeAll()
+        raiderMarkers[id]?.isHidden = false
+        raiderModels[id]?.setMoving(false)
+        pointOfView = overheadCamera
+        allowsCameraControl = tutorialInputPolicy.canMoveCamera
+        onInteractionMessage?("Returned to overhead view; click a Raider to select.")
+    }
+
+    private func advanceFrame() {
+        let now = ProcessInfo.processInfo.systemUptime
+        let elapsed = lastSimulationTime.map { max(0, now - $0) } ?? 0
+        lastSimulationTime = now
+        for model in raiderModels.values { model.update(time: now) }
+        guard let id = firstPersonRaider, let marker = raiderMarkers[id],
+              var controller = firstPersonController, tutorialInputPolicy.canMoveCamera else { return }
+        let forward = (heldKeys.contains(13) || heldKeys.contains(126) ? 1.0 : 0.0) -
+                      (heldKeys.contains(1) || heldKeys.contains(125) ? 1.0 : 0.0)
+        let turn = (heldKeys.contains(2) || heldKeys.contains(124) ? 1.0 : 0.0) -
+                   (heldKeys.contains(0) || heldKeys.contains(123) ? 1.0 : 0.0)
+        let moved = controller.advance(forward: forward, turn: turn, elapsed: elapsed)
+        firstPersonController = controller
+        if moved { marker.position = worldPosition(x: controller.position.x, z: controller.position.y) }
+        marker.eulerAngles = SCNVector3(0, Float(controller.heading), 0)
+        raiderModels[id]?.setMoving(moved)
+        firstPersonCamera.position = SCNVector3(marker.position.x, marker.position.y + 0.20, marker.position.z)
+        // SceneKit cameras look along -Z; the original OL Raider faces +Z.
+        firstPersonCamera.eulerAngles = SCNVector3(0, Float(controller.heading + .pi), 0)
     }
 
     private func worldPosition(x: Double, z: Double) -> SCNVector3 {
@@ -320,6 +433,7 @@ final class NativeLevel3DView: SCNView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        if firstPersonRaider != nil { return } // Do not send first-person clicks to orbit controls.
         let location = convert(event.locationInWindow, from: nil)
         let hits = hitTest(location, options: [.firstFoundOnly: false])
         // Select a real OL Pilot proxy first, but still permit terrain picks
@@ -536,6 +650,7 @@ final class NativeMissionWorkspace: NSView {
     }
 
     @objc private func changeMode(_ sender: NSSegmentedControl) {
+        if sender.selectedSegment != 0 { level3D.leaveFirstPerson() }
         level3D.isHidden = sender.selectedSegment != 0
         level2D.isHidden = sender.selectedSegment == 0
         status.stringValue = sender.selectedSegment == 0 ?
