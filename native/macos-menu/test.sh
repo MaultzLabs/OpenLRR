@@ -48,7 +48,7 @@ swiftc -O Sources/OriginalSaveFile.swift Tests/OriginalSaveFileTests.swift -o "$
 
 swiftc -O Sources/WadArchive.swift Sources/GameResources.swift \
   Sources/LegoConfig.swift Sources/MapFile.swift Sources/LevelRuntimeResources.swift \
-  Sources/LevelWorld.swift Sources/NativeTerrainMesh.swift Sources/NativeLevelNavigation.swift \
+  Sources/LevelWorld.swift Sources/NativeTerrainMesh.swift Sources/NativeLevelNavigation.swift Sources/NativeFirstPersonController.swift \
   Sources/OriginalTerrainTextureCatalog.swift Tests/LevelRuntimeResourcesTests.swift -o "$tmp8"
 "$tmp8"
 
