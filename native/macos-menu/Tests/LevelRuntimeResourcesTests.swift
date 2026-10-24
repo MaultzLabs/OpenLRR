@@ -285,6 +285,44 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         precondition(!routing.segmentIsClear(from: .init(x: .nan, y: 1), to: preciseGoal))
         precondition(!routing.segmentIsClear(from: .init(x: 0.1, y: 2.5), to: preciseGoal))
 
+        // First-person control uses the same discovered-cavern swept clearance
+        // as click routing. These are synthetic map fixtures, not retail footage.
+        let fpStart = NativeLevelNavigation.Point(x: 2.5, y: 0.5)
+        var fp = NativeFirstPersonController(
+            navigation: routing, position: fpStart, heading: 0)!
+        precondition(fp.advance(forward: 1, turn: 0, elapsed: 0.1))
+        precondition(abs(fp.position.y - 0.75) < 0.00001)
+        precondition(fp.advance(forward: -1, turn: 0, elapsed: 0.1))
+        precondition(abs(fp.position.y - fpStart.y) < 0.00001)
+        precondition(!fp.advance(forward: 0, turn: 1, elapsed: 0.1))
+        precondition(abs(fp.heading - 0.24) < 0.00001)
+        let beforeInvalid = fp.heading
+        precondition(!fp.advance(forward: 1, turn: 1, elapsed: .nan))
+        precondition(fp.heading == beforeInvalid)
+        precondition(!fp.advance(forward: .infinity, turn: 1, elapsed: 0.1))
+        precondition(fp.heading == beforeInvalid)
+
+        var wall = NativeFirstPersonController(
+            navigation: routing, position: fpStart, heading: .pi / 2)!
+        precondition(wall.advance(forward: 1, turn: 0, elapsed: 0.1))
+        precondition(abs(wall.position.x - 2.75) < 0.00001)
+        for _ in 0..<20 {
+            precondition(!wall.advance(forward: 1, turn: 0, elapsed: 0.1))
+        }
+        precondition(wall.position.x < 2.77) // Expanded solid wall starts here.
+        precondition(wall.advance(forward: -1, turn: 0, elapsed: 0.1))
+        precondition(abs(wall.position.x - 2.5) < 0.00001)
+        precondition(NativeFirstPersonController(
+            navigation: routing, position: .init(x: 1.5, y: 0.5),
+            heading: 0) == nil)
+        precondition(NativeFirstPersonController(
+            navigation: routing, position: fpStart, heading: .nan) == nil)
+        var paused = NativeFirstPersonController(
+            navigation: routing, position: fpStart, heading: 0)!
+        precondition(paused.advance(forward: 1, turn: 0, elapsed: 50))
+        precondition(abs(paused.position.y - 0.75) < 0.00001) // 100 ms cap
+        print("PASS: first-person steering, swept wall clearance, reverse, turn and pause bounds")
+
         // Source-grounded original BMP world atlas paths. A synthetic WAD
         // tests lookup without redistributing a copyrighted actual image.
         let textureWad = syntheticWad([
