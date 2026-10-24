@@ -477,8 +477,8 @@ final class NativeMissionWorkspace: NSView {
     private let mode: NSSegmentedControl
     private let status: NSTextField
     private let nerpsInfo: NSTextField
-    private let tutorialMessage: NSTextField
-    private let nextMessageButton: NSButton
+    private let missionHUD: OriginalMissionMessageUI
+    private let diagnosticsButton = NSButton(checkboxWithTitle: "Diagnostics", target: nil, action: nil)
     private let nerpsState: NativeNERPsGameState?
     private var nerpsTimer: Timer?
     private var previousTickTime: TimeInterval?
@@ -487,6 +487,7 @@ final class NativeMissionWorkspace: NSView {
         didSet {
             level3D.originalCursor = originalCursor
             level2D.originalCursor = originalCursor
+            missionHUD.originalCursor = originalCursor
         }
     }
     var onBack: (() -> Void)? {
@@ -502,10 +503,7 @@ final class NativeMissionWorkspace: NSView {
         self.nerpsState = nerpsState
         self.nerpsInfo = NSTextField(labelWithString:
             nerpsState == nil ? "Original NERPs script unavailable" : "NERPs script loaded; preparing native callbacks")
-        self.tutorialMessage = NSTextField(wrappingLabelWithString: "")
-        self.tutorialMessage.isHidden = true
-        self.nextMessageButton = NSButton(title: "Next ▶", target: nil, action: nil)
-        self.nextMessageButton.isHidden = true
+        self.missionHUD = OriginalMissionMessageUI(resources: resources, config: config)
         self.level3D = try NativeLevel3DView(
             frame: frame, world: world, objects: objects,
             resources: resources, textureSet: textureSet, config: config, blockSize: blockSize)
@@ -535,16 +533,12 @@ final class NativeMissionWorkspace: NSView {
         nerpsInfo.drawsBackground = true
         nerpsInfo.lineBreakMode = .byTruncatingTail
         addSubview(nerpsInfo)
-        tutorialMessage.font = NSFont.systemFont(ofSize: 15, weight: .medium)
-        tutorialMessage.textColor = .white
-        tutorialMessage.backgroundColor = NSColor(calibratedWhite: 0.09, alpha: 0.94)
-        tutorialMessage.drawsBackground = true
-        addSubview(tutorialMessage)
-        // Native NERPs progression; no dummy UI or blocking Windows wait loop.
-        nextMessageButton.bezelStyle = .rounded
-        nextMessageButton.target = self
-        nextMessageButton.action = #selector(advanceTutorialMessage(_:))
-        addSubview(nextMessageButton)
+        addSubview(missionHUD)
+        missionHUD.onAdvance = { [weak self] in self?.advanceTutorialMessage() }
+        diagnosticsButton.target = self
+        diagnosticsButton.action = #selector(toggleDiagnostics(_:))
+        addSubview(diagnosticsButton)
+        setDiagnosticsVisible(false)
         level3D.onTileSelected = { [weak self] tile in
             self?.status.stringValue =
                 "Original (\(tile.x), \(tile.y)) · \(tile.terrain.rawValue) · \(tile.excavation.rawValue) · Height \(tile.heightCode)"
@@ -607,24 +601,28 @@ final class NativeMissionWorkspace: NSView {
     }
 
     private func refreshTutorialMessage() {
-        guard let nerpsState, let text = nerpsState.messageText,
-              !text.isEmpty else {
-            tutorialMessage.isHidden = true
-            nextMessageButton.isHidden = true
-            return
-        }
-        tutorialMessage.stringValue = text
-        tutorialMessage.isHidden = false
-        nextMessageButton.isHidden = nerpsState.nextArrowDisabled ||
-                                     nerpsState.suppressMessageArrow
-        nextMessageButton.isEnabled = nerpsState.messageNeedsAdvance
+        missionHUD.update(text: nerpsState?.messageText,
+                          canAdvance: nerpsState?.messageNeedsAdvance ?? false,
+                          hideArrow: (nerpsState?.nextArrowDisabled ?? true) ||
+                                     (nerpsState?.suppressMessageArrow ?? true))
     }
 
-    @objc private func advanceTutorialMessage(_ sender: NSButton) {
+    private func advanceTutorialMessage() {
         guard let state = nerpsState, state.messageNeedsAdvance,
               !state.nextArrowDisabled, !state.suppressMessageArrow else { return }
         state.advanceMessage()
         refreshTutorialMessage()
+        focusActiveView()
+    }
+
+    private func setDiagnosticsVisible(_ visible: Bool) {
+        mode.isHidden = !visible
+        status.isHidden = !visible
+        nerpsInfo.isHidden = !visible
+    }
+
+    @objc private func toggleDiagnostics(_ sender: NSButton) {
+        setDiagnosticsVisible(sender.state == .on)
         focusActiveView()
     }
 
@@ -639,10 +637,11 @@ final class NativeMissionWorkspace: NSView {
                               height: 26)
         nerpsInfo.frame = NSRect(x: 12, y: 42, width: max(0, bounds.width - 24),
                                 height: 19)
-        tutorialMessage.frame = NSRect(x: 12, y: 70,
-                                      width: max(0, bounds.width - 145), height: 70)
-        nextMessageButton.frame = NSRect(x: max(0, bounds.width - 118), y: 92,
-                                         width: 103, height: 30)
+        missionHUD.frame = bounds
+        diagnosticsButton.frame = NSRect(x: 12, y: max(0, bounds.height - 32), width: 112, height: 24)
+        // Diagnostics sit above the message panel when explicitly enabled.
+        status.frame.origin.y = 150
+        nerpsInfo.frame.origin.y = 180
     }
 
     func focusActiveView() {
