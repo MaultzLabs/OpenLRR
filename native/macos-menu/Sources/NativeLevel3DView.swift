@@ -274,7 +274,7 @@ final class NativeLevel3DView: SCNView {
     }
 
     override func keyUp(with event: NSEvent) {
-        if Self.movementKeys.contains(event.keyCode) {
+        if firstPersonRaider != nil && Self.movementKeys.contains(event.keyCode) {
             heldKeys.remove(event.keyCode)
             return
         }
