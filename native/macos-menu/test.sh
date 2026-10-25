@@ -16,7 +16,8 @@ tmp12="$(mktemp /tmp/openlrr-texture-set-test.XXXXXXXX)"
 tmp13="$(mktemp /tmp/openlrr-nerps-runtime-test.XXXXXXXX)"
 tmp14="$(mktemp /tmp/openlrr-nerps-game-state-test.XXXXXXXX)"
 tmp15="$(mktemp /tmp/openlrr-raider-model-test.XXXXXXXX)"
-trap 'rm -f "$tmp1" "$tmp2" "$tmp3" "$tmp4" "$tmp5" "$tmp6" "$tmp7" "$tmp8" "$tmp9" "$tmp10" "$tmp11" "$tmp12" "$tmp13" "$tmp14" "$tmp15"' EXIT
+tmp16="$(mktemp /tmp/openlrr-dynamic-collision-test.XXXXXXXX)"
+trap 'rm -f "$tmp1" "$tmp2" "$tmp3" "$tmp4" "$tmp5" "$tmp6" "$tmp7" "$tmp8" "$tmp9" "$tmp10" "$tmp11" "$tmp12" "$tmp13" "$tmp14" "$tmp15" "$tmp16"' EXIT
 swiftc -O Sources/WadArchive.swift Tests/WadArchiveTests.swift -o "$tmp1"
 "$tmp1"
 swiftc -O Sources/WadArchive.swift Sources/GameResources.swift \
