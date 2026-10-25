@@ -24,7 +24,8 @@ struct NativeFirstPersonController {
     /// A blocked diagonal tries one axis at a time to slide along a wall.
     /// Returns whether the Raider changed position (turning alone is not motion).
     @discardableResult
-    mutating func advance(forward: Double, turn: Double, elapsed: Double) -> Bool {
+    mutating func advance(forward: Double, turn: Double, elapsed: Double,
+                          obstacles: [NativeDynamicCollision.Disc] = []) -> Bool {
         guard elapsed.isFinite, elapsed > 0,
               forward.isFinite, turn.isFinite else { return false }
         let dt = min(elapsed, 0.1)
@@ -34,19 +35,28 @@ struct NativeFirstPersonController {
         let distance = max(-1, min(1, forward)) * Self.provisionalSpeed * dt
         guard abs(distance) > 1e-9 else { return false }
         let start = position
+        // The terrain sweep alone cannot stop another moving Raider. Test
+        // the same attempted segment against live OL Raider positions.
+        func isClear(_ from: NativeLevelNavigation.Point,
+                     _ to: NativeLevelNavigation.Point) -> Bool {
+            navigation.segmentIsClear(from: from, to: to) &&
+            NativeDynamicCollision.sweepIsClear(
+                from: .init(x: from.x, y: from.y),
+                to: .init(x: to.x, y: to.y), obstacles: obstacles)
+        }
         let goal = NativeLevelNavigation.Point(
             x: start.x + sin(heading) * distance,
             y: start.y + cos(heading) * distance)
-        if navigation.segmentIsClear(from: start, to: goal) {
+        if isClear(start, goal) {
             position = goal
             return true
         }
         let xOnly = NativeLevelNavigation.Point(x: goal.x, y: start.y)
-        if navigation.segmentIsClear(from: start, to: xOnly) {
+        if isClear(start, xOnly) {
             position = xOnly
         }
         let yOnly = NativeLevelNavigation.Point(x: position.x, y: goal.y)
-        if navigation.segmentIsClear(from: position, to: yOnly) {
+        if isClear(position, yOnly) {
             position = yOnly
         }
         return position != start
