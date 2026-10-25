@@ -9,7 +9,7 @@ Updated 2026-10-23. The earlier 80% completion estimate is withdrawn: there was 
 | Menu/mission audio | PR #61 separates players and stops menu restart in missions; compile passes | Audible transitions with original audio; OGG conversion currently required |
 | Movement and wall clearance | PR #61 exact destinations and swept footprint tests pass | Repeated in-level moves, wall/corner tests and mid-move retargeting on Mac |
 | Raider models | Original AE/LWS/LWOB stand/walk integration in development | Original geometry, materials, hierarchy, pivots, heading and animation timing verified against retail |
-| First-person | Isolated prototype: F toggles selected original OL Raider's tracked camera; held W/S and A/D (or arrows) use swept static-wall clearance, return with F/Esc; CI and Mac review pending | Retail input mapping, head-frame placement, original speed/turn timing, real-asset in-level testing, dynamic object collision |
+| First-person | Isolated prototype: F toggles selected original OL Raider's tracked camera; held W/S and A/D (or arrows) use swept static-wall clearance, return with F/Esc. PR #65 candidate adds live swept collision with other OL Raiders to both first-person and clicked movement (provisional capsule radii). | Retail input mapping, head-frame placement, original speed/turn timing, real-asset in-level testing, original building/unit collision shapes |
 | Excavation | Separate prototype PRs; not full retail behavior | Strength/timing, reveal, rubble, resources, sound and animation |
 | Building/economy | Incomplete | Construction, power, ore/crystals, upgrades, dependencies |
 | Vehicles and AI | Incomplete | Original models, boarding, navigation, tasks and collision |

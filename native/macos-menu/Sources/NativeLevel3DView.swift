@@ -334,6 +334,19 @@ final class NativeLevel3DView: SCNView {
         onInteractionMessage?("Returned to overhead view; click a Raider to select.")
     }
 
+    /// Use live presentation positions, not the original static OL spawn:
+    /// other Raiders can already be following clicked routes.
+    private func otherRaiderObstacles(excluding id: String) -> [NativeDynamicCollision.Disc] {
+        raiderMarkers.compactMap { entry -> NativeDynamicCollision.Disc? in
+            guard entry.key != id else { return nil }
+            let position = entry.value.presentation.position
+            return NativeDynamicCollision.Disc(
+                center: .init(x: Double(position.x) + Double(world.width) / 2,
+                              y: Double(position.z) + Double(world.height) / 2),
+                radius: NativeDynamicCollision.otherRaiderRadius)
+        }
+    }
+
     private func advanceFrame() {
         let now = ProcessInfo.processInfo.systemUptime
         let elapsed = lastSimulationTime.map { max(0, now - $0) } ?? 0
@@ -345,7 +358,9 @@ final class NativeLevel3DView: SCNView {
                       (heldKeys.contains(1) || heldKeys.contains(125) ? 1.0 : 0.0)
         let turn = (heldKeys.contains(2) || heldKeys.contains(124) ? 1.0 : 0.0) -
                    (heldKeys.contains(0) || heldKeys.contains(123) ? 1.0 : 0.0)
-        let moved = controller.advance(forward: forward, turn: turn, elapsed: elapsed)
+        let moved = controller.advance(
+            forward: forward, turn: turn, elapsed: elapsed,
+            obstacles: otherRaiderObstacles(excluding: id))
         firstPersonController = controller
         if moved { marker.position = worldPosition(x: controller.position.x, z: controller.position.y) }
         marker.eulerAngles = SCNVector3(0, Float(controller.heading), 0)
@@ -400,6 +415,12 @@ final class NativeLevel3DView: SCNView {
             onInteractionMessage?("No route with enough clearance for the Rock Raider.")
             return
         }
+        let goal = NativeDynamicCollision.Point(x: destination.x, y: destination.y)
+        guard NativeDynamicCollision.sweepIsClear(
+            from: goal, to: goal, obstacles: otherRaiderObstacles(excluding: id)) else {
+            onInteractionMessage?("Another Rock Raider occupies that destination.")
+            return
+        }
         let generation = UUID()
         motionGenerations[id] = generation
         marker.removeAllActions()
@@ -417,6 +438,23 @@ final class NativeLevel3DView: SCNView {
                 let y = start.y + (target.y - start.y) * t
                 DispatchQueue.main.async { [weak self, weak node] in
                     guard let self, let node, self.motionGenerations[id] == generation else { return }
+                    let previous = NativeDynamicCollision.Point(
+                        x: Double(node.position.x) + Double(self.world.width) / 2,
+                        y: Double(node.position.z) + Double(self.world.height) / 2)
+                    let next = NativeDynamicCollision.Point(x: x, y: y)
+                    // A different Raider may have entered the planned route
+                    // since it was clicked. Sweep each update to avoid passing
+                    // through them; stopping is safer than a false auto-route.
+                    if hypot(next.x - previous.x, next.y - previous.y) > 1e-8 &&
+                       !NativeDynamicCollision.sweepIsClear(
+                            from: previous, to: next,
+                            obstacles: self.otherRaiderObstacles(excluding: id)) {
+                        self.motionGenerations[id] = UUID()
+                        node.removeAllActions()
+                        self.raiderModels[id]?.setMoving(false)
+                        self.onInteractionMessage?("Rock Raider \(id): path blocked by another Raider.")
+                        return
+                    }
                     node.position = self.worldPosition(x: x, z: y)
                     if distance > 0.0001 { node.eulerAngles = SCNVector3(0, Float(atan2(target.x - start.x, target.y - start.y)), 0) }
                 }

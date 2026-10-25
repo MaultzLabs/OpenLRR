@@ -321,7 +321,26 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
             navigation: routing, position: fpStart, heading: 0)!
         precondition(paused.advance(forward: 1, turn: 0, elapsed: 50))
         precondition(abs(paused.position.y - 0.75) < 0.00001) // 100 ms cap
-        print("PASS: first-person steering, swept wall clearance, reverse, turn and pause bounds")
+
+        // A second original OL Raider may stand on an otherwise open tile.
+        // The static MAP clearance must not allow direct-control overlap.
+        var occupied = NativeFirstPersonController(
+            navigation: routing, position: fpStart, heading: 0)!
+        let otherRaider = NativeDynamicCollision.Disc(
+            center: .init(x: 2.5, y: 1.0),
+            radius: NativeDynamicCollision.otherRaiderRadius)
+        precondition(!occupied.advance(forward: 1, turn: 0, elapsed: 0.1,
+                                       obstacles: [otherRaider]))
+        precondition(occupied.position == fpStart)
+        // Live positions are refreshed every frame; when the other Raider
+        // moves away the identical input is no longer blocked.
+        let movedAway = NativeDynamicCollision.Disc(
+            center: .init(x: 2.5, y: 2.0),
+            radius: NativeDynamicCollision.otherRaiderRadius)
+        precondition(occupied.advance(forward: 1, turn: 0, elapsed: 0.1,
+                                      obstacles: [movedAway]))
+        precondition(abs(occupied.position.y - 0.75) < 0.00001)
+        print("PASS: first-person steering, swept wall and live Raider clearance, reverse, turn and pause bounds")
 
         // Source-grounded original BMP world atlas paths. A synthetic WAD
         // tests lookup without redistributing a copyrighted actual image.
