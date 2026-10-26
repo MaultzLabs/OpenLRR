@@ -2,6 +2,7 @@
 import AppKit
 import Foundation
 import ImageIO
+import UniformTypeIdentifiers
 
 /// Prototype view: places real WAD images and Lego.cfg menu items at the
 /// original logical 640x480 coordinates. Font and overlays remain incomplete.
@@ -866,7 +867,7 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
         panel.title = "Select original Rock Raiders soundtrack tracks"
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = true
-        panel.allowedFileTypes = ["wav", "mp3", "m4a", "aiff", "aif"]
+        panel.allowedContentTypes = ["wav", "mp3", "m4a", "aiff", "aif"].compactMap { UTType(filenameExtension: $0) }
         panel.beginSheetModal(for: window) { [weak self] response in
             guard response == .OK, let self else { return }
             self.missionAudio.setTracks(panel.urls)
