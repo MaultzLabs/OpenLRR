@@ -26,6 +26,7 @@ struct LevelRuntimeResources {
     let objectListPath: String?
     let scriptPath: String?
     let scriptMessagePath: String?
+    let objectiveTextPath: String?
     let nextLevel: String?
 
     init(config: LegoConfig, identifier: String) throws {
@@ -84,6 +85,7 @@ struct LevelRuntimeResources {
         self.objectListPath = try safePath("OListFile")
         self.scriptPath = try safePath("NERPFile")
         self.scriptMessagePath = try safePath("NERPMessageFile")
+        self.objectiveTextPath = try safePath("ObjectiveText")
         self.nextLevel = config.valueUnderGame(path + ["NextLevel"])
     }
 

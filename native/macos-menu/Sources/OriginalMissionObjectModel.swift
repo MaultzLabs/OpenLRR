@@ -109,7 +109,7 @@ enum OriginalObjectPresentation {
 final class OriginalMissionObjectModel {
     let root = SCNNode()
     private let clip: OriginalLightWaveRenderer.Clip?
-    private let epoch = ProcessInfo.processInfo.systemUptime
+    private var epoch = ProcessInfo.processInfo.systemUptime
 
     init(asset: OriginalMissionObjectAsset, resources: GameResources, blockSize: Double,
          sharedTextures: String?) throws {
@@ -142,6 +142,12 @@ final class OriginalMissionObjectModel {
         root.scale = SCNVector3(scale, scale, scale)
         // Ground origin is the original mesh/scene origin, never a debug sphere
         // or bounding-box recentering. OL placement belongs to the parent node.
+    }
+
+    /// Preserve the current animation frame across an initial objective pause.
+    func rebaseTime(afterPausedFor duration: TimeInterval) {
+        guard duration.isFinite, duration >= 0 else { return }
+        epoch += duration
     }
 
     func update(time: TimeInterval) { clip?.update(elapsed: max(0, time - epoch)) }

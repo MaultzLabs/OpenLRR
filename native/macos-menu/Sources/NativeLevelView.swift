@@ -9,6 +9,7 @@ final class NativeLevelView: NSView {
     let world: LevelWorld
     var excavationState: NativeExcavationState?
     var onExit: (() -> Void)?
+    var missionInputBlocked = false
     var originalCursor: NSCursor? {
         didSet { if let window { window.invalidateCursorRects(for: self) } }
     }
@@ -167,6 +168,7 @@ final class NativeLevelView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        guard !missionInputBlocked else { return }
         let point = convert(event.locationInWindow, from: nil)
         if tutorialInputPolicy.canClickMap &&
            point.y >= 75 && point.y < bounds.height - 57 {
@@ -177,6 +179,7 @@ final class NativeLevelView: NSView {
     }
 
     override func mouseDragged(with event: NSEvent) {
+        guard !missionInputBlocked else { return }
         let point = convert(event.locationInWindow, from: nil)
         if tutorialInputPolicy.canMoveCamera, let last = previousDragPoint {
             cameraX -= (point.x - last.x) / tileSize
@@ -192,16 +195,19 @@ final class NativeLevelView: NSView {
     }
 
     override func scrollWheel(with event: NSEvent) {
+        guard !missionInputBlocked else { return }
         guard tutorialInputPolicy.canMoveCamera else { return }
         zoomBy(event.scrollingDeltaY > 0 ? 1.12 : 1.0 / 1.12)
     }
 
     override func magnify(with event: NSEvent) {
+        guard !missionInputBlocked else { return }
         guard tutorialInputPolicy.canMoveCamera else { return }
         zoomBy(1 + event.magnification)
     }
 
     override func keyDown(with event: NSEvent) {
+        guard !missionInputBlocked else { return }
         // Mac Escape always returns to the native menu, including when the
         // retail NERPs script has locked movement during a tutorial prompt.
         if event.keyCode == 53 { onExit?(); return }

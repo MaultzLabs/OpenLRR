@@ -15,6 +15,7 @@ struct PalettedBMP {
     let height: Int
     let rgba: [UInt8] // Top-to-bottom RGBA, alpha 0 for palette index 0.
     private let indices: [UInt8]
+    let paletteZeroRGB: [UInt8]
 
     init(data: Data) throws {
         guard data.count >= 54, data.count <= 50_000_000,
@@ -75,6 +76,7 @@ struct PalettedBMP {
                 colors[at + 3] = idx == 0 ? 0 : 255
             }
         }
+        self.paletteZeroRGB = [data[paletteStart + 2], data[paletteStart + 1], data[paletteStart]]
         self.width = width
         self.height = height
         self.indices = indexData

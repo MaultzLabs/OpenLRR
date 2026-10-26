@@ -13,6 +13,8 @@ private func encode(_ operations: [(UInt16, UInt16)]) throws -> NERPsScript {
 
 @main struct NativeNERPsGameStateTests {
     static func main() throws {
+        try initialBriefingBridge()
+        try openingBriefingDoesNotBypassScript()
         // Retail uses function opcodes for True/False/Null, not literals.
         let startup = NativeNERPsGameState(script: try encode([
             (2, 1), (2, 0x19), (0, 7),
@@ -407,4 +409,108 @@ private func encode(_ operations: [(UInt16, UInt16)]) throws -> NERPsScript {
         precondition(fresh.timers == Array(repeating: 0, count: 4))
         print("PASS: persistent NERPs register, timer and tutorial-state callbacks")
     }
+
+    static func initialBriefingBridge() throws {
+        // A live UI query, not BF/C0's consumable notification. Both ordinary
+        // conditions and nested zero-argument expressions use retail ID 0x32.
+        let state = NativeNERPsGameState(script: try encode([
+            (2, 0x32), (2, 0x21), (0, 1), // While showing: AddR0(1)
+            (2, 0xc0), (2, 0x22), (0, 1), // On dismissal: AddR1(1)
+            (2, 1), (2, 0x1b), (2, 0x32), // SetR2(GetObjectiveShowing)
+            (2, 1), (2, 0x24), (0, 1) // Count every running tick in R3
+        ]))
+        let callbacks = state.functions()
+        precondition(callbacks[0x32]!.kind.arity == 0 && !callbacks[0x32]!.kind.isAction)
+        precondition(callbacks[0x32]!.invoke([]) == 0, "No attached overlay means not showing")
+        precondition(state.objectiveSwitch == 0)
+        var showing = true
+        state.objectiveShowing = { showing }
+        precondition(callbacks[0x32]!.invoke([]) == 1)
+        precondition(callbacks[0x32]!.invoke([]) == 1, "Showing query must not consume visibility")
+        try state.startOriginalMessageAudio(durationMilliseconds: 2500)
+
+        // The original update still runs bytecode during briefing while
+        // elapsedInterface is zero. Registers progress; both timer types do not.
+        for _ in 0..<2 { _ = try state.tick(elapsedMilliseconds: 0) }
+        precondition(state.completedTicks == 2)
+        precondition(Array(state.registers.prefix(4)) == [2, 0, 1, 2])
+        precondition(state.timers == Array(repeating: 0, count: 4))
+        precondition(state.messageTimer == 2500 && state.objectiveSwitch == 0)
+
+        // Explicit diagnostic pause is distinct: even zero-elapsed bytecode
+        // must not execute. Time spent paused is not passed on to resume.
+        state.isPaused = true
+        let paused = try state.tick(elapsedMilliseconds: 10_000)
+        precondition(paused.visitedInstructions == 0 && paused.functionCalls == 0)
+        precondition(state.completedTicks == 2 && state.registers[3] == 2)
+        precondition(state.timers[0] == 0 && state.messageTimer == 2500)
+        state.isPaused = false
+        showing = false
+        precondition(callbacks[0x32]!.invoke([]) == 0)
+        precondition(state.objectiveSwitch == 0, "Visibility alone must not fire the dismissal latch")
+        precondition(state.reportInitialBriefingDismissed())
+        precondition(state.objectiveSwitch == 1)
+        precondition(!state.reportInitialBriefingDismissed())
+        _ = try state.tick(elapsedMilliseconds: 16)
+        precondition(Array(state.registers.prefix(4)) == [2, 1, 0, 3])
+        precondition(state.timers[0] == 16 && state.messageTimer == 2484)
+        precondition(state.objectiveSwitch == 0)
+        precondition(!state.reportInitialBriefingDismissed(), "Repeated dismissal after consumption cannot re-arm")
+        _ = try state.tick(elapsedMilliseconds: 16)
+        precondition(state.registers[1] == 1 && state.registers[3] == 4)
+        precondition(state.timers[0] == 32 && state.messageTimer == 2468)
+
+        // The UI guard does not change the original script's BF/C0 semantics.
+        precondition(callbacks[0xbf]!.invoke([7]) == 7)
+        precondition(!state.reportInitialBriefingDismissed())
+        precondition(state.objectiveSwitch == 7)
+        precondition(callbacks[0xc0]!.invoke([]) == 1)
+        precondition(callbacks[0xc0]!.invoke([]) == 0)
+        state.objectiveShowing = nil
+        precondition(callbacks[0x32]!.invoke([]) == 0 && state.objectiveSwitch == 0)
+
+        // 0xC1 is NOT GetObjectiveShowing. Preserve unsupported-opcode halting
+        // rather than accepting a mistaken alias or inventing that function.
+        precondition(callbacks[0xc1] == nil)
+        let unsupported = NativeNERPsGameState(script: try encode([(2, 0xc1)]))
+        do {
+            _ = try unsupported.tick(elapsedMilliseconds: 0)
+            preconditionFailure("Unsupported 0xC1 was treated as GetObjectiveShowing")
+        } catch NERPsRuntime.RuntimeError.missingSignature(let pc, let id) {
+            precondition(pc == 0 && id == 0xc1 && unsupported.completedTicks == 0)
+        }
+
+        // New missions receive a fresh one-shot guard; removing a view without
+        // reporting dismissal cannot accidentally start the next script stage.
+        let next = NativeNERPsGameState(script: try encode([]))
+        next.objectiveShowing = { true }
+        next.objectiveShowing = nil
+        precondition(next.objectiveSwitch == 0)
+        precondition(next.reportInitialBriefingDismissed())
+        precondition(next.functions()[0xc0]!.invoke([]) == 1)
+    }
+    static func openingBriefingDoesNotBypassScript() throws {
+        var briefing = try OriginalMissionBriefingState(pageCount: 1, openingInput: .init(leftDown: true))
+        let runtime = NativeNERPsGameState(script: try encode([
+            (2, 0x32), (1, 7), (0, 0), (2, 0x21), (0, 1), // !showing: AddR0(1)
+            (2, 0x32), (2, 0x22), (0, 1) // showing: AddR1(1)
+        ]))
+        runtime.objectiveShowing = { briefing.isShowing }
+        precondition(!briefing.isShowing && !briefing.permitsScriptTick)
+        for _ in 0..<5 {
+            if briefing.permitsScriptTick { _ = try runtime.tick(elapsedMilliseconds: 0) }
+        }
+        precondition(runtime.completedTicks == 0 && runtime.registers[0] == 0,
+                     "Opening mouse drain must not let !GetObjectiveShowing bypass the initial brief")
+        precondition(briefing.update(.init()) == .none)
+        precondition(briefing.permitsScriptTick && briefing.isShowing)
+        if briefing.permitsScriptTick { _ = try runtime.tick(elapsedMilliseconds: 0) }
+        precondition(runtime.completedTicks == 1 && runtime.registers[0] == 0 && runtime.registers[1] == 1)
+        precondition(runtime.timers[0] == 0, "Visible briefing ticks without interface elapsed time")
+        precondition(briefing.update(.init(spaceDown: true)) == .dismissed)
+        precondition(briefing.permitsScriptTick)
+        _ = try runtime.tick(elapsedMilliseconds: 0)
+        precondition(runtime.registers[0] == 1 && runtime.registers[1] == 1)
+    }
+
 }

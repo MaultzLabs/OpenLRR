@@ -82,7 +82,7 @@ swiftc -O Sources/WadArchive.swift Sources/GameResources.swift \
 swiftc -O Sources/WadArchive.swift Sources/GameResources.swift \
   Sources/LegoConfig.swift Sources/NERPsScript.swift \
   Sources/NERPsRuntime.swift Sources/NativeNERPsMessageFile.swift \
-  Sources/NativeTutorialInputPolicy.swift Sources/NativeNERPsGameState.swift \
+  Sources/NativeTutorialInputPolicy.swift Sources/NativeNERPsGameState.swift Sources/OriginalMissionBriefing.swift \
   Tests/NativeNERPsGameStateTests.swift -o "$tmp14"
 "$tmp14"
 
@@ -115,4 +115,20 @@ swiftc -O Sources/NativeDynamicCollision.swift Tests/NativeDynamicCollisionTests
     Sources/OriginalLightWaveRenderer.swift Sources/OriginalMissionObjectModel.swift Sources/OriginalRaiderModel.swift \
     Tests/OriginalMissionObjectModelTests.swift -o "$object_model_test"
   "$object_model_test"
+)
+
+# Original initial-objective text, geometry, input and pause/handoff lifecycle.
+(
+  briefing_test="$(mktemp /tmp/openlrr-briefing-test.XXXXXXXX)"
+  trap 'rm -f "$briefing_test"' EXIT
+  swiftc -O Sources/LegoConfig.swift Sources/OriginalMissionBriefing.swift \
+    Tests/OriginalMissionBriefingTests.swift -o "$briefing_test"
+  "$briefing_test"
+)
+(
+  briefing_layout_test="$(mktemp /tmp/openlrr-briefing-layout-test.XXXXXXXX)"
+  trap 'rm -f "$briefing_layout_test"' EXIT
+  swiftc -O Sources/OriginalFontLayout.swift Sources/OriginalBriefingTextLayout.swift \
+    Tests/OriginalBriefingTextLayoutTests.swift -o "$briefing_layout_test"
+  "$briefing_layout_test"
 )

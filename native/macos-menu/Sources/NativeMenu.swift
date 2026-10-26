@@ -727,6 +727,13 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
     }
 
     private func openLevel(identifier: String) {
+        // Snapshot the launching gesture before synchronous archive/scene loads.
+        // Selection runs on mouseDown; a queued mouseUp must never close the brief.
+        var openingInput = OriginalMissionBriefingUI.heldInput()
+        if NSApp.currentEvent?.type == .leftMouseDown {
+            openingInput.leftDown = true
+            openingInput.leftClicked = true
+        }
         guard let resources = activeResources, let config = activeConfig else {
             presentLevelError("Load the original game archives before opening a mission.")
             return
@@ -759,16 +766,24 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
                 resources: resources, textureSet: manifest.textureSetSetting,
                 nerpsState: missionNERPs, config: config,
                 blockSize: Double(config.valueUnderGame(identifier.components(separatedBy: "::") + ["BlockSize"]) ?? "40") ?? 40,
-                wadURL: activeWadURL, extraAudioRoot: selectedAudioFolder)
+                wadURL: activeWadURL, extraAudioRoot: selectedAudioFolder, openingInput: openingInput)
             viewer.originalCursor = canvas.gameCursor
             viewer.onBack = { [weak self] in self?.returnToMainMenu() }
+            missionView?.endSession()
             missionView?.removeFromSuperview()
             missionView = viewer
             originalAudio.stop()
             buttonAudio.stop()
-            let musicStatus = activeWadURL.map {
-                missionAudio.start(config: config, beside: $0, extraRoot: selectedAudioFolder)
-            } ?? "Mission soundtrack unavailable"
+            missionAudio.stop()
+            viewer.onGameplayStart = { [weak self, weak viewer] in
+                guard let self, let viewer, self.missionView === viewer else { return }
+                self.restartMissionMusic()
+            }
+            viewer.onStartupStatus = { [weak self, weak viewer] message in
+                guard let self, let viewer, self.missionView === viewer else { return }
+                self.status.stringValue = message
+                self.status.toolTip = message
+            }
             root.missionView = viewer
             root.addSubview(viewer, positioned: .above, relativeTo: canvas)
             canvas.isHidden = true
@@ -793,17 +808,8 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
             viewer.focusActiveView()
             window.makeKeyAndOrderFront(nil)
             status.stringValue = "\(world.title) • \(world.width)×\(world.height) blocks • \(placements?.rockRaiders.count ?? 0) Rock Raiders"
-            status.stringValue += " • \(musicStatus)"
-            if missionAudio.enabled && !musicStatus.hasPrefix("Playing ") {
-                let alert = NSAlert()
-                alert.messageText = "Mission soundtrack could not start"
-                alert.informativeText = musicStatus
-                alert.addButton(withTitle: "Choose music files…")
-                alert.addButton(withTitle: "Continue")
-                alert.beginSheetModal(for: window) { [weak self] result in
-                    if result == .alertFirstButtonReturn { self?.chooseMissionMusic() }
-                }
-            }
+            if viewer.isBriefingActive { status.stringValue += " • " + viewer.startupStatus }
+            else { status.stringValue += " • " + viewer.startupStatus + " • " + missionAudio.playbackStatus }
             status.toolTip = status.stringValue
         } catch {
             presentLevelError("\(identifier): \(error)")
@@ -816,6 +822,7 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
 
     private func returnToMainMenu() {
         missionAudio.stop()
+        missionView?.endSession()
         missionView?.removeFromSuperview()
         missionView = nil
         root.missionView = nil
@@ -885,7 +892,13 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
     }
 
     private func restartMissionMusic() {
-        guard missionView != nil, let config = activeConfig, let wad = activeWadURL else { return }
+        guard let missionView, let config = activeConfig, let wad = activeWadURL else { return }
+        guard !missionView.isBriefingActive else {
+            missionAudio.stop()
+            status.stringValue = missionAudio.enabled ? "Mission music waits for the briefing" : "Mission music off"
+            status.toolTip = status.stringValue
+            return
+        }
         status.stringValue = missionAudio.start(config: config, beside: wad, extraRoot: selectedAudioFolder)
         status.toolTip = status.stringValue
     }

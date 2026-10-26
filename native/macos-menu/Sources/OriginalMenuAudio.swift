@@ -256,7 +256,7 @@ final class OriginalNERPsAudio {
     private var player: AVAudioPlayer?
     func stop() { player?.stop(); player = nil }
     func start(path: String, resources: GameResources, wadURL: URL?,
-               extraRoot: URL?, soundEnabled: Bool) -> Double? {
+               extraRoot: URL?, soundEnabled: Bool, volume: Int = 0) -> Double? {
         var candidate: AVAudioPlayer?
         if let wadURL {
             for url in OriginalAudioFileLocator.locateAll(path, beside: wadURL, additionalRoot: extraRoot) {
@@ -270,6 +270,7 @@ final class OriginalNERPsAudio {
         guard let candidate, candidate.duration.isFinite, candidate.duration >= 0 else { return nil }
         stop()
         candidate.numberOfLoops = 0
+        candidate.volume = Float(pow(10.0, Double(volume) / 2000.0))
         if soundEnabled {
             candidate.prepareToPlay()
             guard candidate.play() else { return nil }
@@ -277,6 +278,31 @@ final class OriginalNERPsAudio {
         }
         // Retail still uses sample duration when sound is disabled.
         return candidate.duration
+    }
+    deinit { stop() }
+}
+
+/// Stream_Objective_<full level identifier>, not NERPMessageFile speech.
+/// One attempt per initial briefing is enforced by the workspace startup gate.
+final class OriginalMissionBriefingAudio {
+    private let speech = OriginalNERPsAudio()
+    func stop() { speech.stop() }
+    func start(definition: OriginalMissionBriefingDefinition, config: LegoConfig?,
+               resources: GameResources, wadURL: URL?, extraRoot: URL?) -> String {
+        stop()
+        guard let config else { return "Original briefing speech unavailable: no Lego.cfg" }
+        let flag = config.valueUnderGame(["Main", "SoundOn"])?.uppercased() ?? "TRUE"
+        guard !["FALSE", "NO", "OFF", "0"].contains(flag) else { return "Briefing speech off (SoundOn disabled)" }
+        do {
+            let samples = try SoundSampleCatalog(config: config).samples(named: definition.speechSampleName)
+            for sample in samples {
+                if speech.start(path: sample.wavPath, resources: resources, wadURL: wadURL,
+                                extraRoot: extraRoot, soundEnabled: true, volume: sample.volume) != nil {
+                    return "Playing original briefing speech: \(sample.wavPath)"
+                }
+            }
+            return "Original briefing speech missing or unplayable: \(definition.speechSampleName)"
+        } catch { return "Original briefing speech unavailable: \(error)" }
     }
     deinit { stop() }
 }

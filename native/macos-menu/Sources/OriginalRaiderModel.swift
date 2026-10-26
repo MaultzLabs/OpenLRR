@@ -58,6 +58,12 @@ final class OriginalRaiderModel {
         return drilling.asset.duration
     }
 
+    /// Preserve the current animation frame across an initial objective pause.
+    func rebaseTime(afterPausedFor duration: TimeInterval) {
+        guard duration.isFinite, duration >= 0 else { return }
+        epoch += duration
+    }
+
     func update(time: TimeInterval) {
         let clip = isDrilling ? (drilling ?? standing) : moving ? walking : standing
         clip.update(elapsed: max(0, time - epoch))

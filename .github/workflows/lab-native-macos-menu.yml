@@ -62,6 +62,13 @@ jobs:
             Sources/OriginalMissionCommands.swift Sources/OriginalMissionPanels.swift Tests/OriginalMissionCommandsAppKitTests.swift \
             -o /tmp/openlrr-command-ui-test
           /tmp/openlrr-command-ui-test
+          xcrun swiftc -Onone -g -framework AppKit \
+            Sources/WadArchive.swift Sources/GameResources.swift Sources/PalettedBMP.swift Sources/LegoConfig.swift \
+            Sources/OriginalFontLayout.swift Sources/OriginalBitmapFont.swift Sources/OriginalBriefingTextLayout.swift \
+            Sources/OriginalMissionMessageUI.swift Sources/OriginalMissionPanels.swift \
+            Sources/OriginalMissionBriefing.swift Sources/OriginalMissionBriefingUI.swift \
+            Tests/OriginalMissionBriefingAppKitTests.swift -o /tmp/openlrr-briefing-ui-test
+          /tmp/openlrr-briefing-ui-test
           xcrun swiftc -Onone -g -framework AppKit -framework SceneKit -framework ImageIO \
             Sources/WadArchive.swift Sources/GameResources.swift Sources/LegoConfig.swift \
             Sources/LightWaveObject.swift Sources/LightWaveScene.swift Sources/OriginalModelAsset.swift \

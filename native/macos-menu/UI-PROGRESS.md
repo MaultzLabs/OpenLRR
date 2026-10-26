@@ -206,3 +206,68 @@ locally run** (`swiftc: command not found`, exit 127); native build is **not
 locally run** (requires macOS, exit 2). CI must establish compile/test results.
 Actual Tool Store/ore/crystal appearance in the first mission has **not** been
 validated with the user's retail assets on Apple Silicon.
+
+## Initial original mission briefing (source integration, 2026-10-26)
+
+The initial objective is now a separate full-mission input overlay, not a native
+text alert or a NERP tutorial message. It loads the selected level's configured
+`ObjectiveText` and `ObjectiveImage640x480` from the user's archives. `[Level01]`
+is matched from `Levels::Level01`; body/BEGIN underscores remain literal, while
+only the heading's CFG underscores become spaces. Lowercase `\n`/`\a`, blank
+pages, section/prefix matching and original BEGIN placement follow Objective.cpp.
+Missing optional ObjectiveText keeps a blank, dismissible initial state with a
+visible diagnostic; a configured unreadable/malformed file reports a load error.
+No missing narrative is invented.
+
+Rendering uses MBriefFONT.bmp for the body and MBriefFONT2.bmp for title/BEGIN,
+source text-window bounds, exact TextWindow wrapping/centering and last-whole-line
+overflow. Panel transparency keys the palette-zero **color** by default (including
+duplicate palette entries), or the explicit CFG RGB key; it is not black by
+assumption. Page arrows use RGB black. Next is at (470,315); Previous is drawn
+from Main::BackArrow at (130,315), while its hit rectangle uses the different
+Main::BackButton640x480/RepeatButtonImage dimensions. The existing 640×480 HUD
+transform is shared at normal, doubled, wide and tall window sizes. Missing
+art is diagnosed; missing fonts use an explicitly diagnostic system-font fallback.
+
+The bottom original message panel stays visible. Its configured
+`TextMessages::Text_SpaceToContinue` text is shown while the briefing freezes
+interface time when MessagePermit allows generic messages; a current NERP
+message keeps precedence. The later
+TextMessagesWithImages override supplies its original text, but its image/SFX
+variant remains unimplemented and explicitly diagnosed. No English prompt is
+hardcoded. The lower panel retains its previously documented provisional layout.
+
+Opening held/queued clicks and Space are seeded; the opening release is drained
+before entering the script loop. Once visible, the original NERPs VM **still
+executes every tick with zero elapsed interface time**. Actual overlay visibility
+backs retail `GetObjectiveShowing` at function **0x32 / decimal 50**, zero args.
+Initial dismissal signals the existing BF/C0 ObjectiveSwitch latch once; C1 is
+not an alias and unknown reached opcodes still halt. Diagnostic VM pause stays
+separate. Cave selection, command actions, camera controls, SceneKit actions and
+model animation are blocked/frozen during the briefing. Resume resets clock
+baselines and rebases model epochs rather than charging the frozen interval.
+
+Speech resolves `Stream_Objective_<full level identifier>` through the existing
+Samples catalog and original WAV resolver. It is attempted once, not on page
+changes; missing/undecodable speech reports a diagnostic, with no replacement
+recording. Dismissal stops speech and starts cave ambience/music once. Mission
+exit cancels the overlay and all mission audio without signaling dismissal;
+queued movement/drill completions are invalidated. The user's music-off
+preference is preserved. Space repeats, focus loss, Command-modified release,
+intermediate outside clicks, last-page Previous, final release and closing-click
+consumption have synthetic regression coverage.
+
+Validation in this Linux cloud checkout: `git diff --check`, shell syntax, all
+8 soundtrack-import Python tests (including local FFmpeg paths), and all 10
+window-capture safety Python tests passed. A source-algorithm differential check
+covered 615,857 synthetic TextWindow wrap cases. Portable Swift, ARM64/AppKit and
+SceneKit execution are **not locally verified**: `swiftc` is absent and build.sh
+requires macOS. The portable tests and dedicated synthetic AppKit palette/font/
+input renderer tests are wired into the existing hosted workflow; that exact
+revision still needs its hosted run. The user's private original 118s retail
+briefing frame was visually inspected as a reference only, not copied into the
+repository. No original game/audio bytes or generated art/narration are included.
+
+Still outside this change: mission completion/failure/replay screens, Chief LWS
+advisor animation, objective economy/simulation, original prompt image/SFX,
+full retail render fidelity and native real-asset gameplay/audio verification.

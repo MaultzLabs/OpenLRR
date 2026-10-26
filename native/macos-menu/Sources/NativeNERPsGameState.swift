@@ -24,6 +24,11 @@ final class NativeNERPsGameState {
     // NERPFunc__GetObjectiveSwitch consumes the one-shot objective signal.
     // This is a script-visible latch, not an invented mission-completion UI.
     private(set) var objectiveSwitch: Int32 = 0
+    private var initialBriefingDismissalReported = false
+    /// Bind to the actual objective overlay, not the one-shot ObjectiveSwitch.
+    /// NERPFunc__GetObjectiveShowing (retail NPL 0x32) queries Objective_IsShowing.
+    /// No overlay attached means no objective is showing.
+    var objectiveShowing: (() -> Bool)?
     private(set) var tutorialFlags: Int32 = 0
     /// Camera masks change when original ClickOnly* functions execute.
     private(set) var allowCameraMovementMask: UInt32 = 0
@@ -71,6 +76,18 @@ final class NativeNERPsGameState {
         self.messages = messages
     }
 
+    /// Objective_StopShowing signals the initial briefing-to-play transition
+    /// once. Call on user dismissal only, never when exiting the mission or
+    /// merely detaching its view. Later BF/C0 script writes/reads remain free
+    /// to manage their own latch; repeated UI callbacks must not re-arm it.
+    @discardableResult
+    func reportInitialBriefingDismissed() -> Bool {
+        guard !initialBriefingDismissalReported else { return false }
+        initialBriefingDismissalReported = true
+        objectiveSwitch = 1
+        return true
+    }
+
     /// Receives real frame elapsed time in milliseconds, instead of
     /// assuming a fabricated game framerate. Retail timers are float32
     /// milliseconds and continue across repeated interpreter invocations.
@@ -109,6 +126,9 @@ final class NativeNERPsGameState {
         return true
     }
 
+    /// During the initial briefing the caller passes zero interface elapsed
+    /// time, but still ticks NERPs (GameState.cpp). isPaused is the separate
+    /// diagnostic VM pause, not the objective overlay's world-time pause.
     func tick(elapsedMilliseconds: Float, maxSteps: Int = 200_000,
               onCall: ((NERPsRuntime.Call) -> Void)? = nil) throws -> NERPsRuntime.Tick {
         guard !isPaused else {
@@ -136,6 +156,10 @@ final class NativeNERPsGameState {
     /// NERPsRuntime throws rather than manufacturing gameplay outcomes.
     func functions() -> [Int: NERPsRuntime.Function] {
         var callbacks: [Int: NERPsRuntime.Function] = [:]
+        callbacks[0x32] = .init(kind: .expression(arity: 0),
+                                invoke: { [unowned self] _ in
+            self.objectiveShowing?() == true ? 1 : 0
+        })
         if let query = tutorialGroundValue {
             callbacks[0x72] = .init(kind: .expression(arity: 1), invoke: { query($0[0]) })
         }

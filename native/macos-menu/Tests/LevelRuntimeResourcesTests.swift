@@ -71,6 +71,7 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
               SurfaceMap Levels\\GameLevels\\Level01\\High.map
               OListFile Levels\\GameLevels\\Level01\\Objects.ol
               NERPFile Levels\\GameLevels\\Level01\\Level01.npl
+              ObjectiveText Levels\\ObjectiveText.txt
               NextLevel Levels::Level02
             }
           }
@@ -84,6 +85,7 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         precondition(manifest.mapPaths.count == 3)
         precondition(manifest.objectListPath?.hasSuffix("Objects.ol") == true)
         precondition(manifest.scriptPath?.hasSuffix("Level01.npl") == true)
+        precondition(manifest.objectiveTextPath == "Levels\\ObjectiveText.txt")
         precondition(manifest.nextLevel == "Levels::Level02")
 
         let first = syntheticMap([0, 4, 9, 5], width: 2, height: 2)

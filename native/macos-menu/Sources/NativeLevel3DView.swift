@@ -80,13 +80,30 @@ final class NativeLevel3DView: SCNView {
     private var firstPersonRaider: String?
     private var firstPersonController: NativeFirstPersonController?
     private var heldKeys = Set<UInt16>()
-    private var lastSimulationTime: TimeInterval?
+    private var frameClock = OriginalMissionClock()
+    private var pausedAt: TimeInterval?
+    var missionTimePaused = false {
+        didSet {
+            guard missionTimePaused != oldValue else { return }
+            let now = ProcessInfo.processInfo.systemUptime
+            if missionTimePaused { pausedAt = now; heldKeys.removeAll() }
+            else if let start = pausedAt {
+                let duration = max(0, now - start)
+                for model in raiderModels.values { model.rebaseTime(afterPausedFor: duration) }
+                for model in objectModels.values { model.rebaseTime(afterPausedFor: duration) }
+                pausedAt = nil
+            }
+            frameClock.reset()
+            scene?.isPaused = missionTimePaused
+            allowsCameraControl = !missionTimePaused && firstPersonRaider == nil && tutorialInputPolicy.canMoveCamera
+        }
+    }
     private(set) var modelSummary = "Original Raider models unavailable; diagnostic proxies"
     deinit { modelTimer?.invalidate() }
     var tutorialInputPolicy = NativeTutorialInputPolicy.unrestricted {
         didSet {
             if !tutorialInputPolicy.canMoveCamera { leaveFirstPerson() }
-            allowsCameraControl = firstPersonRaider == nil && tutorialInputPolicy.canMoveCamera
+            allowsCameraControl = !missionTimePaused && firstPersonRaider == nil && tutorialInputPolicy.canMoveCamera
         }
     }
     var onTileSelected: ((LevelWorld.Tile) -> Void)?
@@ -273,12 +290,34 @@ final class NativeLevel3DView: SCNView {
         }
         modelSummary = "\(raiderModels.count) original Raider models • \(objectModels.count) original building/resource models"
         if !modelDiagnostics.isEmpty { modelSummary += " • \(modelDiagnostics.count) missing/unsupported (details in diagnostic tooltip)" }
-        modelTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
-            self?.advanceFrame()
-        }
         self.scene = scene
         self.pointOfView = camera
         defaultCameraController.target = SCNVector3(centerX, centerY, centerZ)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        modelTimer?.invalidate()
+        modelTimer = nil
+        frameClock.reset()
+        heldKeys.removeAll()
+        guard window != nil else { return }
+        modelTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
+            self?.advanceFrame()
+        }
+    }
+
+    func endSession() {
+        missionTimePaused = true
+        modelTimer?.invalidate()
+        modelTimer = nil
+        // Invalidate already-dispatched SceneKit completions as well as the
+        // running actions; neither may mutate the departed mission later.
+        for (id, marker) in raiderMarkers {
+            motionGenerations[id] = UUID()
+            marker.removeAllActions()
+        }
+        drillingRaiders.removeAll()
     }
 
     private func makeGeometry(_ surface: NativeTerrainMesh.Surface) -> SCNGeometry? {
@@ -349,6 +388,7 @@ final class NativeLevel3DView: SCNView {
     func dismissWallSelection() { selectedWall = nil }
 
     func drillSelectedWall() {
+        guard !missionTimePaused else { return }
         guard firstPersonRaider == nil, tutorialInputPolicy.canClickIcons,
               let wall = selectedWall, let id = selectedRaider,
               let marker = raiderMarkers[id],
@@ -370,6 +410,7 @@ final class NativeLevel3DView: SCNView {
     }
 
     private func performDrill(id: String, order: NativeExcavationState.DrillOrder) {
+        guard !missionTimePaused else { return }
         guard let marker = raiderMarkers[id], drillingRaiders.insert(id).inserted else { return }
         let generation = motionGenerations[id]
         let duration = raiderModels[id]?.beginDrilling() ?? 0.75
@@ -377,10 +418,10 @@ final class NativeLevel3DView: SCNView {
                                                      Double(order.wall.y - order.approach.y))), 0)
         marker.runAction(.wait(duration: duration)) { [weak self, weak marker] in
             DispatchQueue.main.async {
-                guard let self, let marker else { return }
+                guard let self, let marker, !self.missionTimePaused,
+                      self.motionGenerations[id] == generation else { return }
                 self.drillingRaiders.remove(id)
                 self.raiderModels[id]?.setMoving(false)
-                guard self.motionGenerations[id] == generation else { return }
                 let p = marker.presentation.position
                 let at = NativeLevelNavigation.Position(x: Int(floor(Double(p.x) + Double(self.world.width) / 2)),
                                                        y: Int(floor(Double(p.z) + Double(self.world.height) / 2)))
@@ -435,6 +476,7 @@ final class NativeLevel3DView: SCNView {
     private static let movementKeys: Set<UInt16> = [0, 1, 2, 13, 123, 124, 125, 126]
 
     override func keyDown(with event: NSEvent) {
+        guard !missionTimePaused else { return }
         // F enters a selected original OL Raider's first-person view.
         // Key bindings are provisional until checked against original input.
         if event.keyCode == 3 {
@@ -471,6 +513,7 @@ final class NativeLevel3DView: SCNView {
     }
 
     func enterFirstPerson() {
+        guard !missionTimePaused else { return }
         guard tutorialInputPolicy.canMoveCamera else {
             onInteractionMessage?("NERPs tutorial currently restricts camera control.")
             return
@@ -516,7 +559,7 @@ final class NativeLevel3DView: SCNView {
         raiderModels[id]?.setMoving(false)
         pointOfView = overheadCamera
         onSelectionChanged?()
-        allowsCameraControl = tutorialInputPolicy.canMoveCamera
+        allowsCameraControl = !missionTimePaused && tutorialInputPolicy.canMoveCamera
         onInteractionMessage?("Returned to overhead view; click a Raider to select.")
     }
 
@@ -558,7 +601,7 @@ final class NativeLevel3DView: SCNView {
     }
 
     func moveOverheadCamera(vector: CGPoint, zoom: Double = 0, seconds: Double) {
-        guard firstPersonRaider == nil, tutorialInputPolicy.canMoveCamera, let camera = pointOfView else { return }
+        guard !missionTimePaused, firstPersonRaider == nil, tutorialInputPolicy.canMoveCamera, let camera = pointOfView else { return }
         let target = defaultCameraController.target
         let position = camera.presentation.position
         let offset = NativeOverheadCamera.Offset(x: Double(position.x - target.x), y: Double(position.y - target.y), z: Double(position.z - target.z))
@@ -569,8 +612,8 @@ final class NativeLevel3DView: SCNView {
 
     private func advanceFrame() {
         let now = ProcessInfo.processInfo.systemUptime
-        let elapsed = lastSimulationTime.map { max(0, now - $0) } ?? 0
-        lastSimulationTime = now
+        let elapsed = frameClock.advance(now: now, paused: missionTimePaused)
+        guard !missionTimePaused else { return }
         firstPersonLight.isHidden = firstPersonRaider == nil
         if firstPersonRaider != nil, let fog {
             fogSeconds += min(elapsed, 0.1)
@@ -657,6 +700,7 @@ final class NativeLevel3DView: SCNView {
     private var motionGenerations: [String: UUID] = [:]
 
     private func commandMove(to destination: NativeLevelNavigation.Point, raiderID: String? = nil, onArrival: (() -> Void)? = nil) {
+        guard !missionTimePaused else { return }
         guard let id = raiderID ?? selectedRaider, let marker = raiderMarkers[id] else { return }
         if let placement = originalObjects?.rockRaiders.first(where: {
             $0.identifier == id
@@ -695,7 +739,7 @@ final class NativeLevel3DView: SCNView {
                 let x = start.x + (target.x - start.x) * t
                 let y = start.y + (target.y - start.y) * t
                 DispatchQueue.main.async { [weak self, weak node] in
-                    guard let self, let node, self.motionGenerations[id] == generation else { return }
+                    guard let self, let node, !self.missionTimePaused, self.motionGenerations[id] == generation else { return }
                     let previous = NativeDynamicCollision.Point(
                         x: Double(node.position.x) + Double(self.world.width) / 2,
                         y: Double(node.position.z) + Double(self.world.height) / 2)
@@ -721,7 +765,7 @@ final class NativeLevel3DView: SCNView {
         raiderModels[id]?.setMoving(true)
         marker.runAction(SCNAction.sequence(actions)) { [weak self] in
             DispatchQueue.main.async { [weak self] in
-                guard let self, self.motionGenerations[id] == generation else { return }
+                guard let self, !self.missionTimePaused, self.motionGenerations[id] == generation else { return }
                 self.raiderModels[id]?.setMoving(false)
                 onArrival?()
             }
@@ -730,6 +774,7 @@ final class NativeLevel3DView: SCNView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        guard !missionTimePaused else { return }
         if firstPersonRaider != nil { return } // Do not send first-person clicks to orbit controls.
         let location = convert(event.locationInWindow, from: nil)
         let hits = hitTest(location, options: [.firstFoundOnly: false])
@@ -776,6 +821,14 @@ final class NativeMissionWorkspace: NSView {
     private let status: NSTextField
     private let nerpsInfo: NSTextField
     private let missionHUD: OriginalMissionMessageUI
+    private let briefing: OriginalMissionBriefingUI?
+    private let briefingAudio = OriginalMissionBriefingAudio()
+    private var startBriefingAudio: (() -> String)?
+    private var startup = OriginalMissionStartupGate()
+    private(set) var startupStatus = "Preparing original mission briefing"
+    var isBriefingActive: Bool { briefing?.isActive == true }
+    var onGameplayStart: (() -> Void)?
+    var onStartupStatus: ((String) -> Void)?
     private let panels: OriginalMissionPanels
     private let commands: OriginalMissionCommands
     private var commandPage = OriginalMissionCommandCatalog.Page.main
@@ -789,7 +842,7 @@ final class NativeMissionWorkspace: NSView {
     private let caveAudio = OriginalMenuAudio()
     private var startCaveAudio: (() -> Void)?
     private var nerpsTimer: Timer?
-    private var previousTickTime: TimeInterval?
+    private var scriptClock = OriginalMissionClock()
     private var nerpsHalted = false
     var originalCursor: NSCursor? {
         didSet {
@@ -798,20 +851,33 @@ final class NativeMissionWorkspace: NSView {
             missionHUD.originalCursor = originalCursor
             commands.originalCursor = originalCursor
             panels.originalCursor = originalCursor
+            briefing?.originalCursor = originalCursor
         }
     }
     var onBack: (() -> Void)? {
         didSet {
             level3D.onExit = { [weak self] in self?.onBack?() }
             level2D.onExit = { [weak self] in self?.onBack?() }
+            briefing?.onExit = { [weak self] in self?.onBack?() }
         }
     }
 
     init(frame: NSRect, world: LevelWorld, objects: OriginalObjectList?,
          resources: GameResources, textureSet: String?,
          nerpsState: NativeNERPsGameState? = nil, config: LegoConfig? = nil, blockSize: Double = 40,
-         wadURL: URL? = nil, extraAudioRoot: URL? = nil) throws {
+         wadURL: URL? = nil, extraAudioRoot: URL? = nil,
+         openingInput: OriginalMissionBriefingInput = OriginalMissionBriefingUI.heldInput()) throws {
         self.nerpsState = nerpsState
+        let definition = try OriginalMissionBriefingDefinition(config: config, levelIdentifier: world.identifier)
+        // ObjectiveText is optional in Objective_LoadLevel (568–573). Keep
+        // its blank initial state and normal dismissal/latch, not a skip to
+        // gameplay. A configured unreadable/malformed file is an honest error.
+        let bytes = try definition.objectiveTextPath.map {
+            try resources.data(at: $0, maximumBytes: OriginalMissionBriefingText.maximumFileBytes)
+        } ?? Data()
+        let text = try OriginalMissionBriefingText(data: bytes, levelIdentifier: world.identifier)
+        briefing = try OriginalMissionBriefingUI(definition: definition, text: text,
+                                                resources: resources, openingInput: openingInput)
         self.nerpsInfo = NSTextField(labelWithString:
             nerpsState == nil ? "Original NERPs script unavailable" : "NERPs script loaded; preparing native callbacks")
         self.missionHUD = OriginalMissionMessageUI(resources: resources, config: config)
@@ -826,6 +892,17 @@ final class NativeMissionWorkspace: NSView {
         self.status = NSTextField(labelWithString:
             "Original \(world.width)×\(world.height) tiles · Drag to orbit · Scroll to zoom · Click a tile")
         super.init(frame: frame)
+        level3D.missionTimePaused = isBriefingActive
+        level2D.missionInputBlocked = isBriefingActive
+        nerpsState?.objectiveShowing = { [weak self] in self?.briefing?.objectiveShowing == true }
+        briefing?.onDismiss = { [weak self] in self?.dismissInitialBriefing() }
+        if let briefing {
+            startBriefingAudio = { [weak self] in
+                self?.briefingAudio.start(definition: briefing.definition, config: config,
+                    resources: resources, wadURL: wadURL, extraRoot: extraAudioRoot) ?? "Briefing speech stopped"
+            }
+            startupStatus = (["Original mission briefing"] + briefing.diagnostics).joined(separator: " · ")
+        }
         nerpsState?.tutorialGroundValue = { [weak self] id in self?.level3D.excavationState.tutorialGroundValue(id) ?? 0 }
         nerpsState?.gotoTutorialCamera = { [weak self] id in self?.level3D.gotoTutorialCamera(id) }
         nerpsState?.cameraAtTutorial = { [weak self] id in self?.level3D.cameraAtTutorial(id) ?? 0 }
@@ -918,6 +995,8 @@ final class NativeMissionWorkspace: NSView {
         level3D.onRockRaiderSelected = { [weak self] _ in
             if let self { self.nerpsState?.reportRockRaiderSelection(count: self.level3D.selectionCount) }
         }
+        if let briefing { addSubview(briefing) }
+        refreshTutorialMessage()
         status.toolTip = level3D.modelDiagnostics.joined(separator: "\n")
         if let objects {
             status.stringValue = "\(objects.rockRaiders.count) Rock Raiders • \(level3D.textureSummary) • \(level3D.modelSummary) • click a Raider to select"
@@ -932,10 +1011,16 @@ final class NativeMissionWorkspace: NSView {
         super.viewDidMoveToWindow()
         nerpsTimer?.invalidate()
         nerpsTimer = nil
-        previousTickTime = nil
-        if window == nil { nerpsAudio.stop(); caveAudio.stop() }
-        else { startCaveAudio?() }
-        guard window != nil, nerpsState != nil, !nerpsHalted else { return }
+        scriptClock.reset()
+        guard window != nil else {
+            if startup.isAttached { endSession() }
+            return
+        }
+        startup.attach()
+        updateStartup()
+        guard !startup.hasExited else { return }
+        // This clock also drains the opening gesture and starts the speech in
+        // missions lacking NERPs, or after a correctly halted unsupported call.
         nerpsTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0,
                                           repeats: true) { [weak self] _ in
             self?.advanceNERPs()
@@ -944,11 +1029,55 @@ final class NativeMissionWorkspace: NSView {
 
     deinit { nerpsTimer?.invalidate() }
 
+    func endSession() {
+        startup.exit()
+        nerpsTimer?.invalidate()
+        nerpsTimer = nil
+        briefing?.cancel()
+        briefingAudio.stop()
+        nerpsAudio.stop()
+        caveAudio.stop()
+        level3D.endSession()
+        level2D.missionInputBlocked = true
+        scriptClock.reset()
+    }
+
+    private func updateStartup() {
+        guard startup.isAttached, !startup.hasExited else { return }
+        briefing?.drainOpeningInput()
+        if startup.claimSpeechStart(briefingShowing: briefing?.objectiveShowing == true) {
+            startupStatus = ([startBriefingAudio?() ?? "Original briefing speech unavailable"] +
+                             (briefing?.diagnostics ?? [])).joined(separator: " · ")
+            onStartupStatus?(startupStatus)
+        }
+        if startup.claimGameplayStart(briefingActive: isBriefingActive) {
+            startCaveAudio?()
+            onGameplayStart?()
+        }
+    }
+
+    private func dismissInitialBriefing() {
+        guard startup.isAttached, !startup.hasExited else { return }
+        briefingAudio.stop()
+        nerpsState?.reportInitialBriefingDismissed()
+        scriptClock.reset()
+        level3D.missionTimePaused = false
+        level2D.missionInputBlocked = false
+        refreshWallControls()
+        refreshTutorialMessage()
+        updateStartup()
+        focusActiveView()
+    }
+
     private func advanceNERPs() {
-        guard let nerpsState, !nerpsHalted, !nerpsState.isPaused else { return }
-        let now = ProcessInfo.processInfo.systemUptime
-        let elapsed = previousTickTime.map { max(0, now - $0) } ?? 0
-        previousTickTime = now
+        guard startup.isAttached, !startup.hasExited else { return }
+        updateStartup()
+        let elapsed = scriptClock.advance(now: ProcessInfo.processInfo.systemUptime,
+                                          paused: isBriefingActive || nerpsState?.isPaused == true)
+        // The launch-click drain happens before entering the original game
+        // loop. Do not let !GetObjectiveShowing bypass the pending briefing.
+        guard briefing?.state.permitsScriptTick != false,
+              let nerpsState, !nerpsHalted, !nerpsState.isPaused else { return }
         do {
             let result = try nerpsState.tick(elapsedMilliseconds: Float(elapsed * 1000))
             // Original tutorial script flags now gate both actual mission views.
@@ -957,15 +1086,12 @@ final class NativeMissionWorkspace: NSView {
             level2D.tutorialInputPolicy = policy
             refreshWallControls()
             // Original message text and one-shot acknowledgement.
-            // Chief sound playback is still unimplemented.
             refreshTutorialMessage()
             nerpsInfo.stringValue =
                 "Original NERPs: \(nerpsState.completedTicks) ticks · " +
                 "\(result.functionCalls) calls this tick · tutorial flags \(nerpsState.tutorialFlags)"
         } catch {
             nerpsHalted = true
-            nerpsTimer?.invalidate()
-            nerpsTimer = nil
             nerpsInfo.stringValue = "NERPs halted (unsupported original call): \(error)"
             nerpsInfo.toolTip = nerpsInfo.stringValue
             diagnosticsButton.state = .on
@@ -977,7 +1103,7 @@ final class NativeMissionWorkspace: NSView {
     @objc private func toggleScript(_ sender: NSButton) {
         guard let state = nerpsState else { return }
         state.isPaused = sender.state != .on
-        previousTickTime = nil // Do not charge paused time on resume.
+        scriptClock.reset() // Do not charge diagnostic pause time on resume.
         let policy = state.isPaused ? NativeTutorialInputPolicy.unrestricted : state.inputPolicy
         level3D.tutorialInputPolicy = policy
         level2D.tutorialInputPolicy = policy
@@ -997,12 +1123,13 @@ final class NativeMissionWorkspace: NSView {
         }
         commands.isHidden = mode.selectedSegment != 0
         panels.isHidden = mode.selectedSegment != 0
-        panels.cameraPermitted = !level3D.isInFirstPerson && level3D.tutorialInputPolicy.canMoveCamera
-        let permitted = nerpsState == nil || nerpsState!.isPaused || nerpsState!.inputPolicy.canClickIcons
+        panels.cameraPermitted = !isBriefingActive && !level3D.isInFirstPerson && level3D.tutorialInputPolicy.canMoveCamera
+        let permitted = !isBriefingActive && (nerpsState == nil || nerpsState!.isPaused || nerpsState!.inputPolicy.canClickIcons)
         commands.update(page: commandPage, hasRaider: level3D.hasSelectedRaider, permitted: permitted)
     }
 
     private func performCommand(_ action: String) {
+        guard !isBriefingActive, !startup.hasExited else { return }
         switch action {
         case "Dig":
             nerpsState?.reportDigIconClick()
@@ -1020,6 +1147,7 @@ final class NativeMissionWorkspace: NSView {
     }
 
     private func returnToCommands() {
+        guard !isBriefingActive, !startup.hasExited else { return }
         nerpsState?.reportBackIconClick()
         level3D.clearSelection()
         commandPage = .main
@@ -1047,6 +1175,14 @@ final class NativeMissionWorkspace: NSView {
     }
 
     private func refreshTutorialMessage() {
+        if isBriefingActive {
+            // Objective_Update displays the configured Space prompt through
+            // the ordinary bottom panel; NERP messages retain precedence.
+            let text = briefing?.definition.messageText(briefingActive: true,
+                nerpsText: nerpsState?.messageText, messagePermit: nerpsState?.messagePermit ?? true)
+            missionHUD.update(text: text, canAdvance: false, hideArrow: true)
+            return
+        }
         missionHUD.update(text: nerpsState?.messageText,
                           canAdvance: nerpsState?.messageNeedsAdvance ?? false,
                           hideArrow: (nerpsState?.nextArrowDisabled ?? true) ||
@@ -1054,6 +1190,7 @@ final class NativeMissionWorkspace: NSView {
     }
 
     private func advanceTutorialMessage() {
+        guard !isBriefingActive else { return }
         guard let state = nerpsState, state.messageNeedsAdvance,
               !state.nextArrowDisabled, !state.suppressMessageArrow else { return }
         state.advanceMessage()
@@ -1085,6 +1222,7 @@ final class NativeMissionWorkspace: NSView {
         nerpsInfo.frame = NSRect(x: 12, y: 42, width: max(0, bounds.width - 24),
                                 height: 19)
         missionHUD.frame = bounds
+        briefing?.frame = bounds
         panels.frame = bounds
         // A full-canvas flipped overlay shares the panels' HUD transform.
         // Surround art can extend left/up of the fixed (565,18) icon origin.
@@ -1099,7 +1237,8 @@ final class NativeMissionWorkspace: NSView {
     }
 
     func focusActiveView() {
-        window?.makeFirstResponder(mode.selectedSegment == 0 ? level3D : level2D)
+        if let briefing, briefing.isActive { window?.makeFirstResponder(briefing) }
+        else { window?.makeFirstResponder(mode.selectedSegment == 0 ? level3D : level2D) }
     }
 
     @objc private func changeMode(_ sender: NSSegmentedControl) {
