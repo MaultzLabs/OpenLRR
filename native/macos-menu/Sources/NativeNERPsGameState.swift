@@ -11,10 +11,12 @@ final class NativeNERPsGameState {
 
     private(set) var digIconClicks: Int32 = 0
     private(set) var backIconClicks: Int32 = 0
+    private(set) var buildIconClicks: Int32 = 0
     // Counts are click events, not successful excavations. Retail Get*IconClicked
     // does not consume its counter (NERPsFunctions.cpp).
     func reportDigIconClick() { digIconClicks &+= 1 }
     func reportBackIconClick() { backIconClicks &+= 1 }
+    func reportBuildIconClick() { buildIconClicks &+= 1 }
     var isPaused = false
     let script: NERPsScript
     private(set) var registers = [Int32](repeating: 0, count: 8)
@@ -299,6 +301,10 @@ final class NativeNERPsGameState {
             self.backIconClicks = args[0]; return 0
         })
         callbacks[0x3e] = .init(kind: .expression(arity: 0), invoke: { [unowned self] _ in self.backIconClicks })
+        callbacks[0x36] = .init(kind: .action(arity: 1), invoke: { [unowned self] args in
+            self.buildIconClicks = args[0]; return 0
+        })
+        callbacks[0x35] = .init(kind: .expression(arity: 0), invoke: { [unowned self] _ in self.buildIconClicks })
         return callbacks
     }
 }

@@ -23,6 +23,33 @@ final class NativeLevel3DView: SCNView {
     var onTerrainChanged: (() -> Void)?
     private var selectedWall: NativeLevelNavigation.Position?
     var hasSelectedWall: Bool { selectedWall != nil }
+    var hasSelectedRaider: Bool { selectedRaider != nil }
+    var isInFirstPerson: Bool { firstPersonRaider != nil }
+    var onSelectionChanged: (() -> Void)?
+
+    func clearSelection() {
+        leaveFirstPerson()
+        selectedWall = nil
+        selectedRaider = nil
+        for marker in raiderMarkers.values {
+            marker.geometry?.firstMaterial?.emission.contents = NSColor.black
+            marker.enumerateChildNodes { node, _ in
+                node.geometry?.materials.forEach { $0.emission.contents = NSColor.black }
+            }
+        }
+        onSelectionChanged?()
+    }
+
+    func cancelSelectedOrder() {
+        guard let id = selectedRaider, let marker = raiderMarkers[id] else { return }
+        let position = marker.presentation.position
+        motionGenerations[id] = UUID()
+        marker.removeAllActions()
+        marker.position = position
+        raiderModels[id]?.setMoving(false)
+        onInteractionMessage?("Rock Raider order cancelled.")
+    }
+
     private var raiderMarkers: [String: SCNNode] = [:]
     private var selectedRaider: String?
     private var raiderModels: [String: OriginalRaiderModel] = [:]
@@ -362,7 +389,7 @@ final class NativeLevel3DView: SCNView {
         return super.resignFirstResponder()
     }
 
-    private func enterFirstPerson() {
+    func enterFirstPerson() {
         guard tutorialInputPolicy.canMoveCamera else {
             onInteractionMessage?("NERPs tutorial currently restricts camera control.")
             return
@@ -394,6 +421,7 @@ final class NativeLevel3DView: SCNView {
         marker.isHidden = true // Camera is a separate scene node, not hidden.
         allowsCameraControl = false
         pointOfView = firstPersonCamera
+        onSelectionChanged?()
         advanceFrame()
         onInteractionMessage?("First-person Raider \(id): W/S or ↑/↓ move, A/D or ←/→ turn; F/Esc return.")
     }
@@ -406,6 +434,7 @@ final class NativeLevel3DView: SCNView {
         raiderMarkers[id]?.isHidden = false
         raiderModels[id]?.setMoving(false)
         pointOfView = overheadCamera
+        onSelectionChanged?()
         allowsCameraControl = tutorialInputPolicy.canMoveCamera
         onInteractionMessage?("Returned to overhead view; click a Raider to select.")
     }
@@ -455,6 +484,8 @@ final class NativeLevel3DView: SCNView {
 
     private func selectRaider(_ id: String) {
         selectedRaider = id
+        selectedWall = nil
+        onSelectionChanged?()
         onRockRaiderSelected?(id)
         for (identifier, marker) in raiderMarkers {
             let highlight = identifier == id ? NSColor(calibratedWhite: 0.15, alpha: 1) : NSColor.black
@@ -595,8 +626,11 @@ final class NativeMissionWorkspace: NSView {
     private let status: NSTextField
     private let nerpsInfo: NSTextField
     private let missionHUD: OriginalMissionMessageUI
-    private let drillButton = NSButton(title: "Drill", target: nil, action: nil)
-    private let wallBackButton = NSButton(title: "Back", target: nil, action: nil)
+    private let commands: OriginalMissionCommands
+    private var commandPage = OriginalMissionCommandCatalog.Page.main
+    private let optionsButton = NSButton(title: "Mission options ▾", target: nil, action: nil)
+    private let optionsPanel = NSVisualEffectView()
+    private var toastGeneration = 0
     private let scriptButton = NSButton(checkboxWithTitle: "Run NERPs", target: nil, action: nil)
     private let diagnosticsButton = NSButton(checkboxWithTitle: "Diagnostics", target: nil, action: nil)
     private let nerpsState: NativeNERPsGameState?
@@ -608,6 +642,7 @@ final class NativeMissionWorkspace: NSView {
             level3D.originalCursor = originalCursor
             level2D.originalCursor = originalCursor
             missionHUD.originalCursor = originalCursor
+            commands.originalCursor = originalCursor
         }
     }
     var onBack: (() -> Void)? {
@@ -624,6 +659,7 @@ final class NativeMissionWorkspace: NSView {
         self.nerpsInfo = NSTextField(labelWithString:
             nerpsState == nil ? "Original NERPs script unavailable" : "NERPs script loaded; preparing native callbacks")
         self.missionHUD = OriginalMissionMessageUI(resources: resources, config: config)
+        self.commands = OriginalMissionCommands(resources: resources, config: config)
         self.level3D = try NativeLevel3DView(
             frame: frame, world: world, objects: objects,
             resources: resources, textureSet: textureSet, config: config, blockSize: blockSize)
@@ -659,46 +695,45 @@ final class NativeMissionWorkspace: NSView {
         nerpsInfo.lineBreakMode = .byTruncatingTail
         addSubview(nerpsInfo)
         addSubview(missionHUD)
-        drillButton.target = self
-        drillButton.action = #selector(drillWall)
-        drillButton.toolTip = "Order the selected Rock Raider to drill this wall"
-        drillButton.setAccessibilityLabel("Drill wall")
-        wallBackButton.target = self
-        wallBackButton.action = #selector(closeWallMenu)
-        // Use only bitmap paths present in the installed game's icon setting.
-        // Native text buttons remain a visible fallback if no icon is available.
-        for (button, key) in [(drillButton, "Interface_MenuItem_Dig"),
-                              (wallBackButton, "Interface_MenuItem_Back")] {
-            let setting = config?.valueUnderGame(["InterfaceImages", key])
-            if let path = OriginalMissionMessageDefinition.firstBitmapPath(setting),
-               let art = OriginalMissionMessageUI.image(path, resources: resources) {
-                button.image = art
-                button.title = ""
-                button.isBordered = false
-                button.imageScaling = .scaleProportionallyUpOrDown
-            }
-            addSubview(button)
+        addSubview(commands)
+        commands.onCommand = { [weak self] action in self?.performCommand(action) }
+        commands.onBack = { [weak self] in self?.returnToCommands() }
+        level3D.onSelectionChanged = { [weak self] in
+            guard let self else { return }
+            self.nerpsState?.reportRockRaiderSelection(self.level3D.hasSelectedRaider)
+            self.commandPage = self.level3D.isInFirstPerson ? .firstPerson : self.level3D.hasSelectedRaider ? .raider : .main
+            self.refreshWallControls()
         }
+        optionsPanel.material = .hudWindow
+        optionsPanel.blendingMode = .withinWindow
+        optionsPanel.state = .active
+        optionsPanel.isHidden = true
+        addSubview(optionsPanel)
+        optionsButton.target = self
+        optionsButton.action = #selector(toggleOptions)
+        addSubview(optionsButton)
         refreshWallControls()
         missionHUD.onAdvance = { [weak self] in self?.advanceTutorialMessage() }
         diagnosticsButton.target = self
         diagnosticsButton.action = #selector(toggleDiagnostics(_:))
-        addSubview(diagnosticsButton)
+        optionsPanel.addSubview(diagnosticsButton)
         scriptButton.state = .on
         scriptButton.isEnabled = nerpsState != nil
         scriptButton.toolTip = "Pause or resume the original mission script without resetting its registers or timers."
         scriptButton.target = self
         scriptButton.action = #selector(toggleScript(_:))
-        addSubview(scriptButton)
+        optionsPanel.addSubview(scriptButton)
         setDiagnosticsVisible(false)
         level3D.onTileSelected = { [weak self] tile in
-            self?.refreshWallControls()
+            if let self {
+                self.commandPage = self.level3D.hasSelectedWall ? .wall : self.level3D.hasSelectedRaider ? .raider : .main
+                self.refreshWallControls()
+            }
             self?.status.stringValue =
                 "Original (\(tile.x), \(tile.y)) · \(tile.terrain.rawValue) · \(tile.excavation.rawValue) · Height \(tile.heightCode)"
         }
         level3D.onInteractionMessage = { [weak self] message in
-            self?.status.stringValue = message
-            self?.status.isHidden = false // Action failures must be visible without diagnostics.
+            self?.showActionMessage(message)
         }
         // A real click on an original OL Pilot marker changes the script's
         // GetMiniFigureSelected result during the next NERPs VM tick.
@@ -776,27 +811,56 @@ final class NativeMissionWorkspace: NSView {
     }
 
     private func refreshWallControls() {
-        let visible = level3D.hasSelectedWall && mode.selectedSegment == 0
-        drillButton.isHidden = !visible
-        wallBackButton.isHidden = !visible
-        let allowed = nerpsState == nil || nerpsState!.isPaused || nerpsState!.inputPolicy.canClickIcons
-        drillButton.isEnabled = allowed
-        wallBackButton.isEnabled = allowed
+        if commandPage == .wall && !level3D.hasSelectedWall {
+            commandPage = level3D.hasSelectedRaider ? .raider : .main
+        }
+        commands.isHidden = mode.selectedSegment != 0
+        let permitted = nerpsState == nil || nerpsState!.isPaused || nerpsState!.inputPolicy.canClickIcons
+        commands.update(page: commandPage, hasRaider: level3D.hasSelectedRaider, permitted: permitted)
     }
 
-    @objc private func drillWall() {
-        guard drillButton.isEnabled, !drillButton.isHidden else { return }
-        nerpsState?.reportDigIconClick()
-        level3D.drillSelectedWall()
-        focusActiveView()
-    }
-
-    @objc private func closeWallMenu() {
-        guard wallBackButton.isEnabled, !wallBackButton.isHidden else { return }
-        nerpsState?.reportBackIconClick()
-        level3D.dismissWallSelection()
+    private func performCommand(_ action: String) {
+        switch action {
+        case "Dig":
+            nerpsState?.reportDigIconClick()
+            level3D.drillSelectedWall()
+        case "DeselectDig": level3D.cancelSelectedOrder()
+        case "BuildBuilding":
+            nerpsState?.reportBuildIconClick()
+            commandPage = .buildings
+        case "GotoFirstPerson": level3D.enterFirstPerson()
+        case "GotoTopView": level3D.leaveFirstPerson()
+        default: return
+        }
         refreshWallControls()
         focusActiveView()
+    }
+
+    private func returnToCommands() {
+        nerpsState?.reportBackIconClick()
+        level3D.clearSelection()
+        commandPage = .main
+        refreshWallControls()
+        focusActiveView()
+    }
+
+    private func showActionMessage(_ message: String) {
+        toastGeneration += 1
+        let generation = toastGeneration
+        status.stringValue = message
+        status.toolTip = message
+        status.isHidden = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in
+            guard let self, self.toastGeneration == generation,
+                  self.diagnosticsButton.state != .on else { return }
+            self.status.isHidden = true
+        }
+    }
+
+    @objc private func toggleOptions() {
+        optionsPanel.isHidden.toggle()
+        optionsButton.title = optionsPanel.isHidden ? "Mission options ▾" : "Mission options ▴"
+        if optionsPanel.isHidden { focusActiveView() }
     }
 
     private func refreshTutorialMessage() {
@@ -829,19 +893,23 @@ final class NativeMissionWorkspace: NSView {
         super.layout()
         level3D.frame = bounds
         level2D.frame = bounds
-        mode.frame = NSRect(x: max(12, bounds.width - 224),
+        mode.frame = NSRect(x: 174,
                             y: max(10, bounds.height - 51),
                             width: 212, height: 34)
-        status.frame = NSRect(x: 12, y: 12, width: max(0, bounds.width - 24),
+        status.frame = NSRect(x: 12, y: 12, width: max(0, bounds.width - 150),
                               height: 26)
         nerpsInfo.frame = NSRect(x: 12, y: 42, width: max(0, bounds.width - 24),
                                 height: 19)
         missionHUD.frame = bounds
-        // Right-side command placement is provisional until full retail surrounds land.
-        drillButton.frame = NSRect(x: max(0, bounds.width - 82), y: max(0, bounds.height - 136), width: 64, height: 48)
-        wallBackButton.frame = NSRect(x: max(0, bounds.width - 82), y: max(0, bounds.height - 190), width: 64, height: 48)
-        diagnosticsButton.frame = NSRect(x: 12, y: max(0, bounds.height - 32), width: 112, height: 24)
-        scriptButton.frame = NSRect(x: 132, y: max(0, bounds.height - 32), width: 112, height: 24)
+        let scale = min(bounds.width / 640, bounds.height / 480)
+        let sidebarWidth = max(60, 90 * scale)
+        commands.frame = NSRect(x: max(0, bounds.width - sidebarWidth - 8 * scale),
+                                y: max(0, bounds.height - 395 * scale),
+                                width: sidebarWidth, height: min(bounds.height, 365 * scale))
+        optionsButton.frame = NSRect(x: 12, y: max(0, bounds.height - 34), width: 150, height: 26)
+        optionsPanel.frame = NSRect(x: 12, y: max(0, bounds.height - 106), width: 240, height: 68)
+        diagnosticsButton.frame = NSRect(x: 12, y: 8, width: 210, height: 24)
+        scriptButton.frame = NSRect(x: 12, y: 36, width: 210, height: 24)
         // Diagnostics sit above the message panel when explicitly enabled.
         status.frame.origin.y = 150
         nerpsInfo.frame.origin.y = 180

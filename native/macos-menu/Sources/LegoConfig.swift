@@ -11,6 +11,7 @@ struct LegoConfig {
         }
     }
 
+    private let propertyOrder: [String]
     private let properties: [String: String]
     private let sectionPaths: [[String]]
 
@@ -26,6 +27,7 @@ struct LegoConfig {
     init(text: String) throws {
         guard text.utf8.count <= 10_000_000 else { throw ConfigError.malformed("file too large") }
         var values: [String: String] = [:]
+        var order: [String] = []
         var section: [String] = []
         var visitedSections: [[String]] = []
         var pending: String?
@@ -41,7 +43,7 @@ struct LegoConfig {
             let value = String(elements[1]).trimmingCharacters(in: .whitespacesAndNewlines)
             let key = (section + [name]).joined(separator: "::").lowercased()
             // Vanilla CFG paths are case-insensitive; preserve first declaration.
-            if values[key] == nil { values[key] = value }
+            if values[key] == nil { values[key] = value; order.append(key) }
         }
 
         for char in normalized + "\n" {
@@ -92,6 +94,7 @@ struct LegoConfig {
         }
         guard section.isEmpty else { throw ConfigError.malformed("unclosed configuration section") }
         guard !values.isEmpty else { throw ConfigError.malformed("no usable settings") }
+        propertyOrder = order
         properties = values
         sectionPaths = visitedSections
     }
@@ -127,6 +130,23 @@ struct LegoConfig {
             guard seen.insert(name.lowercased()).inserted else { return nil }
             return name
         }
+    }
+
+    /// Direct properties in original declaration order, with the same game-prefix
+    /// precedence as valueUnderGame. Nested sections are not catalog entries.
+    func settingsUnderGame(_ parts: [String]) -> [(name: String, value: String)] {
+        var seen = Set<String>()
+        var result: [(name: String, value: String)] = []
+        for game in ["Lego*", "Lego", "LegoRR"] {
+            let prefix = ([game] + parts).joined(separator: "::").lowercased() + "::"
+            for key in propertyOrder where key.hasPrefix(prefix) {
+                let name = String(key.dropFirst(prefix.count))
+                guard !name.contains("::"), seen.insert(name).inserted,
+                      let value = properties[key] else { continue }
+                result.append((name, value))
+            }
+        }
+        return result
     }
 
     var settingCount: Int { properties.count }

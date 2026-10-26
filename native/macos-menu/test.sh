@@ -100,7 +100,7 @@ swiftc -O Sources/NativeDynamicCollision.swift Tests/NativeDynamicCollisionTests
 (
   mission_ui_test="$(mktemp /tmp/openlrr-mission-ui-test.XXXXXXXX)"
   trap 'rm -f "$mission_ui_test"' EXIT
-  swiftc -O Sources/LegoConfig.swift Sources/OriginalMissionMessageUI.swift \
+  swiftc -O Sources/LegoConfig.swift Sources/OriginalMissionMessageUI.swift Sources/OriginalMissionCommands.swift \
     Tests/OriginalMissionMessageUITests.swift -o "$mission_ui_test"
   "$mission_ui_test"
 )
