@@ -28,10 +28,7 @@ new credit purchases or billing changes. A manually rerun job can spend again.
 Timeouts may still have consumed credits; they are never retried automatically.
 
 On October 26, Max authorized using API funds where it materially helps the
-port. One gameplay review is authorized for evaluation. The temporary
-`lab-native-review-once.yml` requires an exact one-shot commit message and
-first run attempt; its only push trigger is a change to its own workflow file.
-Remove it after the attempt. No recurring paid task is authorized by this setup.
+port. One gameplay review is authorized for evaluation. The temporary one-shot workflow was removed after the two trial calls. No recurring paid task is authorized by this setup.
 Remaining prepaid credit and account charging settings are still unverified.
 
 API reference: https://developers.openai.com/api/reference/typescript/resources/responses/methods/create
@@ -44,3 +41,9 @@ Attempt A (run 40267087764) returned incomplete: 26,456 input tokens,
 the packet to movement/drilling cancellation, requests low reasoning effort,
 and reserves 6,000 output tokens. A response without completed status and text
 now fails the job after preserving usage rather than appearing successful.
+
+Attempt B (run 40267354497) completed with NO_FINDINGS: 9,474 input tokens,
+1,003 output tokens (954 reasoning). It produced no confirmed defect or patch.
+See RESULTS.md. No further paid run is queued. The remaining manual workflow
+still defaults to offline packet preparation. Prefer future bounded jobs tied
+to a concrete failing test or missing function over broad assurance reviews.
