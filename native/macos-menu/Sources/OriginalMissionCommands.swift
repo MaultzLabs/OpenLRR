@@ -154,6 +154,7 @@ final class OriginalMissionCommands: NSView {
     }
     required init?(coder: NSCoder) { nil }
     override func resetCursorRects() { addCursorRect(bounds, cursor: originalCursor ?? .arrow) }
+    override func mouseDown(with event: NSEvent) {}
     override func rightMouseDown(with event: NSEvent) {} // Never drill through the UI.
 
     private func image(_ path: String?) -> NSImage? {

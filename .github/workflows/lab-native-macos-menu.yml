@@ -49,6 +49,12 @@ jobs:
         run: |
           cd native/macos-menu
           bash build.sh
+          xcrun swiftc -O -framework AppKit \
+            Sources/WadArchive.swift Sources/GameResources.swift Sources/PalettedBMP.swift \
+            Sources/LegoConfig.swift Sources/OriginalMissionMessageUI.swift \
+            Sources/OriginalMissionCommands.swift Tests/OriginalMissionCommandsAppKitTests.swift \
+            -o /tmp/openlrr-command-ui-test
+          /tmp/openlrr-command-ui-test
           mkdir -p tools/gameplay-capture/.build
           xcrun swiftc -O -framework Cocoa -framework CoreGraphics \
             tools/gameplay-capture/window_probe.swift \
