@@ -9,6 +9,7 @@ final class NativeNERPsGameState {
         case invalidElapsedTime
     }
 
+    var isPaused = false
     let script: NERPsScript
     private(set) var registers = [Int32](repeating: 0, count: 8)
     private(set) var timers = [Float](repeating: 0, count: 4)
@@ -89,6 +90,10 @@ final class NativeNERPsGameState {
 
     func tick(elapsedMilliseconds: Float, maxSteps: Int = 200_000,
               onCall: ((NERPsRuntime.Call) -> Void)? = nil) throws -> NERPsRuntime.Tick {
+        guard !isPaused else {
+            return NERPsRuntime.Tick(visitedInstructions: 0, functionCalls: 0,
+                                    actionsExecuted: 0, stoppedByStopFunction: false)
+        }
         try advanceTimers(milliseconds: elapsedMilliseconds)
         let result = try NERPsRuntime.run(script, functions: functions(),
                                           maxSteps: maxSteps, onCall: onCall)

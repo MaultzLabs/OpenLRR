@@ -48,6 +48,7 @@ final class OriginalMenuCanvas: NSView {
     var onQuitConfirmed: (() -> Void)?
     var onButtonActivated: (() -> Void)?
     var onMenuTransition: ((Int) -> Bool)?
+    var transitionInProgress = false
     private var menuIndex = 0
     private var hoverIndex: Int?
     private var imageCache: [String: NSImage] = [:]
@@ -458,6 +459,7 @@ final class OriginalMenuCanvas: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        guard !transitionInProgress else { return }
         let pos = logicalPoint(event)
         if let index = saveRects.first(where: { $0.1.contains(pos) })?.0,
            saveSlots.indices.contains(index) {
@@ -507,6 +509,7 @@ final class OriginalMenuCanvas: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
+        guard !transitionInProgress else { return }
         if event.keyCode == 53, let previous = history.popLast() {
             menuIndex = previous
             menuScroll.reset()
@@ -562,6 +565,7 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
     private let originalAudio = OriginalMenuAudio()
     private let missionAudio = OriginalMissionAudio()
     private let buttonAudio = OriginalMenuButtonAudio()
+    private let rockWipeAudio = OriginalMenuButtonAudio()
     private let selectedWadDefaultsKey = "OriginalGameWadURL.v1"
     private let audioFolderDefaultsKey = "OriginalGameAudioFolderURL.v1"
     private var activeWadURL: URL?
@@ -718,6 +722,12 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
               let wipe = NativeRockWipeView(frame: canvas.frame,
                                            config: activeConfig,
                                            resources: activeResources) else { return false }
+        canvas.transitionInProgress = true
+        if let wad = activeWadURL {
+            rockWipeAudio.configure(config: activeConfig, resources: activeResources,
+                beside: wad, extraAudioRoot: selectedAudioFolder, sampleName: "SFX_RockWipe")
+            rockWipeAudio.play()
+        }
         root.rockWipeView = wipe
         root.addSubview(wipe, positioned: .above, relativeTo: canvas)
         root.needsLayout = true
@@ -727,6 +737,8 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
         }, completed: { [weak self, weak wipe] in
             wipe?.removeFromSuperview()
             self?.root.rockWipeView = nil
+            self?.canvas.transitionInProgress = false
+            self?.rockWipeAudio.stop()
             if let self { self.window.makeFirstResponder(self.canvas) }
         })
         return true

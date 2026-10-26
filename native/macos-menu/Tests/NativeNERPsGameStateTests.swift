@@ -30,6 +30,18 @@ private func encode(_ operations: [(UInt16, UInt16)]) throws -> NERPsScript {
         precondition(state.completedTicks == 2)
         precondition(state.timers[0] == 50.0)
 
+        state.isPaused = true
+        let pausedTimers = state.timers
+        let pausedRegisters = state.registers
+        let pausedTick = try state.tick(elapsedMilliseconds: 10000)
+        precondition(pausedTick.functionCalls == 0)
+        precondition(state.timers == pausedTimers && state.registers == pausedRegisters)
+        precondition(state.completedTicks == 2)
+        state.isPaused = false
+        _ = try state.tick(elapsedMilliseconds: 0)
+        precondition(state.registers[1] == 12)
+        precondition(state.timers == pausedTimers)
+
         // The original OpenLRR functions use signed 32-bit registers.
         let callbacks = state.functions()
         _ = callbacks[0x19]!.invoke([Int32.max])

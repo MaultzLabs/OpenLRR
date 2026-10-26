@@ -16,7 +16,8 @@ tmp12="$(mktemp /tmp/openlrr-texture-set-test.XXXXXXXX)"
 tmp13="$(mktemp /tmp/openlrr-nerps-runtime-test.XXXXXXXX)"
 tmp14="$(mktemp /tmp/openlrr-nerps-game-state-test.XXXXXXXX)"
 tmp15="$(mktemp /tmp/openlrr-raider-model-test.XXXXXXXX)"
-trap 'rm -f "$tmp1" "$tmp2" "$tmp3" "$tmp4" "$tmp5" "$tmp6" "$tmp7" "$tmp8" "$tmp9" "$tmp10" "$tmp11" "$tmp12" "$tmp13" "$tmp14" "$tmp15"' EXIT
+tmp16="$(mktemp /tmp/openlrr-dynamic-collision-test.XXXXXXXX)"
+trap 'rm -f "$tmp1" "$tmp2" "$tmp3" "$tmp4" "$tmp5" "$tmp6" "$tmp7" "$tmp8" "$tmp9" "$tmp10" "$tmp11" "$tmp12" "$tmp13" "$tmp14" "$tmp15" "$tmp16"' EXIT
 swiftc -O Sources/WadArchive.swift Tests/WadArchiveTests.swift -o "$tmp1"
 "$tmp1"
 swiftc -O Sources/WadArchive.swift Sources/GameResources.swift \
@@ -48,7 +49,7 @@ swiftc -O Sources/OriginalSaveFile.swift Tests/OriginalSaveFileTests.swift -o "$
 
 swiftc -O Sources/WadArchive.swift Sources/GameResources.swift \
   Sources/LegoConfig.swift Sources/MapFile.swift Sources/LevelRuntimeResources.swift \
-  Sources/LevelWorld.swift Sources/NativeTerrainMesh.swift Sources/NativeLevelNavigation.swift \
+  Sources/LevelWorld.swift Sources/NativeTerrainMesh.swift Sources/NativeLevelNavigation.swift Sources/NativeDynamicCollision.swift Sources/NativeFirstPersonController.swift \
   Sources/OriginalTerrainTextureCatalog.swift Tests/LevelRuntimeResourcesTests.swift -o "$tmp8"
 "$tmp8"
 
@@ -90,3 +91,16 @@ swiftc -O Sources/WadArchive.swift Sources/GameResources.swift Sources/LegoConfi
   Sources/LightWaveObject.swift Sources/LightWaveScene.swift Sources/OriginalRaiderModel.swift \
   Tests/OriginalRaiderModelTests.swift -o "$tmp15"
 "$tmp15"
+
+# Pure Swift collision regression: synthetic moving OL Raider positions only.
+swiftc -O Sources/NativeDynamicCollision.swift Tests/NativeDynamicCollisionTests.swift -o "$tmp16"
+"$tmp16"
+
+# Mission HUD configuration is portable; AppKit rendering is checked by build.sh.
+(
+  mission_ui_test="$(mktemp /tmp/openlrr-mission-ui-test.XXXXXXXX)"
+  trap 'rm -f "$mission_ui_test"' EXIT
+  swiftc -O Sources/LegoConfig.swift Sources/OriginalMissionMessageUI.swift \
+    Tests/OriginalMissionMessageUITests.swift -o "$mission_ui_test"
+  "$mission_ui_test"
+)
