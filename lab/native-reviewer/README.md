@@ -11,8 +11,8 @@ navigation and NERPs UI wiring. Each finding must include an exact source
 location, trigger, minimal fix and regression test. Known unported features
 are excluded. The returned review is evidence to inspect, not proof of a bug.
 
-`python3 lab/native-reviewer/review.py` produces an offline packet from eight
-allowlisted files at the exact HEAD commit. It does not use an API key. No WADs,
+`python3 lab/native-reviewer/review.py` produces an offline packet from five
+allowlisted files (with line-numbered view excerpts) at the exact HEAD commit. It does not use an API key. No WADs,
 audio, saves, private recordings, environment values or uncommitted files are
 included. `python3 -m unittest discover -s lab/native-reviewer/tests -v` uses
 synthetic API responses only.
@@ -21,8 +21,8 @@ The existing GitHub Actions workflow is manual-only. The default `run_model=fals
 prepares the packet without spending. Setting `run_model=true` explicitly
 requests ONE billable Responses API call using the existing `OPENLRR_AI_LAB_KEY`
 secret and the existing bot model, `gpt-6-luna`. Model access is not verified.
-Input is bounded to 140,000 UTF-8 bytes before request encoding; generated output
-is capped at 2,000 tokens. These are usage limits, **not a dollar or prepaid-balance
+Input is bounded to 60,000 UTF-8 bytes before request encoding; generated output
+is capped at 6,000 tokens, with low reasoning effort. These are usage limits, **not a dollar or prepaid-balance
 guarantee**. No retries, tools, auto-applied patches, schedules, Windows builds,
 new credit purchases or billing changes. A manually rerun job can spend again.
 Timeouts may still have consumed credits; they are never retried automatically.
@@ -38,3 +38,9 @@ API reference: https://developers.openai.com/api/reference/typescript/resources/
 The response's status and token usage are recorded alongside its review. An
 incomplete response is not promoted to a successful validation result. I will
 inspect findings and implement justified fixes in the native branch before CI.
+
+Attempt A (run 40267087764) returned incomplete: 26,456 input tokens,
+2,000 reasoning/output tokens, no text and no usable finding. Attempt B narrows
+the packet to movement/drilling cancellation, requests low reasoning effort,
+and reserves 6,000 output tokens. A response without completed status and text
+now fails the job after preserving usage rather than appearing successful.

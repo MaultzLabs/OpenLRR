@@ -1,4 +1,4 @@
-name: OpenLRR authorized native review 20261026-a
+name: OpenLRR authorized native review 20261026-b
 on:
   push:
     branches: [lab-native-model-textures-music-v1]
@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   review-once:
-    if: github.run_attempt == 1 && github.event.head_commit.message == 'Run one authorized native review 20261026-a'
+    if: github.run_attempt == 1 && github.event.head_commit.message == 'Run one authorized native review 20261026-b'
     runs-on: ubuntu-latest
     timeout-minutes: 6
     steps:
@@ -27,7 +27,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: OpenLRR-Native-Gameplay-Review-20261026-a
+          name: OpenLRR-Native-Gameplay-Review-20261026-b
           path: native-review-output/
           if-no-files-found: warn
           retention-days: 14
