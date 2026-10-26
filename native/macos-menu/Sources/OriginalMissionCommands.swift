@@ -55,6 +55,22 @@ struct OriginalMissionCommandCatalog {
         }
     }
 
+    struct BackButton {
+        let size: CGSize
+        let hover: String
+        let pressed: String
+        let title: String
+    }
+    var backButton: BackButton? {
+        guard let raw = config?.valueUnderGame(["InterfaceBackButton"]) ?? config?.valueUnderGame(["Main", "InterfaceBackButton"]) else { return nil }
+        let fields = raw.components(separatedBy: raw.contains(",") ? "," : ":").map { $0.trimmingCharacters(in: .whitespaces) }
+        guard fields.count >= 5,
+              let dimensions = OriginalMissionMessageDefinition.point(fields[0] + "," + fields[1]),
+              dimensions.x > 0, dimensions.y > 0, dimensions.x <= 128, dimensions.y <= 128,
+              fields[2].lowercased().hasSuffix(".bmp"), fields[3].lowercased().hasSuffix(".bmp") else { return nil }
+        return BackButton(size: CGSize(width: dimensions.x, height: dimensions.y), hover: fields[2], pressed: fields[3], title: fields[4].replacingOccurrences(of: "_", with: " "))
+    }
+
     /// Interface_Globs documents the eight surround fields in Interface.h.
     struct Surround {
         let image: String
@@ -79,18 +95,29 @@ import AppKit
 /// Owns only its sidebar hit area, so cave input remains available elsewhere.
 /// Background/offsets use original CFG data; missing art gets native controls.
 private final class MissionCommandButton: NSButton {
-    var onHover: (() -> Void)?
+    var onHover: ((Bool) -> Void)?
+    var hoverArt: NSImage?
+    var pressedArt: NSImage?
     private var hovered = false
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         trackingAreas.forEach { removeTrackingArea($0) }
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self, userInfo: nil))
     }
-    override func mouseEntered(with event: NSEvent) { hovered = true; needsDisplay = true; onHover?() }
-    override func mouseExited(with event: NSEvent) { hovered = false; needsDisplay = true }
+    override func mouseEntered(with event: NSEvent) { hovered = true; needsDisplay = true; onHover?(true) }
+    override func mouseExited(with event: NSEvent) { hovered = false; needsDisplay = true; onHover?(false) }
     override func rightMouseDown(with event: NSEvent) {}
     override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
+        if let hoverArt {
+            // The surround contains the idle Back image; CFG supplies only
+            // the highlight and pressed overlays (Interface.h fields 2,3).
+            if hovered || isHighlighted {
+                NSGraphicsContext.current?.imageInterpolation = .none
+                (isHighlighted ? (pressedArt ?? hoverArt) : hoverArt).draw(in: bounds,
+                    from: .zero, operation: .sourceOver, fraction: isEnabled ? 1 : 0.4,
+                    respectFlipped: true, hints: nil)
+            }
+        } else { super.draw(dirtyRect) }
         if hovered && isEnabled {
             // Interface_DrawHoverOutline uses a two-pixel green outline.
             NSColor.green.setStroke()
@@ -111,8 +138,7 @@ final class OriginalMissionCommands: NSView {
     private let scroll = NSScrollView()
     private let document = MissionCommandDocument()
     private let heading = NSTextField(labelWithString: "")
-    private let help = NSTextField(wrappingLabelWithString: "")
-    private let back = NSButton(title: "Back", target: nil, action: nil)
+    private let back = MissionCommandButton(title: "Back", target: nil, action: nil)
     private var buttons: [NSButton] = []
     private var definitions: [OriginalMissionCommand] = []
     private var artCache: [String: NSImage] = [:]
@@ -123,6 +149,9 @@ final class OriginalMissionCommands: NSView {
     private var permitted = true
     var onCommand: ((String) -> Void)?
     var onBack: (() -> Void)?
+    var onHelp: ((String?) -> Void)?
+    var logicalScale: CGFloat = 1 { didSet { needsLayout = true; needsDisplay = true } }
+    private var visiblePanel = NSRect.zero
     var originalCursor: NSCursor? { didSet { window?.invalidateCursorRects(for: self) } }
     override var isFlipped: Bool { true }
 
@@ -136,10 +165,7 @@ final class OriginalMissionCommands: NSView {
         heading.lineBreakMode = .byTruncatingTail
         heading.font = .systemFont(ofSize: 11, weight: .semibold)
         addSubview(heading)
-        help.textColor = .white
-        help.font = .systemFont(ofSize: 10)
-        help.alignment = .center
-        addSubview(help)
+        scroll.scrollerStyle = .overlay
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
@@ -175,8 +201,8 @@ final class OriginalMissionCommands: NSView {
             definitions = catalog.commands(on: page, hasRaider: hasRaider)
             buttons = definitions.enumerated().map { index, definition in
                 let button = MissionCommandButton(title: definition.title, target: self, action: #selector(activate(_:)))
-                button.onHover = { [weak self] in
-                    self?.help.stringValue = definition.title + "\n" + definition.detail
+                button.onHover = { [weak self] inside in
+                    self?.onHelp?(inside ? definition.title + "\n" + definition.detail : nil)
                 }
                 button.tag = index
                 button.toolTip = definition.title + "\n" + definition.detail
@@ -195,9 +221,15 @@ final class OriginalMissionCommands: NSView {
                 document.addSubview(button)
                 return button
             }
-            help.stringValue = page == .buildings ? "Hover a building for its original resource cost." : "Hover an icon for details."
+            onHelp?(nil)
             surround = catalog.surround(count: definitions.count, hasBack: page != .main)
             surroundArt = image(surround?.image)
+            // Use transparent idle Back only with its original surround.
+            let backDefinition = catalog.backButton
+            back.hoverArt = surroundArt == nil ? nil : image(backDefinition?.hover)
+            back.pressedArt = image(backDefinition?.pressed)
+            back.toolTip = backDefinition?.title ?? "Back"
+            back.onHover = { [weak self] inside in self?.onHelp?(inside ? "Back to main commands" : nil) }
             scroll.contentView.scroll(to: .zero)
         }
         for (button, definition) in zip(buttons, definitions) { button.isEnabled = permitted && definition.enabled }
@@ -216,36 +248,61 @@ final class OriginalMissionCommands: NSView {
 
     override func layout() {
         super.layout()
-        let scale = max(0.1, bounds.width / 90)
-        heading.frame = NSRect(x: 2, y: 0, width: bounds.width - 4, height: 20 * scale)
-        let offset = surround?.icons ?? CGPoint(x: 10, y: 25)
-        let x = max(0, min(bounds.width - 40 * scale, offset.x * scale))
-        let top = min(max(22 * scale, offset.y * scale), max(22 * scale, bounds.height - 160 * scale))
-        let rowHeight = 48 * scale
-        let helpHeight = 78 * scale
-        help.frame = NSRect(x: 4 * scale, y: max(0, bounds.height - helpHeight), width: max(1, bounds.width - 8 * scale), height: helpHeight)
-        let bottom = helpHeight + (back.isHidden ? 4 * scale : 42 * scale)
-        scroll.frame = NSRect(x: x, y: top, width: max(1, bounds.width - x - 3 * scale), height: max(1, bounds.height - top - bottom))
-        let total = max(scroll.contentSize.height, CGFloat(buttons.count) * rowHeight)
-        document.frame = NSRect(x: 0, y: 0, width: scroll.contentSize.width, height: total)
-        // Flipped document coordinates keep the first original entry at the top.
-        for (index, button) in buttons.enumerated() {
-            button.frame = NSRect(x: 0, y: CGFloat(index) * rowHeight,
-                                  width: document.bounds.width, height: rowHeight - 4 * scale)
+        let scale = max(0.1, logicalScale)
+        let original = surroundArt != nil
+        heading.isHidden = original
+        heading.frame = NSRect(x: 2, y: 0, width: max(1, bounds.width - 4), height: 20 * scale)
+        let offset = original ? (surround?.icons ?? .zero) : CGPoint(x: 4, y: 22)
+        let x = max(0, min(bounds.width - 1, offset.x * scale))
+        let top = max(0, min(bounds.height - 1, offset.y * scale))
+        // Original icons retain their bitmap dimensions instead of stretching
+        // to a fixed 48px row. Missing art uses a readable text-button row.
+        let sizes = buttons.map { button -> CGSize in
+            guard let image = button.image else { return CGSize(width: 67, height: 40) }
+            return CGSize(width: min(75, max(1, image.size.width)), height: min(128, max(1, image.size.height)))
         }
-        // Reserve a separate Back row so long catalogs cannot cover it.
-        back.frame = NSRect(x: 8 * scale, y: max(0, bounds.height - helpHeight - 38 * scale), width: bounds.width - 16 * scale, height: 34 * scale)
+        let contentHeight = sizes.reduce(CGFloat(0)) { $0 + $1.height * scale }
+        let backSize = back.hoverArt != nil ? (catalog.backButton?.size ?? CGSize(width: 67, height: 34)) : CGSize(width: 67, height: 34)
+        let available = max(1, bounds.height - top - (back.isHidden ? 4 : backSize.height + 4) * scale)
+        var scrollHeight = min(contentHeight, available)
+        var backOrigin = CGPoint(x: 4 * scale, y: top + scrollHeight + 2 * scale)
+        if !back.isHidden, original, let position = surround?.back,
+           position.x >= 0, position.y >= 0,
+           position.x * scale + backSize.width * scale <= bounds.width,
+           position.y * scale + backSize.height * scale <= bounds.height {
+            backOrigin = CGPoint(x: position.x * scale, y: position.y * scale)
+            // Only shorten the scroll area when Back lies beneath the icons.
+            if backOrigin.y >= top { scrollHeight = min(scrollHeight, max(1, backOrigin.y - top - 2 * scale)) }
+        }
+        scroll.frame = NSRect(x: x, y: top, width: max(1, bounds.width - x), height: max(1, scrollHeight))
+        document.frame = NSRect(x: 0, y: 0, width: scroll.contentSize.width, height: max(scrollHeight, contentHeight))
+        var y: CGFloat = 0
+        for (button, size) in zip(buttons, sizes) {
+            button.frame = NSRect(x: 0, y: y, width: min(document.bounds.width, size.width * scale), height: size.height * scale)
+            y += size.height * scale
+        }
+        back.frame = NSRect(origin: backOrigin, size: NSSize(width: min(backSize.width * scale, bounds.width - backOrigin.x), height: backSize.height * scale))
+        let artHeight = (surroundArt?.size.height ?? 0) * scale
+        let controlsBottom = back.isHidden ? scroll.frame.maxY : max(scroll.frame.maxY, back.frame.maxY)
+        visiblePanel = NSRect(x: 0, y: 0, width: bounds.width, height: min(bounds.height, max(artHeight, controlsBottom + 4 * scale)))
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard !isHidden else { return nil }
+        let local = convert(point, from: superview)
+        guard visiblePanel.contains(local) else { return nil }
+        return super.hitTest(point)
     }
 
     override func draw(_ dirtyRect: NSRect) {
         NSGraphicsContext.current?.imageInterpolation = .none
         if let art = surroundArt {
-            let scale = bounds.width / 90
+            let scale = max(0.1, logicalScale)
             art.draw(in: NSRect(x: 0, y: 0, width: art.size.width * scale, height: art.size.height * scale),
                      from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
         } else {
             NSColor(calibratedWhite: 0.08, alpha: 0.86).setFill()
-            NSBezierPath(roundedRect: bounds, xRadius: 5, yRadius: 5).fill()
+            NSBezierPath(roundedRect: visiblePanel, xRadius: 5, yRadius: 5).fill()
         }
     }
 }

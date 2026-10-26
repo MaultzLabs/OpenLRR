@@ -24,6 +24,7 @@ import AppKit
         ui.onCommand = { commands.append($0) }
         ui.onBack = { backClicks += 1 }
         for scale: CGFloat in [1, 2] {
+            ui.logicalScale = scale
             ui.frame = NSRect(x: 0, y: 0, width: 90 * scale, height: 365 * scale)
             ui.update(page: .main, hasRaider: false, permitted: true)
             ui.layoutSubtreeIfNeeded()
@@ -44,6 +45,7 @@ import AppKit
             precondition(!scroll.frame.intersects(button("Back").frame), "Back must not cover scrolling icons")
             precondition(ui.hitTest(NSPoint(x: 1, y: 1)) != nil, "Sidebar background must consume cave clicks")
             precondition(ui.hitTest(NSPoint(x: -2, y: -2)) == nil)
+            precondition(ui.hitTest(NSPoint(x: 1, y: ui.bounds.height - 1)) == nil, "Unused sidebar area must leave cave input available")
             ui.update(page: .raider, hasRaider: true, permitted: true)
             button("First-person view").performClick(nil)
             precondition(commands.last == "GotoFirstPerson")
@@ -53,6 +55,10 @@ import AppKit
         }
         button("Back").performClick(nil)
         precondition(backClicks == 1)
+        let messages = OriginalMissionMessageUI(resources: resources, config: config)
+        messages.update(text: nil, canAdvance: false, hideArrow: false)
+        precondition(!messages.isHidden, "Retail message panel remains visible without a message")
+        precondition(messages.subviews.compactMap { $0 as? NSButton }.allSatisfy { $0.isHidden })
         print("AppKit mission command dispatch, tutorial lock, layout and hit tests passed")
     }
 }

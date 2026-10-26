@@ -31,3 +31,22 @@ an in-game review on the user's Mac. This is not a pixel-perfect restoration:
 heading/help and the reserved Back row are native layout, and unsupported game
 systems are not implemented by displaying their icons. No copyrighted game
 art or music is included in source or CI artifacts.
+
+## Screenshot-guided layout correction
+
+Reference images inspected at 640x480:
+- https://pichuonigiri.wordpress.com/2015/01/06/lego-rock-raiders/ (base/power paths)
+- https://gamesdb.launchbox-app.com/games/images/5325-lego-rock-raiders (lava cavern)
+
+Both show compact upper-right command icons and a persistent empty green bottom
+message panel. The follow-up removes permanent sidebar help text, uses a floating
+hover explanation, preserves original icon bitmap dimensions, anchors the menu
+at the source's (565,18) position, and uses CFG Back highlight/pressed overlays
+and offsets when their surround is available. Unused space below the compact
+menu now passes clicks to the cave. The message panel stays visible when empty,
+with Next hidden. Original surrounding panels, resources and camera controls are
+still incomplete; this does not claim a finished retail HUD.
+
+Regression checks cover the empty message panel/hidden Next and cave hit testing
+below the sidebar, alongside existing action dispatch and tutorial locks. Real
+asset alignment still needs checking in the running native build.

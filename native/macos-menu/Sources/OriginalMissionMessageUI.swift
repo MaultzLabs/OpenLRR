@@ -83,7 +83,7 @@ final class OriginalMissionMessageUI: NSView {
         nextButton.target = self
         nextButton.action = #selector(advance)
         addSubview(nextButton)
-        isHidden = true
+        isHidden = false
     }
     required init?(coder: NSCoder) { nil }
 
@@ -93,8 +93,8 @@ final class OriginalMissionMessageUI: NSView {
             textView.string = value
             textView.scrollToBeginningOfDocument(nil)
         }
-        isHidden = value.isEmpty
-        nextButton.isHidden = hideArrow
+        isHidden = false
+        nextButton.isHidden = hideArrow || value.isEmpty
         nextButton.isEnabled = canAdvance
         needsDisplay = true
     }

@@ -619,6 +619,10 @@ final class NativeLevel3DView: SCNView {
 /// Offers a 3D view by default and an original 2D MAP debug view as fallback.
 /// The parent holds strong references so the original game world remains
 /// alive while the window is open; neither viewer modifies the source data.
+private final class MissionHoverHelp: NSTextField {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
 final class NativeMissionWorkspace: NSView {
     private let level3D: NativeLevel3DView
     private let level2D: NativeLevelView
@@ -626,6 +630,7 @@ final class NativeMissionWorkspace: NSView {
     private let status: NSTextField
     private let nerpsInfo: NSTextField
     private let missionHUD: OriginalMissionMessageUI
+    private let commandHelp = MissionHoverHelp(wrappingLabelWithString: "")
     private let commands: OriginalMissionCommands
     private var commandPage = OriginalMissionCommandCatalog.Page.main
     private let optionsButton = NSButton(title: "Mission options ▾", target: nil, action: nil)
@@ -696,6 +701,20 @@ final class NativeMissionWorkspace: NSView {
         addSubview(nerpsInfo)
         addSubview(missionHUD)
         addSubview(commands)
+        commandHelp.font = .systemFont(ofSize: 12)
+        commandHelp.textColor = .white
+        commandHelp.backgroundColor = NSColor(calibratedRed: 0.02, green: 0.22, blue: 0.04, alpha: 0.96)
+        commandHelp.drawsBackground = true
+        commandHelp.isHidden = true
+        addSubview(commandHelp)
+        commands.onHelp = { [weak self] text in
+            guard let self else { return }
+            self.commandHelp.stringValue = text ?? ""
+            self.commandHelp.isHidden = text == nil
+            let mouse = self.convert(self.window?.mouseLocationOutsideOfEventStream ?? .zero, from: nil)
+            self.commandHelp.frame = NSRect(x: max(8, self.commands.frame.minX - 252),
+                y: max(140, min(self.bounds.height - 88, mouse.y - 72)), width: 240, height: 72)
+        }
         commands.onCommand = { [weak self] action in self?.performCommand(action) }
         commands.onBack = { [weak self] in self?.returnToCommands() }
         level3D.onSelectionChanged = { [weak self] in
@@ -902,10 +921,12 @@ final class NativeMissionWorkspace: NSView {
                                 height: 19)
         missionHUD.frame = bounds
         let scale = min(bounds.width / 640, bounds.height / 480)
-        let sidebarWidth = max(60, 90 * scale)
-        commands.frame = NSRect(x: max(0, bounds.width - sidebarWidth - 8 * scale),
-                                y: max(0, bounds.height - 395 * scale),
-                                width: sidebarWidth, height: min(bounds.height, 365 * scale))
+        // Interface_Globs starts the command menu at (565,18) in 640x480.
+        // Keep that right-edge inset on wide windows and scale from one origin.
+        commands.logicalScale = scale
+        commands.frame = NSRect(x: max(0, bounds.width - 75 * scale),
+                                y: max(0, bounds.height - 390 * scale),
+                                width: 75 * scale, height: 372 * scale)
         optionsButton.frame = NSRect(x: 12, y: max(0, bounds.height - 34), width: 150, height: 26)
         optionsPanel.frame = NSRect(x: 12, y: max(0, bounds.height - 106), width: 240, height: 68)
         diagnosticsButton.frame = NSRect(x: 12, y: 8, width: 210, height: 24)

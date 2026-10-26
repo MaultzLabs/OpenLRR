@@ -40,6 +40,7 @@ import Foundation
                     CostCrystal 0
                 }
             }
+            InterfaceBackButton 40:20:Interface/BackHL.bmp:Interface/BackPR.bmp:Go_Back
             InterfaceBuildImages { ToolStation Tool_Store:SFX_Okay:Interface/Tool.bmp }
             InterfaceSurroundImages {
                 4 Interface/BackPanel.bmp:10:22:8:240:Interface/MainPanel.bmp:11:23
@@ -54,6 +55,9 @@ import Foundation
         }
         """)
         let catalog = OriginalMissionCommandCatalog(config: catalogConfig)
+        precondition(catalog.backButton?.size == CGSize(width: 40, height: 20))
+        precondition(catalog.backButton?.title == "Go Back")
+        precondition(OriginalMissionCommandCatalog(config: nil).backButton == nil)
         let buildings = catalog.commands(on: .buildings, hasRaider: false)
         precondition(buildings.map(\.id) == ["building:toolstation", "building:teleportpad", "building:powerstation"])
         precondition(buildings[0].title == "Tool Store")
