@@ -55,6 +55,7 @@ final class NativeLevel3DView: SCNView {
     private var raiderModels: [String: OriginalRaiderModel] = [:]
     private var modelTimer: Timer?
     private let overheadCamera = SCNNode()
+    private let overheadMotion: NativeOverheadCamera
     private let firstPersonCamera = SCNNode()
     private var firstPersonRaider: String?
     private var firstPersonController: NativeFirstPersonController?
@@ -83,6 +84,7 @@ final class NativeLevel3DView: SCNView {
 
     init(frame: NSRect, world: LevelWorld, objects: OriginalObjectList?,
          resources: GameResources, textureSet: String?, config: LegoConfig? = nil, blockSize: Double = 40) throws {
+        self.overheadMotion = NativeOverheadCamera(config: config, blockSize: blockSize)
         self.world = world
         self.terrainMesh = try NativeTerrainMesh(world: world)
         self.originalObjects = objects
@@ -222,6 +224,7 @@ final class NativeLevel3DView: SCNView {
         }
         self.scene = scene
         self.pointOfView = camera
+        defaultCameraController.target = SCNVector3(centerX, centerY, centerZ)
     }
 
     private func makeGeometry(_ surface: NativeTerrainMesh.Surface) -> SCNGeometry? {
@@ -352,6 +355,7 @@ final class NativeLevel3DView: SCNView {
         }
     }
 
+    private static let overheadKeys: Set<UInt16> = [123, 124, 125, 126, 27, 24]
     private static let movementKeys: Set<UInt16> = [0, 1, 2, 13, 123, 124, 125, 126]
 
     override func keyDown(with event: NSEvent) {
@@ -373,11 +377,12 @@ final class NativeLevel3DView: SCNView {
             if Self.movementKeys.contains(event.keyCode) { heldKeys.insert(event.keyCode) }
             return
         }
+        if Self.overheadKeys.contains(event.keyCode) { heldKeys.insert(event.keyCode); return }
         super.keyDown(with: event)
     }
 
     override func keyUp(with event: NSEvent) {
-        if firstPersonRaider != nil && Self.movementKeys.contains(event.keyCode) {
+        if Self.movementKeys.contains(event.keyCode) || Self.overheadKeys.contains(event.keyCode) {
             heldKeys.remove(event.keyCode)
             return
         }
@@ -452,11 +457,29 @@ final class NativeLevel3DView: SCNView {
         }
     }
 
+    func moveOverheadCamera(vector: CGPoint, zoom: Double = 0, seconds: Double) {
+        guard firstPersonRaider == nil, tutorialInputPolicy.canMoveCamera, let camera = pointOfView else { return }
+        let target = defaultCameraController.target
+        let position = camera.presentation.position
+        let offset = NativeOverheadCamera.Offset(x: Double(position.x - target.x), y: Double(position.y - target.y), z: Double(position.z - target.z))
+        let moved = overheadMotion.moved(offset: offset, horizontal: vector.x, vertical: vector.y, zoom: zoom, seconds: seconds)
+        camera.position = SCNVector3(target.x + Float(moved.x), target.y + Float(moved.y), target.z + Float(moved.z))
+        camera.look(at: target)
+    }
+
     private func advanceFrame() {
         let now = ProcessInfo.processInfo.systemUptime
         let elapsed = lastSimulationTime.map { max(0, now - $0) } ?? 0
         lastSimulationTime = now
         for model in raiderModels.values { model.update(time: now) }
+        if firstPersonRaider == nil, window?.isKeyWindow == true {
+            let horizontal = (heldKeys.contains(124) ? 1.0 : 0) - (heldKeys.contains(123) ? 1.0 : 0)
+            let vertical = (heldKeys.contains(125) ? 1.0 : 0) - (heldKeys.contains(126) ? 1.0 : 0)
+            let zoom = (heldKeys.contains(27) ? 1.0 : 0) - (heldKeys.contains(24) ? 1.0 : 0)
+            if horizontal != 0 || vertical != 0 || zoom != 0 {
+                moveOverheadCamera(vector: CGPoint(x: horizontal, y: vertical), zoom: zoom, seconds: elapsed)
+            }
+        }
         guard let id = firstPersonRaider, let marker = raiderMarkers[id],
               var controller = firstPersonController, tutorialInputPolicy.canMoveCamera else { return }
         let forward = (heldKeys.contains(13) || heldKeys.contains(126) ? 1.0 : 0.0) -
@@ -626,6 +649,7 @@ final class NativeMissionWorkspace: NSView {
     private let status: NSTextField
     private let nerpsInfo: NSTextField
     private let missionHUD: OriginalMissionMessageUI
+    private let panels: OriginalMissionPanels
     private let commands: OriginalMissionCommands
     private var commandPage = OriginalMissionCommandCatalog.Page.main
     private let optionsButton = NSButton(title: "Mission options ▾", target: nil, action: nil)
@@ -643,6 +667,7 @@ final class NativeMissionWorkspace: NSView {
             level2D.originalCursor = originalCursor
             missionHUD.originalCursor = originalCursor
             commands.originalCursor = originalCursor
+            panels.originalCursor = originalCursor
         }
     }
     var onBack: (() -> Void)? {
@@ -659,6 +684,7 @@ final class NativeMissionWorkspace: NSView {
         self.nerpsInfo = NSTextField(labelWithString:
             nerpsState == nil ? "Original NERPs script unavailable" : "NERPs script loaded; preparing native callbacks")
         self.missionHUD = OriginalMissionMessageUI(resources: resources, config: config)
+        self.panels = OriginalMissionPanels(resources: resources, config: config)
         self.commands = OriginalMissionCommands(resources: resources, config: config)
         self.level3D = try NativeLevel3DView(
             frame: frame, world: world, objects: objects,
@@ -694,6 +720,10 @@ final class NativeMissionWorkspace: NSView {
         nerpsInfo.drawsBackground = true
         nerpsInfo.lineBreakMode = .byTruncatingTail
         addSubview(nerpsInfo)
+        addSubview(panels)
+        panels.onCameraControl = { [weak self] vector, elapsed in
+            self?.level3D.moveOverheadCamera(vector: vector, seconds: elapsed)
+        }
         addSubview(missionHUD)
         addSubview(commands)
         commands.onCommand = { [weak self] action in self?.performCommand(action) }
@@ -816,6 +846,8 @@ final class NativeMissionWorkspace: NSView {
             commandPage = level3D.hasSelectedRaider ? .raider : .main
         }
         commands.isHidden = mode.selectedSegment != 0
+        panels.isHidden = mode.selectedSegment != 0
+        panels.cameraPermitted = !level3D.isInFirstPerson && level3D.tutorialInputPolicy.canMoveCamera
         let permitted = nerpsState == nil || nerpsState!.isPaused || nerpsState!.inputPolicy.canClickIcons
         commands.update(page: commandPage, hasRaider: level3D.hasSelectedRaider, permitted: permitted)
     }
@@ -902,11 +934,12 @@ final class NativeMissionWorkspace: NSView {
         nerpsInfo.frame = NSRect(x: 12, y: 42, width: max(0, bounds.width - 24),
                                 height: 19)
         missionHUD.frame = bounds
+        panels.frame = bounds
         let scale = min(bounds.width / 640, bounds.height / 480)
         // Interface_Globs starts the command menu at (565,18) in 640x480.
         // Keep that right-edge inset on wide windows and scale from one origin.
         commands.logicalScale = scale
-        commands.frame = NSRect(x: max(0, bounds.width - 75 * scale),
+        commands.frame = NSRect(x: max(0, (bounds.width - 640 * scale) / 2 + 565 * scale),
                                 y: max(0, bounds.height - 390 * scale),
                                 width: 75 * scale, height: 372 * scale)
         optionsButton.frame = NSRect(x: 12, y: max(0, bounds.height - 34), width: 150, height: 26)

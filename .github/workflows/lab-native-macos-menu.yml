@@ -51,8 +51,8 @@ jobs:
           bash build.sh
           xcrun swiftc -Onone -g -framework AppKit \
             Sources/WadArchive.swift Sources/GameResources.swift Sources/PalettedBMP.swift \
-            Sources/LegoConfig.swift Sources/OriginalMissionMessageUI.swift \
-            Sources/OriginalMissionCommands.swift Tests/OriginalMissionCommandsAppKitTests.swift \
+            Sources/LegoConfig.swift Sources/OriginalFontLayout.swift Sources/OriginalBitmapFont.swift Sources/OriginalMissionMessageUI.swift \
+            Sources/OriginalMissionCommands.swift Sources/OriginalMissionPanels.swift Tests/OriginalMissionCommandsAppKitTests.swift \
             -o /tmp/openlrr-command-ui-test
           /tmp/openlrr-command-ui-test
           mkdir -p tools/gameplay-capture/.build

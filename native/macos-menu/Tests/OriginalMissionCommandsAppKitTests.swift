@@ -62,6 +62,29 @@ import AppKit
         messages.update(text: nil, canAdvance: false, hideArrow: false)
         precondition(!messages.isHidden, "Retail message panel remains visible without a message")
         precondition(messages.subviews.compactMap { $0 as? NSButton }.allSatisfy { $0.isHidden })
+        // A synthetic indexed BMP checks real asset alpha hit testing without
+        // putting retail artwork in the repository or CI artifacts.
+        func le(_ n: UInt32) -> [UInt8] { [UInt8(truncatingIfNeeded: n), UInt8(truncatingIfNeeded: n >> 8), UInt8(truncatingIfNeeded: n >> 16), UInt8(truncatingIfNeeded: n >> 24)] }
+        var bmp: [UInt8] = [66,77] + le(70) + [0,0,0,0] + le(62)
+        bmp += le(40) + le(2) + le(2) + [1,0,8,0]
+        bmp += le(0) + le(8) + le(0) + le(0) + le(2) + le(0)
+        bmp += [0,0,0,0, 255,255,255,0]
+        bmp += [1,1,0,0, 0,1,0,0] // bottom-up: transparent top-left.
+        let name = Array("Panel.bmp".utf8) + [UInt8(0)]
+        let offset = 8 + name.count * 2 + 16
+        var wad = [UInt8]([87,87,65,68]) + le(1) + name + name
+        wad += le(1) + le(UInt32(bmp.count)) + le(UInt32(bmp.count)) + le(UInt32(offset)) + bmp
+        let imageResources = try GameResources(archives: [(0, Data(wad))])
+        let imageConfig = try LegoConfig(text: "Lego* { Panels640x480 { Panel_TopPanel Panel.bmp,10,20,10,20 } }")
+        let imagePanels = OriginalMissionPanels(resources: imageResources, config: imageConfig)
+        host.addSubview(imagePanels)
+        imagePanels.frame = NSRect(x: 0, y: 0, width: 640, height: 480)
+        func panelHit(_ point: NSPoint) -> NSView? { imagePanels.hitTest(imagePanels.convert(point, to: host)) }
+        precondition(panelHit(NSPoint(x: 10.25, y: 20.25)) == nil, "Black keyed artwork must pass cave input through")
+        precondition(panelHit(NSPoint(x: 11.25, y: 20.25)) === imagePanels, "Visible panel pixels consume input")
+        precondition(panelHit(NSPoint(x: 300, y: 200)) == nil, "Panel overlay must not cover the cave")
+        imagePanels.frame.size = NSSize(width: 1280, height: 960)
+        precondition(panelHit(NSPoint(x: 22.5, y: 40.5)) === imagePanels, "Scaled drawing and input must agree")
         print("AppKit mission command dispatch, tutorial lock, layout and hit tests passed")
     }
 }

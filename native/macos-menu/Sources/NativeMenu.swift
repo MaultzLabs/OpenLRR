@@ -6,34 +6,6 @@ import UniformTypeIdentifiers
 
 /// Prototype view: places real WAD images and Lego.cfg menu items at the
 /// original logical 640x480 coordinates. Font and overlays remain incomplete.
-private struct OriginalBitmapFont {
-    let image: NSImage
-    let characterWidths: [Int]
-    let cellWidth: Int
-    let cellHeight: Int
-    let sheetHeight: Int
-
-    func layout(_ text: String) -> OriginalFontLayout? {
-        OriginalFontLayout.make(text, characterWidths: characterWidths,
-                                lineHeight: cellHeight)
-    }
-
-    func draw(_ layout: OriginalFontLayout, at point: CGPoint) {
-        for placement in layout.glyphs {
-            let col = placement.index % 10
-            let row = placement.index / 10
-            let width = CGFloat(characterWidths[placement.index])
-            let source = CGRect(x: CGFloat(col * cellWidth),
-                                y: CGFloat(sheetHeight - ((row + 1) * cellHeight)),
-                                width: width, height: CGFloat(cellHeight))
-            let destination = CGRect(x: point.x + CGFloat(placement.x),
-                                     y: point.y + CGFloat(placement.y),
-                                     width: width, height: CGFloat(cellHeight))
-            image.draw(in: destination, from: source, operation: .sourceOver,
-                       fraction: 1, respectFlipped: true, hints: nil)
-        }
-    }
-}
 
 final class OriginalMenuCanvas: NSView {
     var resources: GameResources? { didSet { clearCache(); gameCursor = nil; needsDisplay = true } }

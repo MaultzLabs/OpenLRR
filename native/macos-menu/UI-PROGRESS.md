@@ -66,3 +66,31 @@ The first screenshot-pass Mac build compiled, but the UI test trapped. The hit
 test fixture was passing flipped-local points to an API requiring parent-space
 points. It now attaches the sidebar to a real parent and converts coordinates;
 the UI test executable also retains debug assertion messages.
+
+## Original frame panels, message typography and camera input
+
+GameState.cpp provides the exact message origin (42,409), text rectangle
+(55,435,325,42), font5_HI.bmp asset, and keyboard camera increments. This pass
+replaces the earlier approximate message coordinates and system-font rendering
+when the original font is available. It reuses the bitmap-font renderer and
+ports TextWindow_Update's width-boundary, word splitting and page-stop behavior
+for a single current message; full history/expanded NERPs text remains pending.
+
+OriginalMissionPanels loads fixed panel artwork from Panels640x480: message side,
+camera control, top panel, crystal sidebar and info dock. It preserves original
+positions and draws in source order. Black-keyed transparent pixels let cave
+clicks through. Sliding radar/priorities/info windows remain excluded until
+implemented. Resource counters are not fabricated; the sidebar is its original
+frame artwork, not a completed resource economy.
+
+The configured camera rotation disk now drives the overhead camera while held,
+including its original directional overlay images. Keyboard arrow rotation/tilt
+and minus/equal zoom use GameState.cpp's 25-tick rates and CFG Min/MaxTilt/Dist.
+Tutorial camera locks and first-person mode suppress these controls. The mouse
+rotation sensitivity currently uses those keyboard rates; exact retail pointer
+sensitivity still needs comparison. Zoom/cycle icon hit boxes are not guessed:
+the Buttons640x480 format still needs a verified installed configuration.
+
+Validation adds synthetic panel parsing, shared 640x480 transforms, circular
+control normalization, camera rates/limits, original text wrapping and AppKit
+black-keyed panel hit tests at two scales. No original asset bytes are in tests.

@@ -42,6 +42,8 @@ import AppKit
 /// behind the HUD. Text bounds remain provisional pending retail visual review.
 final class OriginalMissionMessageUI: NSView {
     private let definition: OriginalMissionMessageDefinition
+    private let bitmapFont: OriginalBitmapFont?
+    private var bitmapText: OriginalFontLayout?
     private let panel: NSImage?
     private let nextArt: NSImage?
     private let textScroll = NSScrollView()
@@ -54,6 +56,7 @@ final class OriginalMissionMessageUI: NSView {
     override var isFlipped: Bool { true }
 
     init(resources: GameResources, config: LegoConfig?) {
+        bitmapFont = OriginalBitmapFont.load("Interface/Fonts/font5_HI.bmp", resources: resources)
         definition = OriginalMissionMessageDefinition(config: config)
         panel = Self.image(definition.panelPath, resources: resources)
         nextArt = Self.image(definition.nextPath, resources: resources)
@@ -89,6 +92,10 @@ final class OriginalMissionMessageUI: NSView {
 
     func update(text: String?, canAdvance: Bool, hideArrow: Bool) {
         let value = text ?? ""
+        if let font = bitmapFont, let wrapped = OriginalFontLayout.wrap(value, characterWidths: font.characterWidths, width: 325) {
+            bitmapText = font.layout(wrapped)
+        }
+        textScroll.isHidden = bitmapFont != nil
         if textView.string != value {
             textView.string = value
             textView.scrollToBeginningOfDocument(nil)
@@ -115,7 +122,7 @@ final class OriginalMissionMessageUI: NSView {
                    y: logicalOrigin.y + rect.minY * logicalScale,
                    width: rect.width * logicalScale, height: rect.height * logicalScale)
         }
-        textScroll.frame = scaled(CGRect(x: 16, y: 414, width: 355, height: 62))
+        textScroll.frame = scaled(CGRect(x: 55, y: 435, width: 325, height: 42))
         textView.font = .systemFont(ofSize: max(9, 12 * logicalScale))
         textView.setFrameSize(NSSize(width: textScroll.contentSize.width,
                                      height: max(textScroll.contentSize.height, textView.frame.height)))
@@ -133,24 +140,33 @@ final class OriginalMissionMessageUI: NSView {
         if let panel {
             // Full-screen transparent art retains its native origin; compact
             // message strips align to the bottom of the 640x480 canvas.
-            panel.draw(in: CGRect(x: 0, y: max(0, 480 - panel.size.height),
+            panel.draw(in: CGRect(x: 42, y: 409,
                                   width: panel.size.width, height: panel.size.height),
                        from: .zero, operation: .sourceOver, fraction: 1,
                        respectFlipped: true, hints: nil)
         } else {
             NSColor(calibratedWhite: 0.08, alpha: 0.92).setFill()
-            CGRect(x: 8, y: 409, width: 445, height: 71).fill()
+            CGRect(x: 42, y: 409, width: 368, height: 71).fill()
+        }
+        if let font = bitmapFont, let text = bitmapText {
+            context.saveGraphicsState()
+            context.cgContext.clip(to: CGRect(x: 55, y: 435, width: 325, height: 42))
+            // TextWindow_Update displays the last fitting lines by default.
+            let lines = max(1, 42 / font.cellHeight)
+            let offset = max(0, text.lineCount - lines) * font.cellHeight
+            font.draw(text, at: CGPoint(x: 55, y: 435 - offset))
+            context.restoreGraphicsState()
         }
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard !isHidden else { return nil }
         let local = convert(point, from: superview)
-        if textScroll.frame.contains(local) { return super.hitTest(point) }
+        if !textScroll.isHidden, textScroll.frame.contains(local) { return super.hitTest(point) }
         if !nextButton.isHidden, nextButton.frame.contains(local) { return super.hitTest(point) }
         // Consume the entire message strip, including gaps around the controls.
-        let strip = CGRect(x: logicalOrigin.x, y: logicalOrigin.y + 409 * logicalScale,
-                           width: 453 * logicalScale, height: 71 * logicalScale)
+        let strip = CGRect(x: logicalOrigin.x + 42 * logicalScale, y: logicalOrigin.y + 409 * logicalScale,
+                           width: 368 * logicalScale, height: 71 * logicalScale)
         return strip.contains(local) ? self : nil
     }
     override func mouseDown(with event: NSEvent) {}
