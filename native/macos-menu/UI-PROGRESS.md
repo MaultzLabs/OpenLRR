@@ -152,3 +152,57 @@ changes, stale buttons, tutorial locks, and malformed/missing-art fallback.
 `bash test.sh` stops at `swiftc: command not found` in this cloud environment;
 macOS CI must establish compilation/runtime results. Real retail-asset visual
 alignment and mouse/keyboard behavior still require native in-game verification.
+
+## Original OL building and resource meshes (2026-10-26)
+
+- Existing OL building types now resolve case-insensitively through
+  `BuildingTypes::<type>`, then `<directory>/<basename>.ae` and the configured
+  `Activity_Stand` LWS. There is no hard-coded Tool Store directory and no
+  requirement that a standing building provide Raider `Activity_Route`.
+- OL `PowerCrystal`, `Ore`, and `ProcessedOre` resolve to `MiscObjects::Crystal`,
+  `Ore`, and `ProcessedOre` LWO basenames. Missing/corrupt assets report their
+  path/OL identifier in the diagnostic status tooltip. The original DirectX
+  `.x` fallback is explicitly unsupported; no substitute mesh is generated.
+- Buildings/resources and Raiders share one decoded LWOB/LWS renderer, including
+  material groups, per-corner UView UV seams, local-before-SharedObjects and
+  mesh-local-before-SharedTextures resolution, parent hierarchy and pivot matrix.
+  Nonzero AE `Scale` is applied before world BlockSize conversion (zero/missing
+  is identity). `LOOPING` defaults true; false/no/off clamps the clip at its last
+  frame. Loop wrapping now follows `Lws_SetTime`'s LastFrame boundary rather
+  than the previous inclusive frame-count period. LWSFILE now follows the
+  source's TRUE/YES/ON tokens: numeric `1` is not true (the previous native
+  adapter accepted it); numeric/unknown LOOPING still defaults true. The current declared-LWS-FPS
+  clock is retained; original game-tick/object-stat animation rates are pending.
+- Powered crystals use `Main::PowerCrystalRGB` for both diffuse and emissive
+  material channels, not an invented crystal color. Missing/invalid configured
+  color is an explicit diagnostic rather than a guessed value.
+- Real object models display on discovered tiles with diagnostic markers off,
+  including after connected hidden-cavern reveal. Original OL identifiers and
+  coordinates are retained. Missing/unsupported non-Raider models still require
+  the explicit diagnostic switch to show their proxy. All model roots are
+  ground-based; capsule/sphere offsets belong only to fallback proxy children.
+  Existing Raider first-person eye height and tutorial camera targets are kept.
+
+This is an **asset-loading/rendering milestone**, not a construction or economy
+port. Building heading cardinalization at hidden-cavern exposure, transformed
+`Shape` footprints (including repeated points marking paths), ground flattening,
+collision, upgrades, teleports and building function remain unported. It does
+not add bounding-box collision. Existing OL resources are drawn; CryOreMap
+mining drops, pickup, delivery, stock counters and construction costs are not
+fabricated. Non-Stand building activities, DirectX meshes, full retail material
+semantics and gameplay animation rates remain outside this change.
+
+Source: `Building.cpp:112–138`, `Containers.cpp:532–613`,
+`Game.cpp:841–873`, `GameCommon.h:184–206`, `Lws.cpp:476–486`,
+`GameState.cpp:412–413`, `Object.cpp:705–723,1065–1067,1182–1199`.
+Synthetic config/WAD/LWOB/LWS regression coverage is added for mapping,
+stand-only buildings, scale, looping, ordered component fallback, missing-asset
+errors and marker-independent reveal rules; macOS CI additionally exercises the
+shared SceneKit geometry, hierarchy and crystal materials, initial frame-zero
+poses, Raider activity/selection ancestry, and preserved camera/proxy offsets. No retail files are
+included. `git diff --check`, shell syntax checks and a text-equivalence check
+of the extracted geometry/UV/pivot code passed locally. Swift tests are **not
+locally run** (`swiftc: command not found`, exit 127); native build is **not
+locally run** (requires macOS, exit 2). CI must establish compile/test results.
+Actual Tool Store/ore/crystal appearance in the first mission has **not** been
+validated with the user's retail assets on Apple Silicon.

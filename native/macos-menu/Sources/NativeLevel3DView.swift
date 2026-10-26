@@ -57,8 +57,7 @@ final class NativeLevel3DView: SCNView {
     var showObjectMarkers = false {
         didSet {
             for placement in originalObjects?.placements ?? [] where !placement.isRockRaider {
-                placementNodes[placement.identifier]?.isHidden = !showObjectMarkers ||
-                    excavation.tile(x: Int(placement.x), y: Int(placement.y))?.excavation.isDiscoveredCavern != true
+                updatePlacementVisibility(placement)
             }
         }
     }
@@ -69,6 +68,8 @@ final class NativeLevel3DView: SCNView {
     private var drillingRaiders = Set<String>()
     var selectionCount: Int32 { Int32(selectedRaiders.count) }
     private var raiderModels: [String: OriginalRaiderModel] = [:]
+    private var objectModels: [String: OriginalMissionObjectModel] = [:]
+    private(set) var modelDiagnostics: [String] = []
     private var modelTimer: Timer?
     private let overheadCamera = SCNNode()
     private let fog: NativeFirstPersonFog?
@@ -214,45 +215,64 @@ final class NativeLevel3DView: SCNView {
         }
         scene.rootNode.addChildNode(ambient)
 
-        let activities = config.flatMap { try? OriginalRaiderActivities.load(config: $0, resources: resources) }
-        // Debug proxies mark REAL retail OL placements: no fabricated Raider
-        // or building spawns, and no claim of original LightWave models.
+        let sharedTextures = config?.valueUnderGame(["Main", "SharedTextures"])
+        let activities: Result<OriginalRaiderActivities, Error> = Result {
+            guard let config else { throw OriginalModelActivities.AssetError.invalid("missing Lego.cfg") }
+            return try OriginalRaiderActivities.load(config: config, resources: resources)
+        }
+        var objectAssets: [String: Result<OriginalMissionObjectAsset, Error>] = [:]
+        // Every anchor is an existing OL identifier at its original coordinates.
+        // Successful original geometry is visible in normal play; only missing
+        // or unsupported models use the opt-in diagnostic proxy path.
         if let objects {
             for placement in objects.placements where !placement.isCamera {
                 guard placement.x >= 0, placement.y >= 0,
                       placement.x < Double(world.width),
-                      placement.y < Double(world.height),
-                      let tile = world.tile(x: Int(placement.x), y: Int(placement.y)) else { continue }
-                let geometry: SCNGeometry = placement.isRockRaider ?
-                    SCNCapsule(capRadius: 0.22, height: 0.80) :
-                    SCNSphere(radius: 0.24)
-                let material = SCNMaterial()
-                material.diffuse.contents = placement.isRockRaider ?
-                    NSColor.systemYellow : NSColor.systemTeal
-                material.lightingModel = .blinn
-                geometry.materials = [material]
-                let marker = SCNNode(geometry: geometry)
+                      placement.y < Double(world.height) else { continue }
+                let marker = SCNNode()
                 marker.name = "Original OL: \(placement.identifier) / \(placement.type)"
                 marker.position = worldPosition(x: placement.x, z: placement.y)
                 marker.eulerAngles = SCNVector3(0, Float(placement.headingDegrees * .pi / 180), 0)
                 scene.rootNode.addChildNode(marker)
                 placementNodes[placement.identifier] = marker
-                marker.isHidden = !tile.excavation.isDiscoveredCavern || (!placement.isRockRaider && !showObjectMarkers)
-                if placement.isRockRaider {
-                    if !marker.isHidden { raiderMarkers[placement.identifier] = marker }
-                    if let activities,
-                       let model = try? OriginalRaiderModel(activities: activities, resources: resources, blockSize: blockSize, sharedTextures: config?.valueUnderGame(["Main", "SharedTextures"])) {
-                        marker.geometry = nil
+                do {
+                    if placement.isRockRaider {
+                        let model = try OriginalRaiderModel(activities: activities.get(), resources: resources,
+                                                           blockSize: blockSize, sharedTextures: sharedTextures)
                         marker.addChildNode(model.root)
                         raiderModels[placement.identifier] = model
+                    } else {
+                        let key = placement.type.lowercased()
+                        if objectAssets[key] == nil {
+                            objectAssets[key] = Result {
+                                guard let config else { throw OriginalModelActivities.AssetError.invalid("missing Lego.cfg") }
+                                return try OriginalMissionObjectAsset.load(type: placement.type,
+                                                                           config: config, resources: resources)
+                            }
+                        }
+                        let model = try OriginalMissionObjectModel(asset: objectAssets[key]!.get(), resources: resources,
+                                                                   blockSize: blockSize, sharedTextures: sharedTextures)
+                        marker.addChildNode(model.root)
+                        objectModels[placement.identifier] = model
                     }
+                } catch {
+                    modelDiagnostics.append("\(placement.identifier) / \(placement.type): \(error)")
+                    let geometry: SCNGeometry = placement.isRockRaider ?
+                        SCNCapsule(capRadius: 0.22, height: 0.80) : SCNSphere(radius: 0.24)
+                    let material = SCNMaterial()
+                    material.diffuse.contents = placement.isRockRaider ? NSColor.systemYellow : NSColor.systemTeal
+                    material.lightingModel = .blinn
+                    geometry.materials = [material]
+                    let proxy = SCNNode(geometry: geometry)
+                    proxy.name = "Diagnostic proxy only"
+                    proxy.position.y = OriginalObjectPresentation.diagnosticCenterHeight
+                    marker.addChildNode(proxy)
                 }
+                updatePlacementVisibility(placement)
             }
         }
-
-        if !raiderModels.isEmpty {
-            modelSummary = "\(raiderModels.count)/\(raiderMarkers.count) original animated Raider models (original bitmap mapping enabled)"
-        }
+        modelSummary = "\(raiderModels.count) original Raider models • \(objectModels.count) original building/resource models"
+        if !modelDiagnostics.isEmpty { modelSummary += " • \(modelDiagnostics.count) missing/unsupported (details in diagnostic tooltip)" }
         modelTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
             self?.advanceFrame()
         }
@@ -294,6 +314,16 @@ final class NativeLevel3DView: SCNView {
         return geometry
     }
 
+    private func updatePlacementVisibility(_ placement: OriginalObjectList.Placement) {
+        guard let node = placementNodes[placement.identifier] else { return }
+        let discovered = excavation.tile(x: Int(placement.x), y: Int(placement.y))?.excavation.isDiscoveredCavern == true
+        node.isHidden = OriginalObjectVisibility.isHidden(discovered: discovered,
+            isRockRaider: placement.isRockRaider,
+            hasOriginalModel: raiderModels[placement.identifier] != nil || objectModels[placement.identifier] != nil,
+            showObjectMarkers: showObjectMarkers, isFirstPersonBody: placement.identifier == firstPersonRaider)
+        if discovered && placement.isRockRaider { raiderMarkers[placement.identifier] = node }
+    }
+
     private func refreshExcavatedTerrain() {
         guard let scene else { return }
         do {
@@ -310,12 +340,7 @@ final class NativeLevel3DView: SCNView {
             replacements.forEach { scene.rootNode.addChildNode($0) }
             terrainNodes = replacements
             terrainMesh = updated
-            for placement in originalObjects?.placements ?? [] {
-                guard let node = placementNodes[placement.identifier],
-                      excavation.tile(x: Int(placement.x), y: Int(placement.y))?.excavation.isDiscoveredCavern == true else { continue }
-                node.isHidden = placement.identifier == firstPersonRaider || (!placement.isRockRaider && !showObjectMarkers)
-                if placement.isRockRaider { raiderMarkers[placement.identifier] = node }
-            }
+            for placement in originalObjects?.placements ?? [] { updatePlacementVisibility(placement) }
             firstPersonController?.navigation = navigation
             onTerrainChanged?()
         } catch { onInteractionMessage?("Cave rebuild failed: \(error)") }
@@ -513,7 +538,8 @@ final class NativeLevel3DView: SCNView {
     func gotoTutorialCamera(_ id: Int32) {
         guard let camera = pointOfView, firstPersonRaider == nil else { return }
         for tile in world.tutorialBlocks(id) {
-            let target = worldPosition(x: Double(tile.x) + 0.5, z: Double(tile.y) + 0.5)
+            var target = worldPosition(x: Double(tile.x) + 0.5, z: Double(tile.y) + 0.5)
+            target.y += 0.48 // Preserve the current tutorial camera's above-ground target.
             let previous = defaultCameraController.target
             let position = camera.position
             camera.position = SCNVector3(position.x + target.x - previous.x,
@@ -558,6 +584,7 @@ final class NativeLevel3DView: SCNView {
             scene?.fogEndDistance = 0
         }
         for model in raiderModels.values { model.update(time: now) }
+        for model in objectModels.values { model.update(time: now) }
         if firstPersonRaider == nil, window?.isKeyWindow == true {
             let horizontal = (heldKeys.contains(124) ? 1.0 : 0) - (heldKeys.contains(123) ? 1.0 : 0)
             let vertical = (heldKeys.contains(125) ? 1.0 : 0) - (heldKeys.contains(126) ? 1.0 : 0)
@@ -589,7 +616,8 @@ final class NativeLevel3DView: SCNView {
                 performDrill(id: id, order: .init(wall: target, approach: at, route: [at]))
             }
         }
-        firstPersonCamera.position = SCNVector3(marker.position.x, marker.position.y + 0.20, marker.position.z)
+        // Preserve the existing eye height while placement anchors now sit on ground.
+        firstPersonCamera.position = OriginalObjectPresentation.eyePosition(above: marker.position)
         // SceneKit cameras look along -Z; the original OL Raider faces +Z.
         firstPersonCamera.eulerAngles = SCNVector3(0, Float(controller.heading + .pi), 0)
     }
@@ -597,7 +625,7 @@ final class NativeLevel3DView: SCNView {
     private func worldPosition(x: Double, z: Double) -> SCNVector3 {
         let elevation = world.elevation(atX: x, y: z) ?? 0
         return SCNVector3(Float(x) - Float(world.width) / 2,
-                          elevation * NativeTerrainMesh.previewHeightScale + 0.48,
+                          elevation * NativeTerrainMesh.previewHeightScale,
                           Float(z) - Float(world.height) / 2)
     }
 
@@ -708,12 +736,7 @@ final class NativeLevel3DView: SCNView {
         // Select a real OL Pilot proxy first, but still permit terrain picks
         // through other objects such as building or ore markers.
         let pickedRaider = hits.compactMap { hit -> String? in
-            var node: SCNNode? = hit.node
-            while let current = node {
-                if let id = raiderMarkers.first(where: { $0.value === current })?.key { return id }
-                node = current.parent
-            }
-            return nil
+            OriginalObjectPresentation.placementIdentifier(containing: hit.node, anchors: raiderMarkers)
         }.first
         if let id = pickedRaider {
             if tutorialInputPolicy.canSelectObjects { selectRaider(id, extending: event.modifierFlags.contains(.shift)) }
@@ -895,6 +918,7 @@ final class NativeMissionWorkspace: NSView {
         level3D.onRockRaiderSelected = { [weak self] _ in
             if let self { self.nerpsState?.reportRockRaiderSelection(count: self.level3D.selectionCount) }
         }
+        status.toolTip = level3D.modelDiagnostics.joined(separator: "\n")
         if let objects {
             status.stringValue = "\(objects.rockRaiders.count) Rock Raiders • \(level3D.textureSummary) • \(level3D.modelSummary) • click a Raider to select"
         } else {

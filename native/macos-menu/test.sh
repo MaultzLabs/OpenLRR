@@ -88,7 +88,7 @@ swiftc -O Sources/WadArchive.swift Sources/GameResources.swift \
 
 # Original Raider activity references and original mesh/scene parsers.
 swiftc -O Sources/WadArchive.swift Sources/GameResources.swift Sources/LegoConfig.swift \
-  Sources/LightWaveObject.swift Sources/LightWaveScene.swift Sources/OriginalRaiderModel.swift \
+  Sources/LightWaveObject.swift Sources/LightWaveScene.swift Sources/OriginalModelAsset.swift Sources/OriginalLightWaveRenderer.swift Sources/OriginalMissionObjectModel.swift Sources/OriginalRaiderModel.swift \
   Tests/OriginalRaiderModelTests.swift -o "$tmp15"
 "$tmp15"
 
@@ -103,4 +103,16 @@ swiftc -O Sources/NativeDynamicCollision.swift Tests/NativeDynamicCollisionTests
   swiftc -O Sources/WadArchive.swift Sources/GameResources.swift Sources/PalettedBMP.swift Sources/OriginalBitmapFont.swift Sources/LegoConfig.swift Sources/OriginalMissionMessageUI.swift Sources/OriginalMissionCommands.swift Sources/OriginalMissionPanels.swift Sources/NativeOverheadCamera.swift Sources/OriginalFontLayout.swift \
     Tests/OriginalMissionMessageUITests.swift -o "$mission_ui_test"
   "$mission_ui_test"
+)
+
+# OL building/resource mapping and actual LWOB/LWS loading, entirely synthetic.
+# On macOS this same executable also verifies SceneKit geometry/materials.
+(
+  object_model_test="$(mktemp /tmp/openlrr-object-model-test.XXXXXXXX)"
+  trap 'rm -f "$object_model_test"' EXIT
+  swiftc -O Sources/WadArchive.swift Sources/GameResources.swift Sources/LegoConfig.swift \
+    Sources/LightWaveObject.swift Sources/LightWaveScene.swift Sources/OriginalModelAsset.swift \
+    Sources/OriginalLightWaveRenderer.swift Sources/OriginalMissionObjectModel.swift Sources/OriginalRaiderModel.swift \
+    Tests/OriginalMissionObjectModelTests.swift -o "$object_model_test"
+  "$object_model_test"
 )
