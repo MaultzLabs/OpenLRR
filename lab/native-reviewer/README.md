@@ -27,10 +27,12 @@ guarantee**. No retries, tools, auto-applied patches, schedules, Windows builds,
 new credit purchases or billing changes. A manually rerun job can spend again.
 Timeouts may still have consumed credits; they are never retried automatically.
 
-Prior user instruction forbids charges. No billable request has been made by
-this change. Remaining prepaid credit and account charging settings cannot be
-verified through the GitHub connector. Resolve that spending constraint before
-turning on `run_model`.
+On October 26, Max authorized using API funds where it materially helps the
+port. One gameplay review is authorized for evaluation. The temporary
+`lab-native-review-once.yml` requires an exact one-shot commit message and
+first run attempt; its only push trigger is a change to its own workflow file.
+Remove it after the attempt. No recurring paid task is authorized by this setup.
+Remaining prepaid credit and account charging settings are still unverified.
 
 API reference: https://developers.openai.com/api/reference/typescript/resources/responses/methods/create
 The response's status and token usage are recorded alongside its review. An
