@@ -205,7 +205,10 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
 
         precondition(mesh.triangleCount > 8)  // four tile tops + exposed wall sides
         precondition(mesh.surfaces.contains { $0.material == .crystal })
-        precondition(mesh.surfaces.contains { $0.material == .wallFace })
+        precondition(!mesh.surfaces.contains { $0.material == .wallFace })
+        precondition(mesh.surfaces.contains { surface in
+            surface.material == .crystal && surface.normals.contains { abs($0.y) < 0.5 }
+        })
         precondition(mesh.surfaces.allSatisfy {
             $0.vertices.count == $0.normals.count && $0.vertices.count % 3 == 0
         })

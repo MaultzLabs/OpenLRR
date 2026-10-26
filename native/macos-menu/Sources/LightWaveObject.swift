@@ -31,6 +31,22 @@ struct LightWaveObject {
         }
     }
 
+    struct Polygon { let indices: [Int]; let surfaceIndex: Int }
+    struct Texture {
+        var image: String = ""
+        var flags: UInt16 = 0
+        var size = Vertex(x: 1, y: 1, z: 1)
+        var center = Vertex(x: 0, y: 0, z: 0)
+        // Mesh_GetTextureUVsWrap, original engine/gfx/Mesh.cpp.
+        func uv(_ vertex: Vertex) -> UV {
+            let x = vertex.x - center.x, y = vertex.y - center.y, z = vertex.z - center.z
+            return UV(u: ((flags & 1) != 0 ? z / size.z : x / size.x) + 0.5,
+                      v: ((flags & 2) != 0 ? z / size.z : y / size.y) + 0.5)
+        }
+    }
+    struct UV { let u: Float; let v: Float }
+    let polygons: [Polygon]
+    let surfaceTextures: [String: Texture]
     let vertices: [Vertex]
     let triangles: [Triangle]
     struct Color { let red: UInt8; let green: UInt8; let blue: UInt8 }
@@ -125,6 +141,7 @@ struct LightWaveObject {
         }
 
         var decodedTriangles: [Triangle] = []
+        var decodedPolygons: [Polygon] = []
         var cursor = polygons.lowerBound
         func parsePolygon(detail: Bool) throws -> Int {
             guard cursor + 2 <= polygons.upperBound else {
@@ -158,6 +175,7 @@ struct LightWaveObject {
             guard decodedTriangles.count <= 400_000 - (count - 2) else {
                 throw MeshError.invalid("excessive model triangles")
             }
+            decodedPolygons.append(Polygon(indices: indices, surfaceIndex: surfaceIndex))
             for index in 1..<(count - 1) {
                 decodedTriangles.append(Triangle(first: indices[0],
                                                   second: indices[index],
@@ -190,6 +208,7 @@ struct LightWaveObject {
             throw MeshError.invalid("no model triangles")
         }
         var colors: [String: Color] = [:]
+        var textures: [String: Texture] = [:]
         for chunk in colorChunks {
             guard let endName = data[chunk].firstIndex(of: 0) else {
                 throw MeshError.invalid("unterminated SURF name")
@@ -197,6 +216,8 @@ struct LightWaveObject {
             let name = String(decoding: data[chunk.lowerBound..<endName], as: UTF8.self)
             let nameLength = endName - chunk.lowerBound + 1
             var offset = endName + 1 + (nameLength & 1)
+            var texture = Texture()
+            var additionalLayer = false
             while offset + 6 <= chunk.upperBound {
                 let tag = String(decoding: data[offset..<(offset + 4)], as: UTF8.self)
                 let length = Int(be16(offset + 4))
@@ -208,13 +229,84 @@ struct LightWaveObject {
                     guard length >= 3 else { throw MeshError.invalid("short COLR") }
                     colors[name] = Color(red: data[offset], green: data[offset + 1], blue: data[offset + 2])
                 }
+                if tag == "TTEX" { additionalLayer = true }
+                if !additionalLayer {
+                    switch tag {
+                    case "TIMG":
+                        guard let zero = data[offset..<(offset + length)].firstIndex(of: 0) else {
+                            throw MeshError.invalid("unterminated TIMG")
+                        }
+                        texture.image = String(decoding: data[offset..<zero], as: UTF8.self)
+                    case "TFLG":
+                        guard length >= 2 else { throw MeshError.invalid("short TFLG") }
+                        texture.flags = be16(offset)
+                    case "TSIZ", "TCTR":
+                        guard length == 12 else { throw MeshError.invalid("invalid texture vector") }
+                        let v = Vertex(x: Float(bitPattern: be32(offset)), y: Float(bitPattern: be32(offset + 4)), z: Float(bitPattern: be32(offset + 8)))
+                        guard v.x.isFinite, v.y.isFinite, v.z.isFinite,
+                              tag != "TSIZ" || (abs(v.x) > 0.000001 && abs(v.y) > 0.000001 && abs(v.z) > 0.000001) else {
+                            throw MeshError.invalid("invalid texture projection")
+                        }
+                        if tag == "TSIZ" { texture.size = v } else { texture.center = v }
+                    default: break
+                    }
+                }
                 offset += length + (length & 1)
             }
             guard offset == chunk.upperBound else { throw MeshError.invalid("SURF alignment") }
+            textures[name] = texture
         }
+        self.polygons = decodedPolygons
+        surfaceTextures = textures
         surfaceColors = colors
         vertices = decodedVertices
         triangles = decodedTriangles
         surfaceNames = decodedSurfaces
+    }
+}
+
+
+/// Original UView version 2 sidecar: surface names, image overrides, and
+/// per-polygon corner coordinates. Keep corners separate to preserve UV seams.
+struct LightWaveUVMap {
+    let images: [String]
+    let corners: [[LightWaveObject.UV]]
+    init(data: Data, mesh: LightWaveObject) throws {
+        guard data.count <= 16_000_000, let text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1) else {
+            throw LightWaveObject.MeshError.invalid("oversized/invalid UV sidecar")
+        }
+        let lines = text.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        var cursor = 0
+        func line() throws -> String {
+            guard cursor < lines.count else { throw LightWaveObject.MeshError.invalid("truncated UV sidecar") }
+            defer { cursor += 1 }; return lines[cursor]
+        }
+        guard try line() == "2", try Int(line()) == mesh.surfaceNames.count else {
+            throw LightWaveObject.MeshError.invalid("UV version/surface count")
+        }
+        for _ in mesh.surfaceNames { _ = try line() }
+        var images: [String] = []
+        for _ in mesh.surfaceNames { images.append(try line()) }
+        guard try Int(line()) == mesh.polygons.count else { throw LightWaveObject.MeshError.invalid("UV polygon count") }
+        var corners = Array<[LightWaveObject.UV]?>(repeating: nil, count: mesh.polygons.count)
+        for _ in mesh.polygons {
+            let header = try line().split(whereSeparator: { $0.isWhitespace })
+            guard header.count == 2, let id = Int(header[0]), corners.indices.contains(id), corners[id] == nil,
+                  let count = Int(header[1]), count == mesh.polygons[id].indices.count else {
+                throw LightWaveObject.MeshError.invalid("UV polygon ID/corner count")
+            }
+            var values: [LightWaveObject.UV] = []
+            for _ in 0..<count {
+                let fields = try line().split(whereSeparator: { $0.isWhitespace })
+                guard fields.count >= 2, let u = Float(fields[0]), let v = Float(fields[1]),
+                      u.isFinite, v.isFinite, abs(u) < 1_000_000, abs(v) < 1_000_000 else {
+                    throw LightWaveObject.MeshError.invalid("invalid UV coordinate")
+                }
+                values.append(.init(u: u, v: -v))
+            }
+            corners[id] = values
+        }
+        self.images = images
+        self.corners = corners.map { $0! }
     }
 }

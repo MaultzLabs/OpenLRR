@@ -47,9 +47,10 @@ struct OriginalRaiderActivities {
 #if os(macOS)
 import AppKit
 import SceneKit
+import ImageIO
 
 /// Real LWS hierarchy and LWOB component geometry, no generated character.
-/// Surface colors are original COLR values; texture mapping is still pending.
+/// Original SURF projection and UView corner UVs supply retail bitmap materials.
 final class OriginalRaiderModel {
     struct Clip {
         let scene: LightWaveScene
@@ -62,7 +63,7 @@ final class OriginalRaiderModel {
     private var moving = false
     private var epoch = ProcessInfo.processInfo.systemUptime
 
-    init(activities: OriginalRaiderActivities, resources: GameResources, blockSize: Double) throws {
+    init(activities: OriginalRaiderActivities, resources: GameResources, blockSize: Double, sharedTextures: String? = nil) throws {
         guard blockSize.isFinite, blockSize > 0 else {
             throw OriginalRaiderActivities.AssetError.invalid("BlockSize")
         }
@@ -80,6 +81,8 @@ final class OriginalRaiderModel {
                         throw OriginalRaiderActivities.AssetError.invalid("missing component \(filename)")
                     }
                     let mesh = try LightWaveObject(data: resources.data(at: meshPath, maximumBytes: 20_000_000))
+                    let uvPath = String(meshPath.dropLast(4)) + ".uv"
+                    let uvMap = resources.exists(uvPath) ? try LightWaveUVMap(data: resources.data(at: uvPath, maximumBytes: 16_000_000), mesh: mesh) : nil
                     let vertices = mesh.vertices.map { SCNVector3($0.x, $0.y, $0.z) }
                     var normals = Array(repeating: SCNVector3Zero, count: mesh.vertices.count)
                     for triangle in mesh.triangles {
@@ -95,22 +98,57 @@ final class OriginalRaiderModel {
                         let length = sqrt(n.x * n.x + n.y * n.y + n.z * n.z)
                         return length > 0 ? SCNVector3(n.x / length, n.y / length, n.z / length) : SCNVector3(0, 1, 0)
                     }
-                    let groups = Dictionary(grouping: mesh.triangles, by: { $0.surfaceIndex })
+                    var renderVertices: [SCNVector3] = [], renderNormals: [SCNVector3] = []
+                    var coordinates: [CGPoint] = []
+                    var groups: [Int: [UInt32]] = [:]
+                    for (polygonID, polygon) in mesh.polygons.enumerated() {
+                        let surfaceName = polygon.surfaceIndex < mesh.surfaceNames.count ? mesh.surfaceNames[polygon.surfaceIndex] : ""
+                        let projection = mesh.surfaceTextures[surfaceName] ?? LightWaveObject.Texture()
+                        let start = renderVertices.count
+                        for (corner, vertexID) in polygon.indices.enumerated() {
+                            renderVertices.append(vertices[vertexID])
+                            renderNormals.append(normals[vertexID])
+                            let uv = uvMap?.corners[polygonID][corner] ?? projection.uv(mesh.vertices[vertexID])
+                            // D3D texture V grows down; SceneKit's grows up.
+                            coordinates.append(CGPoint(x: CGFloat(uv.u), y: CGFloat(1 - uv.v)))
+                        }
+                        for corner in 1..<(polygon.indices.count - 1) {
+                            groups[polygon.surfaceIndex, default: []].append(contentsOf: [UInt32(start), UInt32(start + corner), UInt32(start + corner + 1)])
+                        }
+                    }
                     var elements: [SCNGeometryElement] = [], materials: [SCNMaterial] = []
                     for index in groups.keys.sorted() {
-                        let indices = groups[index]!.flatMap { [UInt32($0.first), UInt32($0.second), UInt32($0.third)] }
-                        elements.append(SCNGeometryElement(indices: indices, primitiveType: .triangles))
+                        elements.append(SCNGeometryElement(indices: groups[index]!, primitiveType: .triangles))
                         let material = SCNMaterial()
                         material.isDoubleSided = true
                         material.lightingModel = .lambert
-                        if index < mesh.surfaceNames.count,
-                           let color = mesh.surfaceColors[mesh.surfaceNames[index]] {
+                        let name = index < mesh.surfaceNames.count ? mesh.surfaceNames[index] : ""
+                        if let color = mesh.surfaceColors[name] {
                             material.diffuse.contents = NSColor(calibratedRed: CGFloat(color.red) / 255,
                                 green: CGFloat(color.green) / 255, blue: CGFloat(color.blue) / 255, alpha: 1)
                         } else { material.diffuse.contents = NSColor.gray }
+                        let reference = uvMap?.images[index] ?? mesh.surfaceTextures[name]?.image ?? ""
+                        let raw = reference.replacingOccurrences(of: "\\", with: "/")
+                        if let filename = raw.split(separator: "/").last.map(String.init), filename.lowercased().hasSuffix(".bmp") {
+                            let directory = meshPath.split(separator: "/").dropLast().joined(separator: "/")
+                            var candidates = [directory + "/" + filename]
+                            if let shared = sharedTextures?.replacingOccurrences(of: "\\", with: "/").trimmingCharacters(in: CharacterSet(charactersIn: "/")), OriginalRaiderActivities.safe(shared) {
+                                candidates.append(shared + "/" + filename)
+                            }
+                            if OriginalRaiderActivities.safe(raw) { candidates.append(raw) }
+                            if let imagePath = candidates.first(where: { resources.exists($0) }),
+                               let bytes = try? resources.data(at: imagePath, maximumBytes: 4_000_000),
+                               let source = CGImageSourceCreateWithData(bytes as CFData, nil),
+                               let image = CGImageSourceCreateImageAtIndex(source, 0, nil) {
+                                material.diffuse.contents = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
+                                material.diffuse.wrapS = .repeat
+                                material.diffuse.wrapT = .repeat
+                                material.diffuse.magnificationFilter = .nearest
+                            }
+                        }
                         materials.append(material)
                     }
-                    let geometry = SCNGeometry(sources: [SCNGeometrySource(vertices: vertices), SCNGeometrySource(normals: normals)], elements: elements)
+                    let geometry = SCNGeometry(sources: [SCNGeometrySource(vertices: renderVertices), SCNGeometrySource(normals: renderNormals), SCNGeometrySource(textureCoordinates: coordinates)], elements: elements)
                     geometry.materials = materials
                     node.geometry = geometry
                     meshCount += 1

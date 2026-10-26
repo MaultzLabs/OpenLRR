@@ -197,3 +197,26 @@ original installation, the separate Wine TEST app, or save files.
 
 This is intentionally a **single** native prototype under an isolated branch,
 not an independent testing laboratory or a replacement for your working game.
+
+
+### Import the RRU mission soundtrack into the native app
+
+After downloading `LRR_Music_Fix.zip` from the RRU Music Fix page, run:
+
+```bash
+python3 tools/import-mission-music.py "$HOME/Downloads/LRR_Music_Fix.zip"
+```
+
+Requires local FFmpeg (`brew install ffmpeg`). The importer reads only named
+Track00–98 OGG audio, converts it to native M4A, and installs it in the app's
+existing discovery cache. It never extracts DLLs or changes the Wine game.
+Existing converted tracks are kept. Return to the menu and enter a mission
+again to discover the imported tracks. The download itself requires accepting
+RRU's terms; no soundtrack files are included in this repository.
+
+The model texture branch reads original LWOB TIMG/TSIZ/TCTR/TFLG projection
+and UView v2 `.uv` corner coordinates, including shared-vertex UV seams.
+Original model BMPs resolve beside the mesh and in Main::SharedTextures.
+Terrain wall faces retain their rock/seam material; exposed dry ground uses
+floor material. Full retail wall transitions, power paths, texture animation,
+color keys, and real-asset visual verification remain pending.

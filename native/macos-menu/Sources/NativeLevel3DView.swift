@@ -94,7 +94,7 @@ final class NativeLevel3DView: SCNView {
                 let p = pair.0
                 let n = pair.1
                 if abs(n.y) >= 0.5 {
-                    return CGPoint(x: CGFloat(p.x), y: CGFloat(p.z))
+                    return CGPoint(x: CGFloat(p.x) + CGFloat(world.width) / 2, y: CGFloat(p.z) + CGFloat(world.height) / 2)
                 }
                 let horizontal = abs(n.x) > abs(n.z) ? p.z : p.x
                 return CGPoint(x: CGFloat(horizontal),
@@ -179,7 +179,7 @@ final class NativeLevel3DView: SCNView {
                 if placement.isRockRaider {
                     raiderMarkers[placement.identifier] = marker
                     if let activities,
-                       let model = try? OriginalRaiderModel(activities: activities, resources: resources, blockSize: blockSize) {
+                       let model = try? OriginalRaiderModel(activities: activities, resources: resources, blockSize: blockSize, sharedTextures: config?.valueUnderGame(["Main", "SharedTextures"])) {
                         marker.geometry = nil
                         marker.addChildNode(model.root)
                         raiderModels[placement.identifier] = model
@@ -189,7 +189,7 @@ final class NativeLevel3DView: SCNView {
         }
 
         if !raiderModels.isEmpty {
-            modelSummary = "\(raiderModels.count)/\(raiderMarkers.count) original animated Raider models (texture mapping pending)"
+            modelSummary = "\(raiderModels.count)/\(raiderMarkers.count) original animated Raider models (original bitmap mapping enabled)"
             modelTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
                 guard let self else { return }
                 let now = ProcessInfo.processInfo.systemUptime

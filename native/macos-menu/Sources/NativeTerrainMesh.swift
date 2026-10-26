@@ -168,7 +168,8 @@ struct NativeTerrainMesh {
                 let h10 = world.surfaceMap.value(x: x + 1, y: z) ?? 0
                 let h01 = world.surfaceMap.value(x: x, y: z + 1) ?? 0
                 let h11 = world.surfaceMap.value(x: x + 1, y: z + 1) ?? 0
-                let tileMaterial = material(for: tile)
+                // Exposed rock is floor, not a rock/seam wall texture.
+                let tileMaterial: Material = !wall && ![LevelWorld.Terrain.water, .lake, .lava].contains(tile.terrain) ? .cavernFloor : material(for: tile)
                 if Self.usesUpperLeftDiagonal(topLeft: h00,
                                              topRight: h10,
                                              bottomLeft: h01,
@@ -187,19 +188,19 @@ struct NativeTerrainMesh {
                 // are not drawn, keeping real-world levels affordable.
                 if z == 0 || !isSolid(x, z - 1) {
                     addQuad(a, vertex(x, z), b, vertex(x + 1, z),
-                            material: .wallFace)
+                            material: tileMaterial)
                 }
                 if z == world.height - 1 || !isSolid(x, z + 1) {
                     addQuad(d, vertex(x + 1, z + 1), c, vertex(x, z + 1),
-                            material: .wallFace)
+                            material: tileMaterial)
                 }
                 if x == 0 || !isSolid(x - 1, z) {
                     addQuad(c, vertex(x, z + 1), a, vertex(x, z),
-                            material: .wallFace)
+                            material: tileMaterial)
                 }
                 if x == world.width - 1 || !isSolid(x + 1, z) {
                     addQuad(b, vertex(x + 1, z), d, vertex(x + 1, z + 1),
-                            material: .wallFace)
+                            material: tileMaterial)
                 }
             }
         }

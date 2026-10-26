@@ -51,6 +51,44 @@ import Foundation
         precondition(colored.surfaceColors["Ground"]?.green == 180)
         precondition(colored.surfaceColors["Ground"]?.blue == 0)
 
+        let uvText = """
+        2
+        2
+        Ground
+        Details
+        face.bmp
+        uniform.bmp
+        1
+        0 4
+        0 0
+        1 0
+        1 1
+        0 1
+        """
+        let uv = try LightWaveUVMap(data: Data(uvText.utf8), mesh: mesh)
+        precondition(uv.images == ["face.bmp", "uniform.bmp"])
+        precondition(uv.corners.count == 1 && uv.corners[0].count == 4)
+        precondition(uv.corners[0][2].u == 1 && uv.corners[0][2].v == -1)
+        for bad in [uvText.replacingOccurrences(of: "0 4", with: "1 4"),
+                    uvText.replacingOccurrences(of: "0 4", with: "0 3"),
+                    uvText.replacingOccurrences(of: "1 1", with: "nan 1"),
+                    String(uvText.dropLast(4))] {
+            do { _ = try LightWaveUVMap(data: Data(bad.utf8), mesh: mesh)
+                preconditionFailure("Invalid UV sidecar accepted")
+            } catch is LightWaveObject.MeshError { }
+        }
+        func subchunk(_ tag: String, _ bytes: [UInt8]) -> [UInt8] {
+            Array(tag.utf8) + be16(UInt16(bytes.count)) + bytes + (bytes.count % 2 == 1 ? [0] : [])
+        }
+        let texturePayload = Array("Ground".utf8) + [0, 0] +
+            subchunk("TIMG", Array("Face.bmp".utf8) + [0]) +
+            subchunk("TFLG", be16(1)) + subchunk("TSIZ", point(2, 4, 8)) + subchunk("TCTR", point(1, 2, 3))
+        let textured = try LightWaveObject(data: lwob([chunk("PNTS", points), chunk("SRFS", names), chunk("POLS", quad), chunk("SURF", texturePayload)]))
+        let texture = textured.surfaceTextures["Ground"]!
+        precondition(texture.image == "Face.bmp")
+        let projected = texture.uv(.init(x: 3, y: 6, z: 11))
+        precondition(projected.u == 1.5 && projected.v == 1.5)
+
         func mustReject(_ name: String, _ data: Data) {
             do {
                 _ = try LightWaveObject(data: data)
