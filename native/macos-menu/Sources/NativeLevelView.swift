@@ -123,7 +123,8 @@ final class NativeLevelView: NSView {
             }
         }
 
-        if let tile = selected {
+        if let old = selected,
+           let tile = excavationState?.tile(x: old.x, y: old.y) ?? world.tile(x: old.x, y: old.y) {
             let outline = tileFrame(x: tile.x, y: tile.y).insetBy(dx: -1.5, dy: -1.5)
             NSColor.systemYellow.setStroke()
             let selection = NSBezierPath(rect: outline)
@@ -142,7 +143,8 @@ final class NativeLevelView: NSView {
         NSColor(calibratedWhite: 0.075, alpha: 0.94).setFill()
         footer.fill()
         let detail: String
-        if let tile = selected {
+        if let old = selected,
+           let tile = excavationState?.tile(x: old.x, y: old.y) ?? world.tile(x: old.x, y: old.y) {
             detail = "Tile (\(tile.x), \(tile.y))   \(tile.terrain.rawValue)   " +
                 "\(tile.excavation.rawValue)   Height \(tile.heightCode)"
         } else {

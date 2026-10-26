@@ -347,6 +347,7 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
 
         // Native mining orders must reach a real cardinally adjacent cavern
         // before a mineable wall becomes floor. WAD and MAP bytes stay intact.
+        do {
         let mining = NativeExcavationState(world: corridorWorld)
         let wall = NativeLevelNavigation.Position(x: 1, y: 1)
         precondition(mining.canDrill(wall))
@@ -388,6 +389,7 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         precondition(abs(minerFP.position.x - openedFloor.x) < 0.0001)
         let illegalOverlay = NativeLevelNavigation(world: corridorWorld, excavated: [.init(x: 1, y: 0)])
         precondition(!illegalOverlay.canWalk(.init(x: 1, y: 0)), "Excavation cannot turn lava into floor")
+        }
 
         // Source-grounded original BMP world atlas paths. A synthetic WAD
         // tests lookup without redistributing a copyrighted actual image.

@@ -698,6 +698,7 @@ final class NativeMissionWorkspace: NSView {
         }
         level3D.onInteractionMessage = { [weak self] message in
             self?.status.stringValue = message
+            self?.status.isHidden = false // Action failures must be visible without diagnostics.
         }
         // A real click on an original OL Pilot marker changes the script's
         // GetMiniFigureSelected result during the next NERPs VM tick.
