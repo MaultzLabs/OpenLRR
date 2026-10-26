@@ -61,7 +61,8 @@ import Foundation
             InterfaceBackButton 40:20:Interface/BackHL.bmp:Interface/BackPR.bmp:Go_Back
             InterfaceBuildImages { ToolStation Tool_Store:SFX_Okay:Interface/Tool.bmp }
             InterfaceSurroundImages {
-                4 Interface/BackPanel.bmp:10:22:8:240:Interface/MainPanel.bmp:11:23
+                4 Interface/BackPanel.bmp:-24:-8:-31:233:Interface/MainPanel.bmp:-19:7
+                1 Interface/BackPanel.bmp:-24:-8:-31:233:Interface/FirstPerson.bmp:-12:-4
                 2 Broken.bmp:nan:22:8:240
             }
         }
@@ -88,9 +89,37 @@ import Foundation
         precondition(!catalog.commands(on: .wall, hasRaider: false)[0].enabled)
         precondition(catalog.commands(on: .wall, hasRaider: true)[0].enabled)
         precondition(catalog.commands(on: .firstPerson, hasRaider: true)[0].id == "GotoTopView")
-        precondition(catalog.surround(count: 4, hasBack: true)?.back == CGPoint(x: 8, y: 240))
-        precondition(catalog.surround(count: 4, hasBack: false)?.image == "Interface/MainPanel.bmp")
-        precondition(catalog.surround(count: 4, hasBack: false)?.icons == CGPoint(x: 11, y: 23))
+        let backSurround = catalog.surround(count: 4, hasBack: true)!
+        let mainSurround = catalog.surround(count: 4, hasBack: false)!
+        precondition(backSurround.artOffset == CGPoint(x: -24, y: -8))
+        precondition(backSurround.back == CGPoint(x: -31, y: 233))
+        precondition(mainSurround.image == "Interface/MainPanel.bmp")
+        precondition(mainSurround.artOffset == CGPoint(x: -19, y: 7))
+        precondition(mainSurround.back == nil)
+        precondition(!OriginalMissionCommandCatalog.Page.main.showsBack)
+        precondition(!OriginalMissionCommandCatalog.Page.firstPerson.showsBack)
+        precondition([OriginalMissionCommandCatalog.Page.wall, .raider, .buildings].allSatisfy { $0.showsBack })
+        let iconSizes = [CGSize(width: 40, height: 13), CGSize(width: 44, height: 27),
+                         CGSize(width: 81, height: 150), CGSize(width: 67, height: 19)]
+        let commandLayout = OriginalMissionCommandLayout(iconSizes: iconSizes,
+            surround: backSurround, surroundSize: CGSize(width: 90, height: 260),
+            backSize: CGSize(width: 40, height: 20), showsBack: true)
+        precondition(commandLayout.icons == [CGRect(x: 565, y: 18, width: 40, height: 13),
+            CGRect(x: 565, y: 31, width: 44, height: 27), CGRect(x: 565, y: 58, width: 81, height: 150),
+            CGRect(x: 565, y: 208, width: 67, height: 19)], "Bitmap dimensions must not be capped or displaced by surround offsets")
+        precondition(commandLayout.surround == CGRect(x: 541, y: 10, width: 90, height: 260))
+        precondition(commandLayout.back == CGRect(x: 534, y: 251, width: 40, height: 20))
+        let mainLayout = OriginalMissionCommandLayout(iconSizes: iconSizes,
+            surround: mainSurround, surroundSize: CGSize(width: 90, height: 260),
+            backSize: CGSize(width: 40, height: 20), showsBack: false)
+        precondition(mainLayout.icons == commandLayout.icons)
+        precondition(mainLayout.surround == CGRect(x: 546, y: 25, width: 90, height: 260))
+        precondition(mainLayout.back == nil)
+        let fpLayout = OriginalMissionCommandLayout(iconSizes: [CGSize(width: 41, height: 31)],
+            surround: catalog.surround(count: 1, hasBack: OriginalMissionCommandCatalog.Page.firstPerson.showsBack),
+            surroundSize: CGSize(width: 83, height: 51), backSize: CGSize(width: 40, height: 20), showsBack: false)
+        precondition(fpLayout.surround == CGRect(x: 553, y: 14, width: 83, height: 51))
+        precondition(fpLayout.back == nil)
         precondition(catalog.surround(count: 2, hasBack: true) == nil)
         precondition(catalog.surround(count: 12, hasBack: true) == nil)
         let panelConfig = try LegoConfig(text: """
@@ -118,9 +147,22 @@ import Foundation
         precondition(panels.count == 2, "Do not render unimplemented sliding windows open")
         precondition(panels[0].open == CGPoint(x: 410, y: 410))
         precondition(OriginalMissionPanelDefinition.parse(name: "x", value: "x.bmp,0,nan,0,0") == nil)
-        let transform = OriginalHUDTransform(size: CGSize(width: 1600, height: 960))
-        precondition(transform.scale == 2 && transform.origin == CGPoint(x: 160, y: 0))
-        precondition(transform.logical(CGPoint(x: 1328, y: 0)) == CGPoint(x: 584, y: 0))
+        for (size, scale, origin) in [
+            (CGSize(width: 640, height: 480), CGFloat(1), CGPoint.zero),
+            (CGSize(width: 1280, height: 960), CGFloat(2), CGPoint.zero),
+            (CGSize(width: 1600, height: 960), CGFloat(2), CGPoint(x: 160, y: 0)),
+            (CGSize(width: 640, height: 960), CGFloat(1), CGPoint(x: 0, y: 480))
+        ] {
+            let transform = OriginalHUDTransform(size: size)
+            precondition(transform.scale == scale && transform.origin == origin)
+            for rect in commandLayout.icons + [commandLayout.surround!, commandLayout.back!,
+                                                CGRect(x: 584, y: 0, width: 56, height: 480)] {
+                let screen = transform.screen(rect)
+                precondition(screen.origin == CGPoint(x: origin.x + rect.minX * scale, y: origin.y + rect.minY * scale))
+                precondition(screen.size == CGSize(width: rect.width * scale, height: rect.height * scale))
+                precondition(transform.logical(screen.origin) == rect.origin, "Drawing and hit testing share the panel transform")
+            }
+        }
         let rotation = OriginalRotationControl(config: panelConfig)!
         precondition(rotation.contains(CGPoint(x: 484, y: 445)))
         precondition(!rotation.contains(CGPoint(x: 515, y: 445)))

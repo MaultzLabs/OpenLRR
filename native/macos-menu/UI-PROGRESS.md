@@ -126,3 +126,29 @@ This is not a complete NERPs port. Unsupported gameplay calls still stop with an
 References: OpenLRR Game.cpp/GameState.cpp/GameCommon.h and ProjectReversio src/LegoRR/{lego.c,level.c,map3d.c}. Synthetic tests cover alternate music files, extracted patch discovery, fog period/color/distance, sloped mesh topology, rubble and isolated/connected hidden cavern navigation. Original-asset appearance/audio still need Mac review.
 
 Blue/teal spheres are diagnostic non-Raider OL placement proxies, not retail artwork. Hide them in normal play, including when NERPs automatically reveals an error diagnostic. They are visible only when launched with --native-diagnostics and the Diagnostics control is enabled. Missing building/vehicle/resource models are not thereby implemented; those objects remain invisible in normal play until their asset loaders are ported.
+
+## Source-grounded command geometry correction (2026-10-26)
+
+The command layer now fills the mission bounds and uses `OriginalHUDTransform`,
+matching panel placement in wide and tall windows. `InterfaceSurroundImages`
+fields 1/2 (with Back) or 6/7 (without Back) offset the surround **art**, not the
+icons. Icons stay at `(565,18)` and stack by their actual bitmap heights; Back
+uses its independent fields 3/4. Main and first-person pages both omit Back.
+Negative art/Back offsets are preserved rather than clamped into a narrow
+sidebar. Opaque surround pixels and command rectangles consume input; black-key
+surround pixels and unused overlay space pass through to the cave. Missing art
+retains the native scrollable fallback; unsupported gameplay remains disabled.
+
+Sources: local `src/openlrr/game/GameState.cpp` initialization and
+[retail interface.c](https://github.com/ProjectReversio/LegoRockRaiders/blob/master/src/LegoRR/interface.c)
+(`Interface_LoadItemPanels`, drawing at lines 249–324, icon-height stacking,
+`Interface_NotMainOrFirstPersonMenu`, and rectangular/bitmap hit testing).
+
+Expanded tests use synthetic indexed BMPs inside a synthetic WAD, exercising
+negative/nonzero offsets, independent Back placement, uncapped bitmap sizes,
+640x480 / 1280x960 / 1600x960 / 640x960 transforms, keyed-alpha input, page
+changes, stale buttons, tutorial locks, and malformed/missing-art fallback.
+`git diff --check` passed locally. Swift/AppKit tests are **not locally run**:
+`bash test.sh` stops at `swiftc: command not found` in this cloud environment;
+macOS CI must establish compilation/runtime results. Real retail-asset visual
+alignment and mouse/keyboard behavior still require native in-game verification.

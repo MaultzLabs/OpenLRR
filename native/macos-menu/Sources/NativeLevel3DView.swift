@@ -1062,13 +1062,9 @@ final class NativeMissionWorkspace: NSView {
                                 height: 19)
         missionHUD.frame = bounds
         panels.frame = bounds
-        let scale = min(bounds.width / 640, bounds.height / 480)
-        // Interface_Globs starts the command menu at (565,18) in 640x480.
-        // Keep that right-edge inset on wide windows and scale from one origin.
-        commands.logicalScale = scale
-        commands.frame = NSRect(x: max(0, (bounds.width - 640 * scale) / 2 + 565 * scale),
-                                y: max(0, bounds.height - 390 * scale),
-                                width: 75 * scale, height: 372 * scale)
+        // A full-canvas flipped overlay shares the panels' HUD transform.
+        // Surround art can extend left/up of the fixed (565,18) icon origin.
+        commands.frame = bounds
         optionsButton.frame = NSRect(x: 12, y: max(0, bounds.height - 34), width: 150, height: 26)
         optionsPanel.frame = NSRect(x: 12, y: max(0, bounds.height - 106), width: 240, height: 68)
         diagnosticsButton.frame = NSRect(x: 12, y: 8, width: 210, height: 24)

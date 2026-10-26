@@ -11,7 +11,11 @@ struct OriginalMissionCommand {
 
 struct OriginalMissionCommandCatalog {
     let config: LegoConfig?
-    enum Page: Equatable { case main, buildings, raider, wall, firstPerson }
+    enum Page: Equatable {
+        case main, buildings, raider, wall, firstPerson
+        // Interface_NotMainOrFirstPersonMenu excludes both of these pages.
+        var showsBack: Bool { self != .main && self != .firstPerson }
+    }
 
     func icon(_ name: String) -> String? {
         OriginalMissionMessageDefinition.firstBitmapPath(config?.valueUnderGame(["InterfaceImages", "Interface_MenuItem_" + name]))
@@ -71,10 +75,12 @@ struct OriginalMissionCommandCatalog {
         return BackButton(size: CGSize(width: dimensions.x, height: dimensions.y), hover: fields[2], pressed: fields[3], title: fields[4].replacingOccurrences(of: "_", with: " "))
     }
 
-    /// Interface_Globs documents the eight surround fields in Interface.h.
+    /// Interface_LoadItemPanels / Interface_FUN_0041b3c0 (retail interface.c):
+    /// these are surround ART offsets from the menu origin, not icon offsets.
+    /// Back has its own independent offset from that same origin.
     struct Surround {
         let image: String
-        let icons: CGPoint
+        let artOffset: CGPoint
         let back: CGPoint?
     }
     func surround(count: Int, hasBack: Bool) -> Surround? {
@@ -85,14 +91,48 @@ struct OriginalMissionCommandCatalog {
         guard fields.count >= offset + 3, fields[offset].lowercased().hasSuffix(".bmp"),
               let position = OriginalMissionMessageDefinition.point(fields[offset + 1] + "," + fields[offset + 2]) else { return nil }
         let back = hasBack && fields.count >= 5 ? OriginalMissionMessageDefinition.point(fields[3] + "," + fields[4]) : nil
-        return Surround(image: fields[offset], icons: position, back: back)
+        return Surround(image: fields[offset], artOffset: position, back: back)
+    }
+}
+
+/// Logical 640x480 geometry, shared by rendering and input. Icons start at the
+/// GameState.cpp Interface_Initialise(565,18) origin and stack by bitmap height.
+/// A negative surround offset must never move or clip the command icons.
+struct OriginalMissionCommandLayout {
+    static let menuOrigin = CGPoint(x: 565, y: 18)
+    let icons: [CGRect]
+    let surround: CGRect?
+    let back: CGRect?
+
+    init(iconSizes: [CGSize], surround: OriginalMissionCommandCatalog.Surround?,
+         surroundSize: CGSize?, backSize: CGSize?, showsBack: Bool) {
+        let origin = Self.menuOrigin
+        var y = origin.y
+        icons = iconSizes.map { size in
+            defer { y += size.height }
+            return CGRect(x: origin.x, y: y, width: size.width, height: size.height)
+        }
+        if let surround, let surroundSize {
+            self.surround = CGRect(x: origin.x + surround.artOffset.x,
+                                   y: origin.y + surround.artOffset.y,
+                                   width: surroundSize.width, height: surroundSize.height)
+        } else {
+            self.surround = nil
+        }
+        if showsBack, let backSize {
+            let offset = surround?.back ?? CGPoint(x: 0, y: y - origin.y + 2)
+            back = CGRect(x: origin.x + offset.x, y: origin.y + offset.y,
+                          width: backSize.width, height: backSize.height)
+        } else {
+            back = nil
+        }
     }
 }
 
 #if os(macOS)
 import AppKit
 
-/// Owns only its sidebar hit area, so cave input remains available elsewhere.
+/// Owns only command rectangles and opaque artwork, leaving cave input available.
 /// Background/offsets use original CFG data; missing art gets native controls.
 private final class MissionCommandButton: NSButton {
     var onHover: ((Bool) -> Void)?
@@ -141,16 +181,28 @@ final class OriginalMissionCommands: NSView {
     private let back = MissionCommandButton(title: "Back", target: nil, action: nil)
     private var buttons: [NSButton] = []
     private var definitions: [OriginalMissionCommand] = []
-    private var artCache: [String: NSImage] = [:]
-    private var surroundArt: NSImage?
+    private struct Art {
+        let image: NSImage
+        let width: Int
+        let height: Int
+        let pixels: [UInt8]
+        func contains(_ point: CGPoint) -> Bool {
+            let x = Int(floor(point.x)), y = Int(floor(point.y))
+            guard x >= 0, y >= 0, x < width, y < height else { return false }
+            return pixels[(y * width + x) * 4 + 3] != 0
+        }
+    }
+    private var artCache: [String: Art] = [:]
+    private var surroundArt: Art?
     private var surround: OriginalMissionCommandCatalog.Surround?
     private var page = OriginalMissionCommandCatalog.Page.main
     private var hasRaider = false
     private var permitted = true
     var onCommand: ((String) -> Void)?
     var onBack: (() -> Void)?
-    var logicalScale: CGFloat = 1 { didSet { needsLayout = true; needsDisplay = true } }
     private var visiblePanel = NSRect.zero
+    private var commandLayout: OriginalMissionCommandLayout?
+    private var transform: OriginalHUDTransform { OriginalHUDTransform(size: bounds.size) }
     var originalCursor: NSCursor? { didSet { window?.invalidateCursorRects(for: self) } }
     override var isFlipped: Bool { true }
 
@@ -182,13 +234,18 @@ final class OriginalMissionCommands: NSView {
     override func mouseDown(with event: NSEvent) {}
     override func rightMouseDown(with event: NSEvent) {} // Never drill through the UI.
 
-    private func image(_ path: String?) -> NSImage? {
+    private func art(_ path: String?) -> Art? {
         guard let path else { return nil }
         if let cached = artCache[path] { return cached }
-        guard let result = OriginalMissionMessageUI.image(path, resources: resources) else { return nil }
+        guard let data = try? resources.data(at: path, maximumBytes: 8_000_000),
+              let bitmap = try? PalettedBMP(data: data),
+              let image = OriginalMissionMessageUI.image(path, resources: resources) else { return nil }
+        let result = Art(image: image, width: bitmap.width, height: bitmap.height,
+                         pixels: bitmap.blackKeyedRGBA())
         artCache[path] = result
         return result
     }
+    private func image(_ path: String?) -> NSImage? { art(path)?.image }
 
     func update(page: OriginalMissionCommandCatalog.Page, hasRaider: Bool, permitted: Bool) {
         let rebuild = self.page != page || self.hasRaider != hasRaider || buttons.isEmpty
@@ -198,6 +255,8 @@ final class OriginalMissionCommands: NSView {
         if rebuild {
             buttons.forEach { $0.removeFromSuperview() }
             definitions = catalog.commands(on: page, hasRaider: hasRaider)
+            surround = catalog.surround(count: definitions.count, hasBack: page.showsBack)
+            surroundArt = art(surround?.image)
             buttons = definitions.enumerated().map { index, definition in
                 let button = MissionCommandButton(title: definition.title, target: self, action: #selector(activate(_:)))
                 button.tag = index
@@ -214,11 +273,10 @@ final class OriginalMissionCommands: NSView {
                     // AppKit's highlight/dimming provides state feedback without
                     // guessing the order of undocumented optional CFG bitmaps.
                 }
-                document.addSubview(button)
+                if surroundArt != nil { addSubview(button) }
+                else { document.addSubview(button) }
                 return button
             }
-            surround = catalog.surround(count: definitions.count, hasBack: page != .main)
-            surroundArt = image(surround?.image)
             // Use transparent idle Back only with its original surround.
             let backDefinition = catalog.backButton
             back.hoverArt = surroundArt == nil ? nil : image(backDefinition?.hover)
@@ -228,73 +286,95 @@ final class OriginalMissionCommands: NSView {
         }
         for (button, definition) in zip(buttons, definitions) { button.isEnabled = permitted && definition.enabled }
         back.isEnabled = permitted
-        back.isHidden = page == .main
+        back.isHidden = !page.showsBack
         heading.stringValue = page == .buildings ? "Buildings" : page == .wall ? "Wall" : page == .raider ? "Rock Raider" : page == .firstPerson ? "First person" : "Commands"
         needsLayout = true
         needsDisplay = true
     }
 
     @objc private func activate(_ sender: NSButton) {
-        guard permitted, definitions.indices.contains(sender.tag), definitions[sender.tag].enabled else { return }
+        guard !isHidden, permitted, definitions.indices.contains(sender.tag),
+              buttons[sender.tag] === sender, sender.isEnabled, definitions[sender.tag].enabled else { return }
         onCommand?(definitions[sender.tag].id)
     }
-    @objc private func goBack() { if permitted { onBack?() } }
+    @objc private func goBack() {
+        guard !isHidden, permitted, !back.isHidden, back.isEnabled else { return }
+        onBack?()
+    }
 
     override func layout() {
         super.layout()
-        let scale = max(0.1, logicalScale)
+        let transform = self.transform
+        let scale = transform.scale
         let original = surroundArt != nil
         heading.isHidden = original
-        heading.frame = NSRect(x: 2, y: 0, width: max(1, bounds.width - 4), height: 20 * scale)
-        let offset = original ? (surround?.icons ?? .zero) : CGPoint(x: 4, y: 22)
-        let x = max(0, min(bounds.width - 1, offset.x * scale))
-        let top = max(0, min(bounds.height - 1, offset.y * scale))
-        // Original icons retain their bitmap dimensions instead of stretching
-        // to a fixed 48px row. Missing art uses a readable text-button row.
-        let sizes = buttons.map { button -> CGSize in
-            guard let image = button.image else { return CGSize(width: 67, height: 40) }
-            return CGSize(width: min(75, max(1, image.size.width)), height: min(128, max(1, image.size.height)))
+        scroll.isHidden = original
+        // Do not cap bitmap dimensions: the original advances by each actual
+        // image height. Text is an explicitly native missing-asset fallback.
+        let sizes = buttons.map { $0.image?.size ?? CGSize(width: 67, height: 40) }
+        // CFG hit dimensions remain authoritative even if a Back overlay BMP
+        // is missing; only the native sidebar uses the native default size.
+        let backSize = original ? (catalog.backButton?.size ?? CGSize(width: 67, height: 34)) : CGSize(width: 67, height: 34)
+        if original {
+            let layout = OriginalMissionCommandLayout(iconSizes: sizes, surround: surround,
+                surroundSize: surroundArt?.image.size, backSize: backSize, showsBack: page.showsBack)
+            commandLayout = layout
+            for (button, rect) in zip(buttons, layout.icons) { button.frame = transform.screen(rect) }
+            back.frame = layout.back.map { transform.screen($0) } ?? .zero
+            visiblePanel = .zero
+        } else {
+            commandLayout = nil
+            // Keep missing/malformed art usable, but confine its opaque native
+            // sidebar to the same logical HUD canvas (including tall windows).
+            let origin = OriginalMissionCommandLayout.menuOrigin
+            heading.frame = transform.screen(CGRect(x: origin.x + 2, y: origin.y, width: 71, height: 20))
+            let top = origin.y + 22
+            let contentHeight = sizes.reduce(CGFloat(0)) { $0 + $1.height }
+            let available = max(1, 390 - top - (back.isHidden ? 4 : backSize.height + 4))
+            let scrollHeight = min(contentHeight, available)
+            scroll.frame = transform.screen(CGRect(x: origin.x + 4, y: top, width: 71, height: max(1, scrollHeight)))
+            document.frame = NSRect(x: 0, y: 0, width: scroll.contentSize.width,
+                                    height: max(scrollHeight, contentHeight) * scale)
+            var y: CGFloat = 0
+            for (button, size) in zip(buttons, sizes) {
+                button.frame = NSRect(x: 0, y: y, width: min(document.bounds.width, size.width * scale), height: size.height * scale)
+                y += size.height * scale
+            }
+            back.frame = transform.screen(CGRect(x: origin.x + 4, y: top + scrollHeight + 2,
+                                                  width: min(71, backSize.width), height: backSize.height))
+            let bottom = back.isHidden ? scroll.frame.maxY : back.frame.maxY
+            let panelOrigin = transform.screen(CGRect(origin: origin, size: .zero)).origin
+            visiblePanel = NSRect(x: panelOrigin.x, y: panelOrigin.y, width: 75 * scale,
+                                  height: bottom - panelOrigin.y + 4 * scale)
         }
-        let contentHeight = sizes.reduce(CGFloat(0)) { $0 + $1.height * scale }
-        let backSize = back.hoverArt != nil ? (catalog.backButton?.size ?? CGSize(width: 67, height: 34)) : CGSize(width: 67, height: 34)
-        let available = max(1, bounds.height - top - (back.isHidden ? 4 : backSize.height + 4) * scale)
-        var scrollHeight = min(contentHeight, available)
-        var backOrigin = CGPoint(x: 4 * scale, y: top + scrollHeight + 2 * scale)
-        if !back.isHidden, original, let position = surround?.back,
-           position.x >= 0, position.y >= 0,
-           position.x * scale + backSize.width * scale <= bounds.width,
-           position.y * scale + backSize.height * scale <= bounds.height {
-            backOrigin = CGPoint(x: position.x * scale, y: position.y * scale)
-            // Only shorten the scroll area when Back lies beneath the icons.
-            if backOrigin.y >= top { scrollHeight = min(scrollHeight, max(1, backOrigin.y - top - 2 * scale)) }
-        }
-        scroll.frame = NSRect(x: x, y: top, width: max(1, bounds.width - x), height: max(1, scrollHeight))
-        document.frame = NSRect(x: 0, y: 0, width: scroll.contentSize.width, height: max(scrollHeight, contentHeight))
-        var y: CGFloat = 0
-        for (button, size) in zip(buttons, sizes) {
-            button.frame = NSRect(x: 0, y: y, width: min(document.bounds.width, size.width * scale), height: size.height * scale)
-            y += size.height * scale
-        }
-        back.frame = NSRect(origin: backOrigin, size: NSSize(width: min(backSize.width * scale, bounds.width - backOrigin.x), height: backSize.height * scale))
-        let artHeight = (surroundArt?.size.height ?? 0) * scale
-        let controlsBottom = back.isHidden ? scroll.frame.maxY : max(scroll.frame.maxY, back.frame.maxY)
-        visiblePanel = NSRect(x: 0, y: 0, width: bounds.width, height: min(bounds.height, max(artHeight, controlsBottom + 4 * scale)))
+        needsDisplay = true
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard !isHidden else { return nil }
         let local = convert(point, from: superview)
+        guard bounds.contains(local) else { return nil }
+        if let layout = commandLayout, let art = surroundArt {
+            // Retail tests Back first, then rectangular icon bounds, then the
+            // nonblack surround pixels. Disabled controls still block the cave.
+            if !back.isHidden, back.frame.contains(local) { return back }
+            if let button = buttons.first(where: { $0.frame.contains(local) }) { return button }
+            if let rect = layout.surround {
+                let p = transform.logical(local)
+                if art.contains(CGPoint(x: p.x - rect.minX, y: p.y - rect.minY)) { return self }
+            }
+            return nil
+        }
         guard visiblePanel.contains(local) else { return nil }
         return super.hitTest(point)
     }
 
     override func draw(_ dirtyRect: NSRect) {
         NSGraphicsContext.current?.imageInterpolation = .none
-        if let art = surroundArt {
-            let scale = max(0.1, logicalScale)
-            art.draw(in: NSRect(x: 0, y: 0, width: art.size.width * scale, height: art.size.height * scale),
-                     from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
-        } else {
+        if let art = surroundArt, let rect = commandLayout?.surround {
+            art.image.draw(in: transform.screen(rect), from: .zero,
+                           operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+        } else if surroundArt == nil {
             NSColor(calibratedWhite: 0.08, alpha: 0.86).setFill()
             NSBezierPath(roundedRect: visiblePanel, xRadius: 5, yRadius: 5).fill()
         }
