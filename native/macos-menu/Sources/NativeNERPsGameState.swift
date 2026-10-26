@@ -52,6 +52,10 @@ final class NativeNERPsGameState {
     private(set) var messageTimer: Float = 0
     /// The platform player returns the decoded sample duration in seconds.
     /// Invoked only when a different sound is requested, never every VM tick.
+    var tutorialGroundValue: ((Int32) -> Int32)?
+    var gotoTutorialCamera: ((Int32) -> Void)?
+    var cameraAtTutorial: ((Int32) -> Int32)?
+    var rockRaidersOnLevel: (() -> Int32)?
     var playMessageSound: ((String) -> Double?)?
     private var lastSoundPath: String?
     private var randomState: UInt32 = 1
@@ -128,6 +132,18 @@ final class NativeNERPsGameState {
     /// NERPsRuntime throws rather than manufacturing gameplay outcomes.
     func functions() -> [Int: NERPsRuntime.Function] {
         var callbacks: [Int: NERPsRuntime.Function] = [:]
+        if let query = tutorialGroundValue {
+            callbacks[0x72] = .init(kind: .expression(arity: 1), invoke: { query($0[0]) })
+        }
+        if let move = gotoTutorialCamera {
+            callbacks[0x73] = .init(kind: .action(arity: 1), invoke: { move($0[0]); return 0 })
+        }
+        if let query = cameraAtTutorial {
+            callbacks[0x8f] = .init(kind: .expression(arity: 1), invoke: { query($0[0]) })
+        }
+        if let count = rockRaidersOnLevel {
+            callbacks[0x34] = .init(kind: .expression(arity: 0), invoke: { _ in count() })
+        }
         callbacks[0] = .init(kind: .action(arity: 0), invoke: { _ in 0 }) // Stop
         callbacks[1] = .init(kind: .expression(arity: 0), invoke: { _ in 1 })
         callbacks[2] = .init(kind: .expression(arity: 0), invoke: { _ in 0 })

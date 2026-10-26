@@ -457,6 +457,29 @@ final class NativeLevel3DView: SCNView {
         }
     }
 
+    var rockRaiderCount: Int32 { Int32(raiderMarkers.count) }
+
+    func gotoTutorialCamera(_ id: Int32) {
+        guard let camera = pointOfView, firstPersonRaider == nil else { return }
+        for tile in world.tutorialBlocks(id) {
+            let target = worldPosition(x: Double(tile.x) + 0.5, z: Double(tile.y) + 0.5)
+            let previous = defaultCameraController.target
+            let position = camera.position
+            camera.position = SCNVector3(position.x + target.x - previous.x,
+                                         position.y + target.y - previous.y,
+                                         position.z + target.z - previous.z)
+            defaultCameraController.target = target
+            camera.look(at: target)
+        }
+    }
+
+    func cameraAtTutorial(_ id: Int32) -> Int32 {
+        let target = defaultCameraController.target
+        let x = Int(floor(Double(target.x) + Double(world.width) / 2))
+        let y = Int(floor(Double(target.z) + Double(world.height) / 2))
+        return world.tutorialBlocks(id).contains { $0.x == x && $0.y == y } ? 1 : 0
+    }
+
     func moveOverheadCamera(vector: CGPoint, zoom: Double = 0, seconds: Double) {
         guard firstPersonRaider == nil, tutorialInputPolicy.canMoveCamera, let camera = pointOfView else { return }
         let target = defaultCameraController.target
@@ -697,6 +720,10 @@ final class NativeMissionWorkspace: NSView {
         self.status = NSTextField(labelWithString:
             "Original \(world.width)×\(world.height) tiles · Drag to orbit · Scroll to zoom · Click a tile")
         super.init(frame: frame)
+        nerpsState?.tutorialGroundValue = { [weak self] id in self?.level3D.excavationState.tutorialGroundValue(id) ?? 0 }
+        nerpsState?.gotoTutorialCamera = { [weak self] id in self?.level3D.gotoTutorialCamera(id) }
+        nerpsState?.cameraAtTutorial = { [weak self] id in self?.level3D.cameraAtTutorial(id) ?? 0 }
+        nerpsState?.rockRaidersOnLevel = { [weak self] in self?.level3D.rockRaiderCount ?? 0 }
         let soundFlag = config?.valueUnderGame(["Main", "SoundOn"])?.uppercased() ?? "TRUE"
         nerpsState?.playMessageSound = { [weak self] path in
             self?.nerpsAudio.start(path: path, resources: resources, wadURL: wadURL,

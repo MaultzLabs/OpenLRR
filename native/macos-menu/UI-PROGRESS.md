@@ -105,3 +105,11 @@ black-keyed panel hit tests at two scales. No original asset bytes are in tests.
 - Fixed macOS SceneKit camera offset CGFloat conversion from the preceding HUD change.
 
 This is not a complete NERPs port. Unsupported gameplay calls still stop with an explicit ID/PC. SetMessageWait currently records state without interpreter suspension; tutorial block-pointer queries/camera targets, resource economy callbacks, original Next-button timer gating, inline message images and Chief animation remain incomplete. Real retail NPL/WAV mission playback requires the user's original install; CI fixtures verify behavior but are not a retail playthrough.
+
+### NERPs live tutorial bindings
+
+- Load and validate the original BlockPointersMap alongside terrain. Enumerate repeated positive marker IDs, excluding the extra MAP border vertices.
+- Bind GetTutorialBlockIsGround (0x72) to the live excavation overlay. Preserve retail's unusual sum of 8 per exposed floor, so digging changes the next script evaluation.
+- Bind SetCameraGotoTutorial (0x73) and GetCameraAtTutorial (0x8F) to the overhead camera target; bind GetMiniFiguresOnLevel (0x34) to actual loaded, exposed Raiders.
+- Camera goto currently moves immediately while retaining the orbit offset; retail easing and first-person camera handoff still need porting. No terrain-changing tutorial setters or path queries are claimed.
+- Tests cover grouped markers, null/invalid IDs, border exclusion, ground value before/after actual drilling, and VM dispatch of camera/ground/unit callbacks.

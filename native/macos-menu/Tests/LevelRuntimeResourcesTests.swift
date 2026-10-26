@@ -245,13 +245,35 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         let predugData = syntheticMap(corridor, width: 5, height: 5)
         let highData = syntheticMap([UInt16](repeating: 2, count: 25),
                                     width: 5, height: 5)
+        var pointerCells = [UInt16](repeating: 0, count: 25)
+        pointerCells[6] = 1 // wall (1,1)
+        pointerCells[7] = 1 // exposed (2,1)
+        pointerCells[24] = 1 // border vertex must not be enumerated
+        let pointerConfig = try LegoConfig(text: """
+        Lego* {
+          Levels {
+            Level01 {
+              TerrainMap Levels/GameLevels/Level01/Surf.map
+              PredugMap Levels/GameLevels/Level01/Dugg.map
+              SurfaceMap Levels/GameLevels/Level01/High.map
+              BlockPointersMap Tuto.map
+            }
+          }
+        }
+        """)
+        let pointerManifest = try LevelRuntimeResources(config: pointerConfig, identifier: "Levels::Level01")
         let pathWad = syntheticWad([
+            ("Tuto.map", syntheticMap(pointerCells, width: 5, height: 5)),
             ("Levels\\GameLevels\\Level01\\Surf.map", terrainData),
             ("Levels\\GameLevels\\Level01\\Dugg.map", predugData),
             ("Levels\\GameLevels\\Level01\\High.map", highData)
         ])
         let corridorWorld = try LevelWorld(
-            manifest: manifest, resources: GameResources(archives: [(0, pathWad)]))
+            manifest: pointerManifest, resources: GameResources(archives: [(0, pathWad)]))
+        precondition(corridorWorld.tutorialBlocks(1).count == 2)
+        precondition(corridorWorld.tutorialBlocks(0).isEmpty)
+        precondition(corridorWorld.tutorialBlocks(-1).isEmpty)
+        precondition(corridorWorld.tutorialBlocks(256).isEmpty)
         let routing = NativeLevelNavigation(world: corridorWorld)
         let origin = NativeLevelNavigation.Position(x: 2, y: 0)
         let destination = NativeLevelNavigation.Position(x: 0, y: 2)
@@ -349,6 +371,8 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         // before a mineable wall becomes floor. WAD and MAP bytes stay intact.
         do {
         let mining = NativeExcavationState(world: corridorWorld)
+        precondition(mining.tutorialGroundValue(1) == 8)
+        precondition(mining.tutorialGroundValue(2) == 0)
         let wall = NativeLevelNavigation.Position(x: 1, y: 1)
         precondition(mining.canDrill(wall))
         precondition(!mining.canDrill(origin)) // exposed cavern is not a wall
@@ -361,6 +385,7 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         precondition(!mining.finish(order, raiderAt: origin))
         precondition(mining.excavated.isEmpty)
         precondition(mining.finish(order, raiderAt: order.approach))
+        precondition(mining.tutorialGroundValue(1) == 16)
         precondition(!mining.finish(order, raiderAt: order.approach))
         precondition(!mining.canDrill(wall))
         precondition(mining.tile(x: 1, y: 1)?.terrain == .tunnel)

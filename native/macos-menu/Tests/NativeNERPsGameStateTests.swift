@@ -383,6 +383,24 @@ private func encode(_ operations: [(UInt16, UInt16)]) throws -> NERPsScript {
         precondition(tutorialInput.inputPolicy.canSelectObjects)
         precondition(tutorialInput.inputPolicy.canClickMap)
 
+        // Original script dispatch queries live world callbacks each tick.
+        let worldScript = NativeNERPsGameState(script: try encode([
+            (2, 0x72), (0, 1), (1, 5), (0, 0), (2, 0x19), (0, 42),
+            (2, 1), (2, 0x73), (0, 2),
+            (2, 0x8f), (0, 2), (2, 0x1a), (2, 0x34)
+        ]))
+        var ground: Int32 = 0
+        var cameraTarget: Int32 = -1
+        worldScript.tutorialGroundValue = { id in precondition(id == 1); return ground }
+        worldScript.gotoTutorialCamera = { cameraTarget = $0 }
+        worldScript.cameraAtTutorial = { $0 == cameraTarget ? 1 : 0 }
+        worldScript.rockRaidersOnLevel = { 3 }
+        _ = try worldScript.tick(elapsedMilliseconds: 0)
+        precondition(worldScript.registers[0] == 0 && worldScript.registers[1] == 3)
+        ground = 8
+        _ = try worldScript.tick(elapsedMilliseconds: 0)
+        precondition(worldScript.registers[0] == 42)
+
         // Separate level sessions cannot accidentally share runtime state.
         let fresh = NativeNERPsGameState(script: try encode([]))
         precondition(fresh.registers == Array(repeating: 0, count: 8))

@@ -30,6 +30,14 @@ final class NativeExcavationState {
         return original
     }
 
+    func tutorialGroundValue(_ id: Int32) -> Int32 {
+        // NERPsRuntime_TutorialActionCallback adds BLOCK1_FLOOR (8),
+        // not 1, for each marked exposed floor. Read the live drill overlay.
+        world.tutorialBlocks(id).reduce(Int32(0)) { total, position in
+            total &+ ((tile(x: position.x, y: position.y)?.excavation.isDiscoveredCavern == true) ? 8 : 0)
+        }
+    }
+
     func canDrill(_ wall: Position) -> Bool {
         guard !excavated.contains(wall),
               let tile = world.tile(x: wall.x, y: wall.y),
