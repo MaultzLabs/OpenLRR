@@ -13,6 +13,9 @@ import AppKit
         }
         """)
         let ui = OriginalMissionCommands(resources: resources, config: config)
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 1000, height: 1000))
+        host.addSubview(ui)
+        func hit(_ local: NSPoint) -> NSView? { ui.hitTest(ui.convert(local, to: host)) }
         func descendants(_ view: NSView) -> [NSView] {
             view.subviews.flatMap { [$0] + descendants($0) }
         }
@@ -43,9 +46,9 @@ import AppKit
             precondition(commands.last == "Dig")
             let scroll = ui.subviews.compactMap { $0 as? NSScrollView }.first!
             precondition(!scroll.frame.intersects(button("Back").frame), "Back must not cover scrolling icons")
-            precondition(ui.hitTest(NSPoint(x: 1, y: 1)) != nil, "Sidebar background must consume cave clicks")
-            precondition(ui.hitTest(NSPoint(x: -2, y: -2)) == nil)
-            precondition(ui.hitTest(NSPoint(x: 1, y: ui.bounds.height - 1)) == nil, "Unused sidebar area must leave cave input available")
+            precondition(hit(NSPoint(x: 1, y: 1)) != nil, "Sidebar background must consume cave clicks")
+            precondition(hit(NSPoint(x: -2, y: -2)) == nil)
+            precondition(hit(NSPoint(x: 1, y: ui.bounds.height - 1)) == nil, "Unused sidebar area must leave cave input available")
             ui.update(page: .raider, hasRaider: true, permitted: true)
             button("First-person view").performClick(nil)
             precondition(commands.last == "GotoFirstPerson")

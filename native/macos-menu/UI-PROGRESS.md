@@ -50,3 +50,19 @@ still incomplete; this does not claim a finished retail HUD.
 Regression checks cover the empty message panel/hidden Next and cave hit testing
 below the sidebar, alongside existing action dispatch and tutorial locks. Real
 asset alignment still needs checking in the running native build.
+
+## Fidelity requirement
+
+The target is a 1:1 port, not a redesigned or improved interface. Original
+layout, artwork, text, timing and behavior are the specification. Native fallback
+controls are temporary missing-asset scaffolding, not the intended design.
+Custom hover explanations were removed. Original-style tooltips still need their
+retail renderer; accessibility descriptions remain nonvisual. Development options
+and action diagnostics are hidden in normal play. They can be enabled explicitly
+by launching with `--native-diagnostics`. No additional gameplay HUD controls
+should be invented to fill gaps in unported systems.
+
+The first screenshot-pass Mac build compiled, but the UI test trapped. The hit
+test fixture was passing flipped-local points to an API requiring parent-space
+points. It now attaches the sidebar to a real parent and converts coordinates;
+the UI test executable also retains debug assertion messages.

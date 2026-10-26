@@ -49,7 +49,7 @@ jobs:
         run: |
           cd native/macos-menu
           bash build.sh
-          xcrun swiftc -O -framework AppKit \
+          xcrun swiftc -Onone -g -framework AppKit \
             Sources/WadArchive.swift Sources/GameResources.swift Sources/PalettedBMP.swift \
             Sources/LegoConfig.swift Sources/OriginalMissionMessageUI.swift \
             Sources/OriginalMissionCommands.swift Tests/OriginalMissionCommandsAppKitTests.swift \

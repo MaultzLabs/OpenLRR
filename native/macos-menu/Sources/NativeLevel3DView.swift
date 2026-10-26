@@ -619,10 +619,6 @@ final class NativeLevel3DView: SCNView {
 /// Offers a 3D view by default and an original 2D MAP debug view as fallback.
 /// The parent holds strong references so the original game world remains
 /// alive while the window is open; neither viewer modifies the source data.
-private final class MissionHoverHelp: NSTextField {
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
-}
-
 final class NativeMissionWorkspace: NSView {
     private let level3D: NativeLevel3DView
     private let level2D: NativeLevelView
@@ -630,7 +626,6 @@ final class NativeMissionWorkspace: NSView {
     private let status: NSTextField
     private let nerpsInfo: NSTextField
     private let missionHUD: OriginalMissionMessageUI
-    private let commandHelp = MissionHoverHelp(wrappingLabelWithString: "")
     private let commands: OriginalMissionCommands
     private var commandPage = OriginalMissionCommandCatalog.Page.main
     private let optionsButton = NSButton(title: "Mission options ▾", target: nil, action: nil)
@@ -701,20 +696,6 @@ final class NativeMissionWorkspace: NSView {
         addSubview(nerpsInfo)
         addSubview(missionHUD)
         addSubview(commands)
-        commandHelp.font = .systemFont(ofSize: 12)
-        commandHelp.textColor = .white
-        commandHelp.backgroundColor = NSColor(calibratedRed: 0.02, green: 0.22, blue: 0.04, alpha: 0.96)
-        commandHelp.drawsBackground = true
-        commandHelp.isHidden = true
-        addSubview(commandHelp)
-        commands.onHelp = { [weak self] text in
-            guard let self else { return }
-            self.commandHelp.stringValue = text ?? ""
-            self.commandHelp.isHidden = text == nil
-            let mouse = self.convert(self.window?.mouseLocationOutsideOfEventStream ?? .zero, from: nil)
-            self.commandHelp.frame = NSRect(x: max(8, self.commands.frame.minX - 252),
-                y: max(140, min(self.bounds.height - 88, mouse.y - 72)), width: 240, height: 72)
-        }
         commands.onCommand = { [weak self] action in self?.performCommand(action) }
         commands.onBack = { [weak self] in self?.returnToCommands() }
         level3D.onSelectionChanged = { [weak self] in
@@ -730,6 +711,7 @@ final class NativeMissionWorkspace: NSView {
         addSubview(optionsPanel)
         optionsButton.target = self
         optionsButton.action = #selector(toggleOptions)
+        optionsButton.isHidden = !ProcessInfo.processInfo.arguments.contains("--native-diagnostics")
         addSubview(optionsButton)
         refreshWallControls()
         missionHUD.onAdvance = { [weak self] in self?.advanceTutorialMessage() }
@@ -868,7 +850,7 @@ final class NativeMissionWorkspace: NSView {
         let generation = toastGeneration
         status.stringValue = message
         status.toolTip = message
-        status.isHidden = false
+        status.isHidden = diagnosticsButton.state != .on
         DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in
             guard let self, self.toastGeneration == generation,
                   self.diagnosticsButton.state != .on else { return }

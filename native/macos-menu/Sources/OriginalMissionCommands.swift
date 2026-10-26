@@ -149,7 +149,6 @@ final class OriginalMissionCommands: NSView {
     private var permitted = true
     var onCommand: ((String) -> Void)?
     var onBack: (() -> Void)?
-    var onHelp: ((String?) -> Void)?
     var logicalScale: CGFloat = 1 { didSet { needsLayout = true; needsDisplay = true } }
     private var visiblePanel = NSRect.zero
     var originalCursor: NSCursor? { didSet { window?.invalidateCursorRects(for: self) } }
@@ -201,11 +200,8 @@ final class OriginalMissionCommands: NSView {
             definitions = catalog.commands(on: page, hasRaider: hasRaider)
             buttons = definitions.enumerated().map { index, definition in
                 let button = MissionCommandButton(title: definition.title, target: self, action: #selector(activate(_:)))
-                button.onHover = { [weak self] inside in
-                    self?.onHelp?(inside ? definition.title + "\n" + definition.detail : nil)
-                }
                 button.tag = index
-                button.toolTip = definition.title + "\n" + definition.detail
+                button.toolTip = nil // Retail tooltips require the original renderer and CFG text.
                 button.setAccessibilityLabel(definition.title)
                 button.setAccessibilityHelp(definition.detail)
                 button.font = .systemFont(ofSize: 10, weight: .medium)
@@ -221,7 +217,6 @@ final class OriginalMissionCommands: NSView {
                 document.addSubview(button)
                 return button
             }
-            onHelp?(nil)
             surround = catalog.surround(count: definitions.count, hasBack: page != .main)
             surroundArt = image(surround?.image)
             // Use transparent idle Back only with its original surround.
@@ -229,7 +224,6 @@ final class OriginalMissionCommands: NSView {
             back.hoverArt = surroundArt == nil ? nil : image(backDefinition?.hover)
             back.pressedArt = image(backDefinition?.pressed)
             back.toolTip = backDefinition?.title ?? "Back"
-            back.onHover = { [weak self] inside in self?.onHelp?(inside ? "Back to main commands" : nil) }
             scroll.contentView.scroll(to: .zero)
         }
         for (button, definition) in zip(buttons, definitions) { button.isEnabled = permitted && definition.enabled }
