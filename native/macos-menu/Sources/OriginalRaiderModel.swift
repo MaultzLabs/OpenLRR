@@ -6,12 +6,14 @@ struct OriginalRaiderActivities {
     enum AssetError: Error { case invalid(String) }
     let directory: String
     let definition: LegoConfig
+    let sharedObjects: String?
 
-    init(directory: String, definition: LegoConfig) throws {
+    init(directory: String, definition: LegoConfig, sharedObjects: String? = nil) throws {
         let normalized = directory.replacingOccurrences(of: "\\", with: "/")
         guard Self.safe(normalized) else { throw AssetError.invalid("model directory") }
         self.directory = normalized
         self.definition = definition
+        self.sharedObjects = sharedObjects
     }
 
     static func safe(_ path: String) -> Bool {
@@ -27,7 +29,9 @@ struct OriginalRaiderActivities {
             throw AssetError.invalid("MiniFigureTypes::Pilot")
         }
         let data = try resources.data(at: "\(directory)/\(name).ae", maximumBytes: 1_000_000)
-        return try Self(directory: directory, definition: LegoConfig(data: data))
+        // GameState.cpp:446–450 supplies Main::SharedObjects to the LWS loader.
+        return try Self(directory: directory, definition: LegoConfig(data: data),
+                        sharedObjects: config.valueUnderGame(["Main", "SharedObjects"]))
     }
 
     func scenePath(activity: String) throws -> String {
@@ -78,7 +82,8 @@ final class OriginalRaiderModel {
                 let node = SCNNode()
                 node.name = object.filename
                 if let filename = object.filename {
-                    guard let meshPath = LightWaveScene.candidatePaths(reference: filename, scenePath: path)
+                    guard let meshPath = LightWaveScene.candidatePaths(reference: filename, scenePath: path,
+                            sharedObjects: activities.sharedObjects)
                         .first(where: { resources.exists($0) }) else {
                         throw OriginalRaiderActivities.AssetError.invalid("missing component \(filename)")
                     }
@@ -130,23 +135,18 @@ final class OriginalRaiderModel {
                                 green: CGFloat(color.green) / 255, blue: CGFloat(color.blue) / 255, alpha: 1)
                         } else { material.diffuse.contents = NSColor.gray }
                         let reference = uvMap.flatMap { $0.images.indices.contains(index) ? $0.images[index] : nil } ?? mesh.surfaceTextures[name]?.image ?? ""
-                        let raw = reference.replacingOccurrences(of: "\\", with: "/")
-                        if let filename = raw.split(separator: "/").last.map(String.init), filename.lowercased().hasSuffix(".bmp") {
-                            let directory = meshPath.split(separator: "/").dropLast().joined(separator: "/")
-                            var candidates = [directory + "/" + filename]
-                            if let shared = sharedTextures?.replacingOccurrences(of: "\\", with: "/").trimmingCharacters(in: CharacterSet(charactersIn: "/")), OriginalRaiderActivities.safe(shared) {
-                                candidates.append(shared + "/" + filename)
-                            }
-                            if OriginalRaiderActivities.safe(raw) { candidates.append(raw) }
-                            if let imagePath = candidates.first(where: { resources.exists($0) }),
-                               let bytes = try? resources.data(at: imagePath, maximumBytes: 4_000_000),
-                               let source = CGImageSourceCreateWithData(bytes as CFData, nil),
-                               let image = CGImageSourceCreateImageAtIndex(source, 0, nil) {
-                                material.diffuse.contents = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
-                                material.diffuse.wrapS = .repeat
-                                material.diffuse.wrapT = .repeat
-                                material.diffuse.magnificationFilter = .nearest
-                            }
+                        // Mesh.cpp:598–658,1724–1758 strips the texture's
+                        // author path, then tries mesh-local before SharedTextures.
+                        let candidates = LightWaveResourcePaths.candidates(reference: reference,
+                            assetPath: meshPath, sharedDirectory: sharedTextures, requiredExtension: "bmp")
+                        if let imagePath = candidates.first(where: { resources.exists($0) }),
+                           let bytes = try? resources.data(at: imagePath, maximumBytes: 4_000_000),
+                           let source = CGImageSourceCreateWithData(bytes as CFData, nil),
+                           let image = CGImageSourceCreateImageAtIndex(source, 0, nil) {
+                            material.diffuse.contents = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
+                            material.diffuse.wrapS = .repeat
+                            material.diffuse.wrapT = .repeat
+                            material.diffuse.magnificationFilter = .nearest
                         }
                         materials.append(material)
                     }
