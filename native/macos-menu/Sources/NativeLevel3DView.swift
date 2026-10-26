@@ -54,6 +54,14 @@ final class NativeLevel3DView: SCNView {
         onInteractionMessage?("Selected Rock Raider orders cancelled.")
     }
 
+    var showObjectMarkers = false {
+        didSet {
+            for placement in originalObjects?.placements ?? [] where !placement.isRockRaider {
+                placementNodes[placement.identifier]?.isHidden = !showObjectMarkers ||
+                    excavation.tile(x: Int(placement.x), y: Int(placement.y))?.excavation.isDiscoveredCavern != true
+            }
+        }
+    }
     private var placementNodes: [String: SCNNode] = [:]
     private var raiderMarkers: [String: SCNNode] = [:]
     private var selectedRaider: String?
@@ -229,7 +237,7 @@ final class NativeLevel3DView: SCNView {
                 marker.eulerAngles = SCNVector3(0, Float(placement.headingDegrees * .pi / 180), 0)
                 scene.rootNode.addChildNode(marker)
                 placementNodes[placement.identifier] = marker
-                marker.isHidden = !tile.excavation.isDiscoveredCavern
+                marker.isHidden = !tile.excavation.isDiscoveredCavern || (!placement.isRockRaider && !showObjectMarkers)
                 if placement.isRockRaider {
                     if !marker.isHidden { raiderMarkers[placement.identifier] = marker }
                     if let activities,
@@ -305,7 +313,7 @@ final class NativeLevel3DView: SCNView {
             for placement in originalObjects?.placements ?? [] {
                 guard let node = placementNodes[placement.identifier],
                       excavation.tile(x: Int(placement.x), y: Int(placement.y))?.excavation.isDiscoveredCavern == true else { continue }
-                node.isHidden = placement.identifier == firstPersonRaider
+                node.isHidden = placement.identifier == firstPersonRaider || (!placement.isRockRaider && !showObjectMarkers)
                 if placement.isRockRaider { raiderMarkers[placement.identifier] = node }
             }
             firstPersonController?.navigation = navigation
@@ -1030,6 +1038,7 @@ final class NativeMissionWorkspace: NSView {
     }
 
     private func setDiagnosticsVisible(_ visible: Bool) {
+        level3D.showObjectMarkers = visible && ProcessInfo.processInfo.arguments.contains("--native-diagnostics")
         mode.isHidden = !visible
         status.isHidden = !visible
         nerpsInfo.isHidden = !visible
