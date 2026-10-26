@@ -556,6 +556,8 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
     private var savedMenuWindowFrame: NSRect?
     private var toolbarButtons: NSStackView!
     private var backToMenuButton: NSButton!
+    private var missionMusicButton: NSButton!
+    private var missionMusicToggle: NSButton!
     private var status: NSTextField!
     private let originalAudio = OriginalMenuAudio()
     private let missionAudio = OriginalMissionAudio()
@@ -639,6 +641,18 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
         backToMenuButton.isHidden = true
         backToMenuButton.translatesAutoresizingMaskIntoConstraints = false
         toolbar.addSubview(backToMenuButton)
+        missionMusicButton = NSButton(title: "Mission Music…", target: self, action: #selector(chooseMissionMusic))
+        missionMusicToggle = NSButton(checkboxWithTitle: "Music", target: self, action: #selector(toggleMissionMusic))
+        missionMusicToggle.state = missionAudio.enabled ? .on : .off
+        for control in [missionMusicButton!, missionMusicToggle!] {
+            control.isHidden = true
+            control.translatesAutoresizingMaskIntoConstraints = false
+            toolbar.addSubview(control)
+        }
+        missionAudio.onStatus = { [weak self] message in
+            self?.status.stringValue = message
+            self?.status.toolTip = message
+        }
         buttons.orientation = .horizontal
         buttons.alignment = .centerY
         buttons.spacing = 12
@@ -654,6 +668,10 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
             buttons.topAnchor.constraint(equalTo: toolbar.topAnchor, constant: 9),
             backToMenuButton.leadingAnchor.constraint(equalTo: toolbar.leadingAnchor, constant: 16),
             backToMenuButton.topAnchor.constraint(equalTo: toolbar.topAnchor, constant: 9),
+            missionMusicButton.leadingAnchor.constraint(equalTo: backToMenuButton.trailingAnchor, constant: 16),
+            missionMusicButton.centerYAnchor.constraint(equalTo: backToMenuButton.centerYAnchor),
+            missionMusicToggle.leadingAnchor.constraint(equalTo: missionMusicButton.trailingAnchor, constant: 16),
+            missionMusicToggle.centerYAnchor.constraint(equalTo: backToMenuButton.centerYAnchor),
             status.leadingAnchor.constraint(equalTo: toolbar.leadingAnchor, constant: 16),
             status.trailingAnchor.constraint(lessThanOrEqualTo: toolbar.trailingAnchor, constant: -16),
             status.topAnchor.constraint(equalTo: buttons.bottomAnchor, constant: 7)
@@ -771,6 +789,8 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
             canvas.isHidden = true
             toolbarButtons.isHidden = true
             backToMenuButton.isHidden = false
+            missionMusicButton.isHidden = false
+            missionMusicToggle.isHidden = false
 
             if savedMenuWindowFrame == nil {
                 savedMenuWindowFrame = window.frame
@@ -807,6 +827,8 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
         canvas.isHidden = false
         toolbarButtons.isHidden = false
         backToMenuButton.isHidden = true
+        missionMusicButton.isHidden = true
+        missionMusicToggle.isHidden = true
         if let saved = savedMenuWindowFrame {
             window.setFrame(saved, display: true, animate: false)
             savedMenuWindowFrame = nil
@@ -862,6 +884,17 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
         }
     }
 
+    @objc private func toggleMissionMusic() {
+        missionAudio.enabled = missionMusicToggle.state == .on
+        restartMissionMusic()
+    }
+
+    private func restartMissionMusic() {
+        guard missionView != nil, let config = activeConfig, let wad = activeWadURL else { return }
+        status.stringValue = missionAudio.start(config: config, beside: wad, extraRoot: selectedAudioFolder)
+        status.toolTip = status.stringValue
+    }
+
     @objc private func chooseMissionMusic() {
         let panel = NSOpenPanel()
         panel.title = "Select original Rock Raiders soundtrack tracks"
@@ -871,7 +904,10 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
         panel.beginSheetModal(for: window) { [weak self] response in
             guard response == .OK, let self else { return }
             self.missionAudio.setTracks(panel.urls)
+            self.missionAudio.enabled = true
+            self.missionMusicToggle.state = .on
             self.status.stringValue = "Original soundtrack selected for missions"
+            self.restartMissionMusic()
         }
     }
 

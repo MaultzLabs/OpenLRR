@@ -146,7 +146,18 @@ final class OriginalMenuButtonAudio {
 /// Game.cpp Lego_SetMusicPlaying uses SoundMode::Once and selects the next
 /// track on completion. Only explicitly selected user-owned tracks are read.
 final class OriginalMissionAudio: NSObject, AVAudioPlayerDelegate {
-    private let defaultsKey = "OriginalMissionSoundtrackPaths.v1"
+    private let defaultsKey = "OriginalMissionSoundtrackPaths.v2"
+    var onStatus: ((String) -> Void)?
+    private var failures: [String] = []
+    private(set) var playbackStatus = "Mission music stopped"
+    var enabled: Bool {
+        get { UserDefaults.standard.object(forKey: "NativeMissionMusicEnabled.v1") as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: "NativeMissionMusicEnabled.v1") }
+    }
+    private func report(_ message: String) {
+        playbackStatus = message
+        onStatus?(message)
+    }
     private var player: AVAudioPlayer?
     private var active = false
     private var previous: URL?
@@ -166,46 +177,71 @@ final class OriginalMissionAudio: NSObject, AVAudioPlayerDelegate {
     @discardableResult
     func start(config: LegoConfig, beside wad: URL, extraRoot: URL?) -> String {
         stop()
-        if let flag = config.valueUnderGame(["Main", "MusicOn"]),
-           ["FALSE", "NO", "OFF", "0"].contains(flag.uppercased()) { return "Mission music disabled" }
+        // Native file playback has its own visible preference. The legacy
+        // MusicOn flag can disable CD music even when native tracks exist.
+        guard enabled else { report("Mission music off"); return playbackStatus }
+        failures = []
         let selected = (UserDefaults.standard.stringArray(forKey: defaultsKey) ?? [])
             .map { URL(fileURLWithPath: $0) }
         let discovered = OriginalMissionTrackLocator.locate(beside: wad, extraRoot: extraRoot, bundledRoot: Bundle.main.resourceURL)
-        // Prefer the installed/bundled original soundtrack over stale saved choices.
-        tracks = discovered.playable.isEmpty ? selected : discovered.playable
+        // New explicit choices take effect immediately. The v2 preference
+        // leaves stale experimental selections behind on this upgrade.
+        tracks = selected.isEmpty ? discovered.playable : selected
         active = true
         playNext()
         if player == nil && !selected.isEmpty && !discovered.playable.isEmpty {
-            tracks = selected
+            tracks = discovered.playable
             playNext()
         }
-        if player != nil { return "Mission soundtrack: \(tracks.count) tracks" }
-        if !discovered.ogg.isEmpty { return "RRU OGG tracks found: convert with tools/convert-original-media.sh for native playback" }
-        return "Mission soundtrack missing: select original tracks with Mission Music…"
+        if player != nil { return playbackStatus }
+        if !failures.isEmpty { report("Music could not play: " + failures.joined(separator: "; ")) }
+        else if !discovered.ogg.isEmpty { report("OGG music needs conversion; select the installed M4A tracks with Mission Music…") }
+        else { report("No mission tracks found. Use Mission Music… to select Track10–12.m4a.") }
+        return playbackStatus
     }
 
     private func playNext() {
         guard active else { return }
+        failures.removeAll(keepingCapacity: true)
         // Try each file at most once. Missing or undecodable tracks cannot
         // cause a recursive retry loop or substitute menu ambience.
         let candidates = tracks.filter { $0 != previous }.shuffled()
             + tracks.filter { $0 == previous }
         for url in candidates {
-            guard let next = try? AVAudioPlayer(contentsOf: url) else { continue }
+            let next: AVAudioPlayer
+            do { next = try AVAudioPlayer(contentsOf: url) }
+            catch {
+                failures.append("\(url.lastPathComponent): \(error.localizedDescription)")
+                continue
+            }
             next.numberOfLoops = 0
             next.delegate = self
-            next.prepareToPlay()
-            guard next.play() else { continue }
+            next.volume = 1
+            guard next.prepareToPlay(), next.play() else {
+                failures.append("\(url.lastPathComponent): audio output would not start")
+                continue
+            }
             player = next
             previous = url
+            report("Playing \(url.lastPathComponent) • \(tracks.count) mission tracks")
             return
         }
         player = nil
+        if !failures.isEmpty { report("Music could not play: " + failures.joined(separator: "; ")) }
     }
 
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         guard active, self.player === player else { return }
-        if flag { playNext() } else { stop() }
+        if flag { playNext() } else {
+            stop()
+            report("Mission music playback stopped unexpectedly")
+        }
+    }
+
+    func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
+        guard self.player === player else { return }
+        stop()
+        report("Mission music decode error: " + (error?.localizedDescription ?? "unknown audio error"))
     }
 }
 

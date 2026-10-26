@@ -194,7 +194,7 @@ struct OriginalMissionTrackLocator {
         let roots = [install, install.deletingLastPathComponent(), cache]
             + OriginalAudioFileLocator.automaticAudioRoots(home: home)
             + (extraRoot.map { [$0] } ?? [])
-        var folders = (bundledRoot.map { [$0.appendingPathComponent("Music")] } ?? []) + [cache, cache.appendingPathComponent("Music")]
+        var folders = (bundledRoot.map { [$0.appendingPathComponent("Music")] } ?? []) + [cache, cache.appendingPathComponent("Music"), home.appendingPathComponent("Downloads/Rock-Raiders-Mission-Music-Mac/Music")]
         if let extraRoot { folders.append(extraRoot) }
         for root in roots {
             if let entries = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) {

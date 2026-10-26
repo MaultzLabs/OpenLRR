@@ -98,6 +98,12 @@ import Foundation
         precondition(withBundle.playable.filter { $0.lastPathComponent == "Track10.m4a" }.count == 1)
         precondition(withBundle.playable.contains { $0.lastPathComponent == "Track01.m4a" })
 
+        let downloadedMusic = home.appendingPathComponent("Downloads/Rock-Raiders-Mission-Music-Mac/Music")
+        try fm.createDirectory(at: downloadedMusic, withIntermediateDirectories: true)
+        let downloadedTrack = downloadedMusic.appendingPathComponent("Track12.m4a")
+        try Data([1, 2, 3]).write(to: downloadedTrack)
+        precondition(OriginalMissionTrackLocator.locate(beside: wad, home: home).playable.contains(downloadedTrack))
+
         // Do not follow traversal or arbitrary formats from untrusted CFG.
         precondition(OriginalAudioFileLocator.locate("../Sounds/Atmosdel.wav", beside: wad) == nil)
         precondition(OriginalAudioFileLocator.locate("/etc/passwd.wav", beside: wad) == nil)
