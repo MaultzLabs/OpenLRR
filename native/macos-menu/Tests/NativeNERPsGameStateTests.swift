@@ -13,6 +13,58 @@ private func encode(_ operations: [(UInt16, UInt16)]) throws -> NERPsScript {
 
 @main struct NativeNERPsGameStateTests {
     static func main() throws {
+        // Retail uses function opcodes for True/False/Null, not literals.
+        let startup = NativeNERPsGameState(script: try encode([
+            (2, 1), (2, 0x19), (0, 7),
+            (2, 2), (2, 0x19), (0, 99),
+            (2, 3), (2, 0x19), (0, 98),
+            (2, 1), (2, 0x1a), (2, 1),
+            (2, 1), (2, 0)
+        ]))
+        let startupTick = try startup.tick(elapsedMilliseconds: 0)
+        precondition(startup.registers[0] == 7 && startup.registers[1] == 1)
+        precondition(startupTick.actionsExecuted == 2 && startupTick.stoppedByStopFunction)
+        let random = startup.functions()
+        // Source LCG seeded with 1 produces 41,18467,6334,26500.
+        precondition(random[4]!.invoke([]) == 41)
+        precondition(random[5]!.invoke([]) == 7)
+        precondition(random[6]!.invoke([]) == 34)
+        precondition(random[7]!.invoke([]) == 0)
+        let unknownArgument = NativeNERPsGameState(script: try encode([
+            (2, 1), (2, 0x19), (2, 90)
+        ]))
+        do {
+            _ = try unknownArgument.tick(elapsedMilliseconds: 0)
+            preconditionFailure("Unknown nested function became a packed integer")
+        } catch NERPsRuntime.RuntimeError.missingSignature(let pc, let id) {
+            precondition(pc == 2 && id == 90)
+        }
+        let voiceFile = try NativeNERPsMessageFile(data: Data((
+            "$intro\tSounds\\Streamed\\Chief_intro\r\n" +
+            "$bad ../escape\n" +
+            "Welcome_Raider!#INTRO#\nNo_sound.\nAgain#intro#\n"
+        ).utf8))
+        precondition(voiceFile.lines.count == 3)
+        precondition(voiceFile.text(for: 1) == "Welcome Raider!")
+        precondition(voiceFile.soundPaths(for: 0) == ["Sounds/Streamed/Chief_intro.wav"])
+        precondition(voiceFile.soundPaths(for: -1).isEmpty)
+        let voiced = NativeNERPsGameState(script: try encode([]), messages: voiceFile)
+        var sounds: [String] = []
+        voiced.playMessageSound = { sounds.append($0); return 2.25 }
+        let voice = voiced.functions()
+        _ = voice[0x31]!.invoke([0])
+        _ = voice[0x10]!.invoke([1, 1])
+        precondition(sounds.count == 1 && voiced.messageTimer == 2750)
+        try voiced.advanceTimers(milliseconds: 250)
+        _ = voice[0x10]!.invoke([0, 1])
+        precondition(sounds.count == 1 && voiced.messageTimer == 2500, "0 and 1 identify the same line")
+        _ = voice[0x10]!.invoke([2, 1])
+        precondition(voiced.messageTimer == 4000, "Original no-sample delay")
+        _ = voice[0x10]!.invoke([3, 1])
+        precondition(sounds.count == 1, "Do not restart the same sound for another line")
+        try voiced.advanceTimers(milliseconds: 4000)
+        precondition(voice[0x6b]!.invoke([]) == 0)
+
         let state = NativeNERPsGameState(script: try encode([
             (0, 1), (2, 0x19), (0, 7),    // SetR0(7), guarded by true
             (2, 0x11), (1, 5), (0, 6),    // GetR0 > 6
@@ -214,9 +266,8 @@ private func encode(_ operations: [(UInt16, UInt16)]) throws -> NERPsScript {
         precondition(guideState.acknowledgedMessageCount == 2)
 
         // Source uses unsigned 32-bit conversion for all three delay
-        // values. GetMessageTimer must return zero until authentic audio
-        // has actually supplied a duration.
-        precondition(guideFunctions[0x6b]!.invoke([]) == 0)
+        // values. Text-only messages use the original default delay.
+        precondition(guideFunctions[0x6b]!.invoke([]) == 4000)
         precondition(guideFunctions[0x6c]!.invoke([1000, -1, 4000]) == 1)
         precondition(guideState.messageTimerValues[0] == 1000)
         precondition(guideState.messageTimerValues[1] == Float(UInt32.max))

@@ -101,6 +101,9 @@ struct NERPsRuntime {
         // literals (signed) and zero-argument expression-function literals.
         func argValue(at index: Int) throws -> Int32 {
             let item = ins[index]
+            if item.opcode == .function, functions[Int(item.operand)] == nil {
+                throw RuntimeError.missingSignature(pc: index, functionID: Int(item.operand))
+            }
             if item.opcode == .function,
                let nested = functions[Int(item.operand)],
                !nested.kind.isAction && nested.kind.arity == 0 {

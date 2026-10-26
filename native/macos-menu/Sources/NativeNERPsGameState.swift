@@ -43,13 +43,23 @@ final class NativeNERPsGameState {
     private(set) var nextArrowDisabled = false
     // The retail interpreter's message history, acknowledgement counter and
     // message-control NPL functions are distinct from the current HUD text.
-    // Audio-driven message timing is zero until an original sound is loaded.
+    // Message timing uses the original configured default or decoded sound duration.
     private(set) var messageNeedsAdvance = false
     private(set) var messageWait = false
     private(set) var acknowledgedMessageCount: UInt32 = 0
     private(set) var recentMessageNumbers: [Int32] = []
     private(set) var messageTimerValues: [Float] = [1000, 500, 4000]
     private(set) var messageTimer: Float = 0
+    /// The platform player returns the decoded sample duration in seconds.
+    /// Invoked only when a different sound is requested, never every VM tick.
+    var playMessageSound: ((String) -> Double?)?
+    private var lastSoundPath: String?
+    private var randomState: UInt32 = 1
+    private func nextRandom() -> Int32 {
+        // engine/core/Random.cpp: original Microsoft C runtime generator.
+        randomState = randomState &* 214013 &+ 2531011
+        return Int32((randomState >> 16) & 0x7fff)
+    }
     private let messages: NativeNERPsMessageFile?
 
     init(script: NERPsScript, messages: NativeNERPsMessageFile? = nil) {
@@ -67,8 +77,7 @@ final class NativeNERPsGameState {
             throw StateError.invalidElapsedTime
         }
         for i in timers.indices { timers[i] += milliseconds }
-        // Message timers are sample-dependent in retail. Without original
-        // audio playback, do NOT synthesize a countdown for tutorial text.
+        // Retail also provides timerValues[2] for text without a sample.
         if messageTimer > 0 {
             messageTimer = max(0, messageTimer - milliseconds)
         }
@@ -120,6 +129,13 @@ final class NativeNERPsGameState {
     func functions() -> [Int: NERPsRuntime.Function] {
         var callbacks: [Int: NERPsRuntime.Function] = [:]
         callbacks[0] = .init(kind: .action(arity: 0), invoke: { _ in 0 }) // Stop
+        callbacks[1] = .init(kind: .expression(arity: 0), invoke: { _ in 1 })
+        callbacks[2] = .init(kind: .expression(arity: 0), invoke: { _ in 0 })
+        callbacks[3] = .init(kind: .expression(arity: 0), invoke: { _ in 0 })
+        callbacks[4] = .init(kind: .expression(arity: 0), invoke: { [unowned self] _ in self.nextRandom() & 0xfff })
+        callbacks[5] = .init(kind: .expression(arity: 0), invoke: { [unowned self] _ in self.nextRandom() % 10 })
+        callbacks[6] = .init(kind: .expression(arity: 0), invoke: { [unowned self] _ in self.nextRandom() % 100 })
+        callbacks[7] = .init(kind: .expression(arity: 0), invoke: { [unowned self] _ in self.nextRandom() & 1 })
         for i in 0..<8 {
             let slot = i
             callbacks[0x11 + i] = .init(kind: .expression(arity: 0),
@@ -198,13 +214,26 @@ final class NativeNERPsGameState {
         callbacks[0x10] = .init(kind: .action(arity: 2),
                                 invoke: { [unowned self] args in
             guard !self.messagePermit else { return 0 }
-            let isNew = self.lastMessageNumber != args[0]
-            self.lastMessageNumber = args[0]
+            // Retail normalizes zero and one to the same first line.
+            let number = args[0] == 0 ? 1 : args[0]
+            let isNew = self.lastMessageNumber != number
+            self.lastMessageNumber = number
             self.messageText = self.messages?.text(for: args[0])
             self.nextArrowDisabled = args[1] != 0
             // A repeated SetMessage on each script update must not
             // re-arm the already-acknowledged Next button.
             if isNew, self.messageText != nil {
+                // NERPs_Level_NERPMessage_Parse starts with timerValues[2],
+                // then uses sampleSeconds * timerValues[0] + timerValues[1].
+                self.messageTimer = self.messageTimerValues[2]
+                for path in self.messages?.soundPaths(for: number) ?? [] {
+                    guard path.lowercased() != self.lastSoundPath else { continue }
+                    if let seconds = self.playMessageSound?(path), seconds.isFinite,
+                       seconds >= 0, seconds <= 600 {
+                        self.lastSoundPath = path.lowercased()
+                        self.messageTimer = Float(seconds) * self.messageTimerValues[0] + self.messageTimerValues[1]
+                    }
+                }
                 if self.recentMessageNumbers.last != args[0] {
                     self.recentMessageNumbers.append(args[0])
                     if self.recentMessageNumbers.count > 8 {

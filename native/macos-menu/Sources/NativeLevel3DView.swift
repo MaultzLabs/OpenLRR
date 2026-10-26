@@ -463,7 +463,7 @@ final class NativeLevel3DView: SCNView {
         let position = camera.presentation.position
         let offset = NativeOverheadCamera.Offset(x: Double(position.x - target.x), y: Double(position.y - target.y), z: Double(position.z - target.z))
         let moved = overheadMotion.moved(offset: offset, horizontal: vector.x, vertical: vector.y, zoom: zoom, seconds: seconds)
-        camera.position = SCNVector3(target.x + Float(moved.x), target.y + Float(moved.y), target.z + Float(moved.z))
+        camera.position = SCNVector3(target.x + CGFloat(moved.x), target.y + CGFloat(moved.y), target.z + CGFloat(moved.z))
         camera.look(at: target)
     }
 
@@ -658,6 +658,7 @@ final class NativeMissionWorkspace: NSView {
     private let scriptButton = NSButton(checkboxWithTitle: "Run NERPs", target: nil, action: nil)
     private let diagnosticsButton = NSButton(checkboxWithTitle: "Diagnostics", target: nil, action: nil)
     private let nerpsState: NativeNERPsGameState?
+    private let nerpsAudio = OriginalNERPsAudio()
     private var nerpsTimer: Timer?
     private var previousTickTime: TimeInterval?
     private var nerpsHalted = false
@@ -679,7 +680,8 @@ final class NativeMissionWorkspace: NSView {
 
     init(frame: NSRect, world: LevelWorld, objects: OriginalObjectList?,
          resources: GameResources, textureSet: String?,
-         nerpsState: NativeNERPsGameState? = nil, config: LegoConfig? = nil, blockSize: Double = 40) throws {
+         nerpsState: NativeNERPsGameState? = nil, config: LegoConfig? = nil, blockSize: Double = 40,
+         wadURL: URL? = nil, extraAudioRoot: URL? = nil) throws {
         self.nerpsState = nerpsState
         self.nerpsInfo = NSTextField(labelWithString:
             nerpsState == nil ? "Original NERPs script unavailable" : "NERPs script loaded; preparing native callbacks")
@@ -695,6 +697,12 @@ final class NativeMissionWorkspace: NSView {
         self.status = NSTextField(labelWithString:
             "Original \(world.width)×\(world.height) tiles · Drag to orbit · Scroll to zoom · Click a tile")
         super.init(frame: frame)
+        let soundFlag = config?.valueUnderGame(["Main", "SoundOn"])?.uppercased() ?? "TRUE"
+        nerpsState?.playMessageSound = { [weak self] path in
+            self?.nerpsAudio.start(path: path, resources: resources, wadURL: wadURL,
+                                  extraRoot: extraAudioRoot,
+                                  soundEnabled: !["FALSE", "NO", "OFF", "0"].contains(soundFlag))
+        }
         level2D.excavationState = level3D.excavationState
         level3D.onTerrainChanged = { [weak self] in
             self?.level2D.needsDisplay = true
@@ -785,6 +793,7 @@ final class NativeMissionWorkspace: NSView {
         nerpsTimer?.invalidate()
         nerpsTimer = nil
         previousTickTime = nil
+        if window == nil { nerpsAudio.stop() }
         guard window != nil, nerpsState != nil, !nerpsHalted else { return }
         nerpsTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0,
                                           repeats: true) { [weak self] _ in

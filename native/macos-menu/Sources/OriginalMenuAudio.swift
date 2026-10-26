@@ -246,3 +246,35 @@ final class OriginalMissionAudio: NSObject, AVAudioPlayerDelegate {
 }
 
 #endif
+
+#if os(macOS)
+/// Original Chief samples are one-shot speech, separate from mission music.
+final class OriginalNERPsAudio {
+    private var player: AVAudioPlayer?
+    func stop() { player?.stop(); player = nil }
+    func start(path: String, resources: GameResources, wadURL: URL?,
+               extraRoot: URL?, soundEnabled: Bool) -> Double? {
+        var candidate: AVAudioPlayer?
+        if let wadURL {
+            for url in OriginalAudioFileLocator.locateAll(path, beside: wadURL, additionalRoot: extraRoot) {
+                if let decoded = try? AVAudioPlayer(contentsOf: url) { candidate = decoded; break }
+            }
+        }
+        if candidate == nil, resources.exists(path),
+           let data = try? resources.data(at: path, maximumBytes: 50_000_000) {
+            candidate = try? AVAudioPlayer(data: data)
+        }
+        guard let candidate, candidate.duration.isFinite, candidate.duration >= 0 else { return nil }
+        stop()
+        candidate.numberOfLoops = 0
+        if soundEnabled {
+            candidate.prepareToPlay()
+            guard candidate.play() else { return nil }
+            player = candidate
+        }
+        // Retail still uses sample duration when sound is disabled.
+        return candidate.duration
+    }
+    deinit { stop() }
+}
+#endif

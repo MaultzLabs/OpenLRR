@@ -94,3 +94,14 @@ the Buttons640x480 format still needs a verified installed configuration.
 Validation adds synthetic panel parsing, shared 640x480 transforms, circular
 control normalization, camera rates/limits, original text wrapping and AppKit
 black-keyed panel hit tests at two scales. No original asset bytes are in tests.
+
+### NERPs startup and original message audio
+
+- Added retail function opcodes True, False, Null and the four random expressions. Random uses the original MS C LCG and source masks/moduli; its stream is currently mission-local, not shared with every future gameplay system.
+- Unknown nested function arguments now halt with their ID/PC instead of becoming packed instruction integers.
+- Message files retain case-insensitive sound references and definition paths, including tab-separated definitions. Chief WAVs resolve from the selected original install/audio folder or WAD, play once independently of music, and stop when leaving the mission.
+- Message timers use the original no-sample delay or decoded sample seconds × timerValues[0] + timerValues[1]. Repeated messages and the 0/1 first-line alias do not restart speech.
+- Regression coverage executes actual True/False/Null bytecode, checks the source random sequence, unresolved nested callbacks, sound parsing, repeat suppression and timer values.
+- Fixed macOS SceneKit camera offset CGFloat conversion from the preceding HUD change.
+
+This is not a complete NERPs port. Unsupported gameplay calls still stop with an explicit ID/PC. SetMessageWait currently records state without interpreter suspension; tutorial block-pointer queries/camera targets, resource economy callbacks, original Next-button timer gating, inline message images and Chief animation remain incomplete. Real retail NPL/WAV mission playback requires the user's original install; CI fixtures verify behavior but are not a retail playthrough.
