@@ -135,6 +135,27 @@ import Foundation
         precondition(withDetail.triangles.count == 2)
         precondition(withDetail.triangles[1].surfaceIndex == 1)
 
+        let seamUV = try LightWaveUVMap(data: Data("""
+        2
+        2
+        Ground
+        Details
+        face.bmp
+        uniform.bmp
+        2
+        0 3
+        0 0
+        1 0
+        1 1
+        1 3
+        0.5 0.5
+        1 1
+        0 1
+        """.utf8), mesh: withDetail)
+        // Both polygons use original vertex 0, but their UV corners differ.
+        precondition(seamUV.corners[0][0].u == 0)
+        precondition(seamUV.corners[1][0].u == 0.5)
+
         print("PASS: bounded original LWOB vertices, surfaces, polygons, detail faces and malformed data")
     }
 }

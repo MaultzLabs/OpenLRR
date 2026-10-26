@@ -127,7 +127,7 @@ final class OriginalRaiderModel {
                             material.diffuse.contents = NSColor(calibratedRed: CGFloat(color.red) / 255,
                                 green: CGFloat(color.green) / 255, blue: CGFloat(color.blue) / 255, alpha: 1)
                         } else { material.diffuse.contents = NSColor.gray }
-                        let reference = uvMap?.images[index] ?? mesh.surfaceTextures[name]?.image ?? ""
+                        let reference = uvMap.flatMap { $0.images.indices.contains(index) ? $0.images[index] : nil } ?? mesh.surfaceTextures[name]?.image ?? ""
                         let raw = reference.replacingOccurrences(of: "\\", with: "/")
                         if let filename = raw.split(separator: "/").last.map(String.init), filename.lowercased().hasSuffix(".bmp") {
                             let directory = meshPath.split(separator: "/").dropLast().joined(separator: "/")
