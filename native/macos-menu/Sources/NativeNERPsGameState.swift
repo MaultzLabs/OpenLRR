@@ -124,6 +124,10 @@ final class NativeNERPsGameState {
 
     /// Called by actual selection events in NativeLevel3DView, not from a
     /// simulated user or a placeholder mission.
+    func reportRockRaiderSelection(count: Int32) {
+        selectedRockRaiderCount = max(0, count)
+    }
+
     func reportRockRaiderSelection(_ selected: Bool) {
         selectedRockRaiderCount = selected ? 1 : 0
     }

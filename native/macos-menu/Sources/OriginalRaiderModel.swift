@@ -60,6 +60,8 @@ final class OriginalRaiderModel {
     let root = SCNNode()
     private let standing: Clip
     private let walking: Clip
+    private let drilling: Clip?
+    private var isDrilling = false
     private var moving = false
     private var epoch = ProcessInfo.processInfo.systemUptime
 
@@ -166,9 +168,11 @@ final class OriginalRaiderModel {
         }
         standing = try clip("Activity_Stand")
         walking = try clip("Activity_Route")
+        drilling = try? clip("Activity_Drill")
         root.addChildNode(standing.root)
         root.addChildNode(walking.root)
         walking.root.isHidden = true
+        if let drilling { root.addChildNode(drilling.root); drilling.root.isHidden = true }
         // Match the native terrain's one-unit-per-original-block coordinates.
         let scale = Float(1 / blockSize)
         root.scale = SCNVector3(scale, scale, scale)
@@ -177,15 +181,26 @@ final class OriginalRaiderModel {
     }
 
     func setMoving(_ value: Bool) {
-        guard moving != value else { return }
+        guard moving != value || isDrilling else { return }
+        isDrilling = false
+        drilling?.root.isHidden = true
         moving = value
         epoch = ProcessInfo.processInfo.systemUptime
         standing.root.isHidden = moving
         walking.root.isHidden = !moving
     }
 
+    func beginDrilling() -> TimeInterval? {
+        guard let drilling else { return nil }
+        isDrilling = true; moving = false
+        epoch = ProcessInfo.processInfo.systemUptime
+        standing.root.isHidden = true; walking.root.isHidden = true
+        drilling.root.isHidden = false
+        return Double(max(1, drilling.scene.frameCount)) / drilling.scene.framesPerSecond
+    }
+
     func update(time: TimeInterval) {
-        let clip = moving ? walking : standing
+        let clip = isDrilling ? (drilling ?? standing) : moving ? walking : standing
         let frame = Double(clip.scene.firstFrame) +
             (max(0, time - epoch) * clip.scene.framesPerSecond)
                 .truncatingRemainder(dividingBy: Double(max(1, clip.scene.frameCount)))

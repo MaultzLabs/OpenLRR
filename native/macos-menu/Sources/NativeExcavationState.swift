@@ -16,6 +16,8 @@ final class NativeExcavationState {
 
     let world: LevelWorld
     private(set) var excavated: Set<Position> = []
+    private(set) var revealed: Set<Position> = []
+    private(set) var rubble: Set<Position> = []
 
     init(world: LevelWorld) {
         self.world = world
@@ -26,6 +28,10 @@ final class NativeExcavationState {
         if excavated.contains(Position(x: x, y: y)) {
             return LevelWorld.Tile(x: x, y: y, terrainCode: 0,
                                    predugCode: 1, heightCode: original.heightCode)
+        }
+        if revealed.contains(Position(x: x, y: y)) {
+            return LevelWorld.Tile(x: x, y: y, terrainCode: original.terrainCode,
+                predugCode: original.excavation == .hiddenSlugHole ? 3 : 1, heightCode: original.heightCode)
         }
         return original
     }
@@ -50,7 +56,7 @@ final class NativeExcavationState {
     /// through the solid target or diagonally across a corner.
     func plan(from raider: Position, wall: Position) -> DrillOrder? {
         guard canDrill(wall) else { return nil }
-        let nav = NativeLevelNavigation(world: world, excavated: excavated)
+        let nav = NativeLevelNavigation(world: world, excavated: excavated, revealed: revealed)
         let candidates = [
             Position(x: wall.x, y: wall.y - 1),
             Position(x: wall.x + 1, y: wall.y),
@@ -75,9 +81,26 @@ final class NativeExcavationState {
         guard raiderAt == order.approach,
               abs(order.wall.x - raiderAt.x) + abs(order.wall.y - raiderAt.y) == 1,
               canDrill(order.wall),
-              NativeLevelNavigation(world: world, excavated: excavated).canWalk(raiderAt)
+              NativeLevelNavigation(world: world, excavated: excavated, revealed: revealed).canWalk(raiderAt)
         else { return false }
         excavated.insert(order.wall)
+        rubble.insert(order.wall)
+        // Level_DestroyWall / Level_UncoverHiddenCavern traverse all eight
+        // neighbours. Only original hidden cavern cells propagate discovery.
+        var queue = [order.wall]
+        var cursor = 0
+        while cursor < queue.count {
+            let p = queue[cursor]; cursor += 1
+            for dy in -1...1 {
+                for dx in -1...1 where dx != 0 || dy != 0 {
+                    let next = Position(x: p.x + dx, y: p.y + dy)
+                    guard let t = world.tile(x: next.x, y: next.y),
+                          t.excavation == .hidden || t.excavation == .hiddenSlugHole,
+                          revealed.insert(next).inserted else { continue }
+                    queue.append(next)
+                }
+            }
+        }
         return true
     }
 }

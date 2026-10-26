@@ -30,3 +30,35 @@ struct NativeOverheadCamera {
         return Offset(x: sin(angle) * sin(tilt) * radius, y: cos(tilt) * radius, z: cos(angle) * sin(tilt) * radius)
     }
 }
+
+/// Original Game.cpp first-person fog: level RGB, Main::FPClipBlocks,
+/// and optional HighFogColourRGB oscillation in 25 Hz game-time units.
+struct NativeFirstPersonFog {
+    let base: [Double]
+    let high: [Double]?
+    let distance: Double
+    let period: Double?
+    init?(config: LegoConfig?, level: String) {
+        let path = level.components(separatedBy: "::")
+        func color(_ name: String) -> [Double]? {
+            guard let value = config?.valueUnderGame(path + [name]) else { return nil }
+            let parts = value.split(separator: ":").compactMap { Double($0) }
+            guard parts.count == 3, parts.allSatisfy({ $0.isFinite && $0 >= 0 && $0 <= 255 }) else { return nil }
+            return parts.map { $0 / 255 }
+        }
+        guard let base = color("FogColourRGB"),
+              let rawDistance = config?.valueUnderGame(["Main", "FPClipBlocks"]),
+              let distance = Double(rawDistance), distance.isFinite, distance > 0 else { return nil }
+        self.base = base
+        self.high = color("HighFogColourRGB")
+        self.distance = distance // Native terrain uses blocks, not retail world units.
+        if let raw = config?.valueUnderGame(path + ["FogRate"]),
+           let rate = Double(raw), rate.isFinite, rate > 0 { period = rate }
+        else { period = high == nil ? nil : 60 }
+    }
+    func color(seconds: Double) -> [Double] {
+        guard let high, let period, seconds.isFinite else { return base }
+        let wave = sin(seconds * 2 * .pi / period)
+        return zip(base, high).map { min(1, max(0, $0 + ($1 - $0) * 0.5 * wave)) }
+    }
+}

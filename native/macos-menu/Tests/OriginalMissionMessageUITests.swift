@@ -2,6 +2,24 @@ import Foundation
 
 @main struct OriginalMissionMessageUITests {
     static func main() throws {
+        let fogConfig = try LegoConfig(text: """
+        Lego* {
+          Main {
+            FPClipBlocks 12
+          }
+          Levels {
+            Level01 {
+              FogColourRGB 40:60:80
+              HighFogColourRGB 80:100:120
+              FogRate 8
+            }
+          }
+        }
+        """)
+        let fog = NativeFirstPersonFog(config: fogConfig, level: "Levels::Level01")!
+        precondition(fog.distance == 12 && fog.period == 8)
+        precondition(abs(fog.color(seconds: 2)[0] - 60.0 / 255) < 0.000001)
+        precondition(NativeFirstPersonFog(config: nil, level: "Levels::Level01") == nil)
         let config = try LegoConfig(text: """
         Lego* {
             Main {

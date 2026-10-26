@@ -30,7 +30,7 @@ final class OriginalMenuAudio {
     @discardableResult
     func start(config: LegoConfig, resources: GameResources,
                beside selectedWadURL: URL,
-               additionalAudioRoot: URL? = nil) -> String {
+               additionalAudioRoot: URL? = nil, sampleName: String = "SFX_AmbientMusicLoop") -> String {
         stop()
 
         if let enabled = (config.valueUnderGame(["Main", "SoundOn"]) ??
@@ -41,7 +41,7 @@ final class OriginalMenuAudio {
         }
 
         let configured = try? SoundSampleCatalog(config: config)
-            .samples(named: "SFX_AmbientMusicLoop")
+            .samples(named: sampleName)
 
         var attemptedDecoding = false
         for sample in configured ?? [] {
@@ -65,6 +65,9 @@ final class OriginalMenuAudio {
             }
         }
 
+        if sampleName != "SFX_AmbientMusicLoop" {
+            return "Original cave ambience unavailable: \(sampleName)"
+        }
         // RRU identifies this as the main-menu recording in loose Data/Sounds.
         // Unlike the CD soundtrack it is already a WAV and needs no conversion.
         for candidate in ["Sounds/Streamed/Atmosdel.wav", "Sounds/Atmosdel.wav"] {

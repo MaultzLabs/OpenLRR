@@ -794,6 +794,16 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
             window.makeKeyAndOrderFront(nil)
             status.stringValue = "\(world.title) • \(world.width)×\(world.height) blocks • \(placements?.rockRaiders.count ?? 0) Rock Raiders"
             status.stringValue += " • \(musicStatus)"
+            if missionAudio.enabled && !musicStatus.hasPrefix("Playing ") {
+                let alert = NSAlert()
+                alert.messageText = "Mission soundtrack could not start"
+                alert.informativeText = musicStatus
+                alert.addButton(withTitle: "Choose music files…")
+                alert.addButton(withTitle: "Continue")
+                alert.beginSheetModal(for: window) { [weak self] result in
+                    if result == .alertFirstButtonReturn { self?.chooseMissionMusic() }
+                }
+            }
             status.toolTip = status.stringValue
         } catch {
             presentLevelError("\(identifier): \(error)")

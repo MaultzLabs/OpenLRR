@@ -95,7 +95,7 @@ import Foundation
         try Data([4, 5, 6]).write(to: musicFolder.appendingPathComponent("Track10.m4a"))
         let withBundle = OriginalMissionTrackLocator.locate(beside: wad, home: home, bundledRoot: bundle)
         precondition(withBundle.playable.first == bundledTrack)
-        precondition(withBundle.playable.filter { $0.lastPathComponent == "Track10.m4a" }.count == 1)
+        precondition(withBundle.playable.filter { $0.lastPathComponent == "Track10.m4a" }.count == 2)
         precondition(withBundle.playable.contains { $0.lastPathComponent == "Track01.m4a" })
 
         let downloadedMusic = home.appendingPathComponent("Downloads/Rock-Raiders-Mission-Music-Mac/Music")
@@ -103,6 +103,12 @@ import Foundation
         let downloadedTrack = downloadedMusic.appendingPathComponent("Track12.m4a")
         try Data([1, 2, 3]).write(to: downloadedTrack)
         precondition(OriginalMissionTrackLocator.locate(beside: wad, home: home).playable.contains(downloadedTrack))
+
+        let patch = home.appendingPathComponent("Downloads/Rock Raiders Soundtrack Patch/Data/Music")
+        try fm.createDirectory(at: patch, withIntermediateDirectories: true)
+        let patchTrack = patch.appendingPathComponent("Track11.wav")
+        try Data([1, 2, 3]).write(to: patchTrack)
+        precondition(OriginalMissionTrackLocator.locate(beside: wad, home: home).playable.contains(patchTrack))
 
         // Do not follow traversal or arbitrary formats from untrusted CFG.
         precondition(OriginalAudioFileLocator.locate("../Sounds/Atmosdel.wav", beside: wad) == nil)

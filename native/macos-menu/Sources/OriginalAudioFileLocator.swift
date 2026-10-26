@@ -201,8 +201,24 @@ struct OriginalMissionTrackLocator {
                 folders += entries.filter { $0.lastPathComponent.lowercased() == "music" }
             }
         }
+        // Tracks may be directly in Data, or inside an extracted RRU patch.
+        folders += roots
+        let downloads = home.appendingPathComponent("Downloads")
+        let packages = (try? fm.contentsOfDirectory(at: downloads, includingPropertiesForKeys: [.isDirectoryKey])) ?? []
+        for package in packages.prefix(256) {
+            let name = package.lastPathComponent.lowercased()
+            guard name.contains("rock") || name.contains("raider") || name.contains("soundtrack") else { continue }
+            folders.append(package)
+            for suffix in ["Music", "Data/Music", "Sounds/Music", "Data/Sounds/Music"] {
+                folders.append(package.appendingPathComponent(suffix))
+            }
+        }
+        for root in roots {
+            for suffix in ["Data/Music", "Data/Sounds/Music", "Sounds/Music"] {
+                folders.append(root.appendingPathComponent(suffix))
+            }
+        }
         var playable: [URL] = [], ogg: [URL] = []
-        var playableNames = Set<String>()
         var seen = Set<String>()
         for folder in folders {
             let entries = (try? fm.contentsOfDirectory(at: folder,
@@ -217,7 +233,7 @@ struct OriginalMissionTrackLocator {
                       seen.insert(file.standardizedFileURL.path).inserted else { continue }
                 switch file.pathExtension.lowercased() {
                 case "wav", "m4a", "mp3", "aif", "aiff":
-                    if playableNames.insert(name).inserted { playable.append(file) }
+                    playable.append(file) // Keep alternate copies: decode decides whether each works.
                 case "ogg": ogg.append(file)
                 default: break
                 }

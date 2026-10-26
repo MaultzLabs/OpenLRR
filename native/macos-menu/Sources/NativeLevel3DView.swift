@@ -16,7 +16,7 @@ final class NativeLevel3DView: SCNView {
     private let excavation: NativeExcavationState
     var excavationState: NativeExcavationState { excavation }
     private var navigation: NativeLevelNavigation {
-        NativeLevelNavigation(world: world, excavated: excavation.excavated)
+        NativeLevelNavigation(world: world, excavated: excavation.excavated, revealed: excavation.revealed)
     }
     private var terrainNodes: [SCNNode] = []
     private var terrainMaterials: [NativeTerrainMesh.Material: SCNMaterial] = [:]
@@ -31,6 +31,7 @@ final class NativeLevel3DView: SCNView {
         leaveFirstPerson()
         selectedWall = nil
         selectedRaider = nil
+        selectedRaiders.removeAll()
         for marker in raiderMarkers.values {
             marker.geometry?.firstMaterial?.emission.contents = NSColor.black
             marker.enumerateChildNodes { node, _ in
@@ -41,22 +42,32 @@ final class NativeLevel3DView: SCNView {
     }
 
     func cancelSelectedOrder() {
-        guard let id = selectedRaider, let marker = raiderMarkers[id] else { return }
-        let position = marker.presentation.position
-        motionGenerations[id] = UUID()
-        marker.removeAllActions()
-        marker.position = position
-        raiderModels[id]?.setMoving(false)
-        onInteractionMessage?("Rock Raider order cancelled.")
+        for id in selectedRaiders {
+            guard let marker = raiderMarkers[id] else { continue }
+            let position = marker.presentation.position
+            motionGenerations[id] = UUID()
+            marker.removeAllActions()
+            drillingRaiders.remove(id)
+            marker.position = position
+            raiderModels[id]?.setMoving(false)
+        }
+        onInteractionMessage?("Selected Rock Raider orders cancelled.")
     }
 
+    private var placementNodes: [String: SCNNode] = [:]
     private var raiderMarkers: [String: SCNNode] = [:]
     private var selectedRaider: String?
+    private var selectedRaiders = Set<String>()
+    private var drillingRaiders = Set<String>()
+    var selectionCount: Int32 { Int32(selectedRaiders.count) }
     private var raiderModels: [String: OriginalRaiderModel] = [:]
     private var modelTimer: Timer?
     private let overheadCamera = SCNNode()
+    private let fog: NativeFirstPersonFog?
+    private var fogSeconds: Double = 0
     private let overheadMotion: NativeOverheadCamera
     private let firstPersonCamera = SCNNode()
+    private let firstPersonLight = SCNNode()
     private var firstPersonRaider: String?
     private var firstPersonController: NativeFirstPersonController?
     private var heldKeys = Set<UInt16>()
@@ -84,6 +95,7 @@ final class NativeLevel3DView: SCNView {
 
     init(frame: NSRect, world: LevelWorld, objects: OriginalObjectList?,
          resources: GameResources, textureSet: String?, config: LegoConfig? = nil, blockSize: Double = 40) throws {
+        self.fog = NativeFirstPersonFog(config: config, level: world.identifier)
         self.overheadMotion = NativeOverheadCamera(config: config, blockSize: blockSize)
         self.world = world
         self.terrainMesh = try NativeTerrainMesh(world: world)
@@ -172,13 +184,26 @@ final class NativeLevel3DView: SCNView {
         scene.rootNode.addChildNode(camera)
         firstPersonCamera.camera = SCNCamera()
         firstPersonCamera.camera?.zNear = 0.03
-        firstPersonCamera.camera?.zFar = camera.camera?.zFar ?? 400
+        firstPersonCamera.camera?.zFar = fog?.distance ?? camera.camera?.zFar ?? 400
         scene.rootNode.addChildNode(firstPersonCamera)
 
         let ambient = SCNNode()
         ambient.light = SCNLight()
         ambient.light?.type = .ambient
-        ambient.light?.color = NSColor(calibratedWhite: 0.40, alpha: 1)
+        func lightColor(_ name: String) -> NSColor? {
+            guard let raw = config?.valueUnderGame(["Main", name]) else { return nil }
+            let rgb = raw.split(separator: ":").compactMap { Double($0) }
+            guard rgb.count == 3, rgb.allSatisfy({ $0.isFinite && $0 >= 0 && $0 <= 255 }) else { return nil }
+            return NSColor(calibratedRed: rgb[0] / 255, green: rgb[1] / 255, blue: rgb[2] / 255, alpha: 1)
+        }
+        ambient.light?.color = lightColor("AmbientRGB") ?? NSColor(calibratedWhite: 0.40, alpha: 1)
+        if let color = lightColor("FPLightRGB") {
+            firstPersonLight.light = SCNLight()
+            firstPersonLight.light?.type = .omni
+            firstPersonLight.light?.color = color
+            firstPersonLight.isHidden = true
+            firstPersonCamera.addChildNode(firstPersonLight)
+        }
         scene.rootNode.addChildNode(ambient)
 
         let activities = config.flatMap { try? OriginalRaiderActivities.load(config: $0, resources: resources) }
@@ -189,8 +214,7 @@ final class NativeLevel3DView: SCNView {
                 guard placement.x >= 0, placement.y >= 0,
                       placement.x < Double(world.width),
                       placement.y < Double(world.height),
-                      let tile = world.tile(x: Int(placement.x), y: Int(placement.y)),
-                      tile.excavation.isDiscoveredCavern else { continue }
+                      let tile = world.tile(x: Int(placement.x), y: Int(placement.y)) else { continue }
                 let geometry: SCNGeometry = placement.isRockRaider ?
                     SCNCapsule(capRadius: 0.22, height: 0.80) :
                     SCNSphere(radius: 0.24)
@@ -204,8 +228,10 @@ final class NativeLevel3DView: SCNView {
                 marker.position = worldPosition(x: placement.x, z: placement.y)
                 marker.eulerAngles = SCNVector3(0, Float(placement.headingDegrees * .pi / 180), 0)
                 scene.rootNode.addChildNode(marker)
+                placementNodes[placement.identifier] = marker
+                marker.isHidden = !tile.excavation.isDiscoveredCavern
                 if placement.isRockRaider {
-                    raiderMarkers[placement.identifier] = marker
+                    if !marker.isHidden { raiderMarkers[placement.identifier] = marker }
                     if let activities,
                        let model = try? OriginalRaiderModel(activities: activities, resources: resources, blockSize: blockSize, sharedTextures: config?.valueUnderGame(["Main", "SharedTextures"])) {
                         marker.geometry = nil
@@ -263,7 +289,7 @@ final class NativeLevel3DView: SCNView {
     private func refreshExcavatedTerrain() {
         guard let scene else { return }
         do {
-            let updated = try NativeTerrainMesh(world: world, excavatedTiles: excavation.excavated)
+            let updated = try NativeTerrainMesh(world: world, excavatedTiles: excavation.excavated, revealedTiles: excavation.revealed, rubbleTiles: excavation.rubble)
             let replacements = updated.surfaces.compactMap { surface -> SCNNode? in
                 guard let geometry = makeGeometry(surface) else { return nil }
                 // The opened floor reuses the existing original floor bitmap.
@@ -276,6 +302,12 @@ final class NativeLevel3DView: SCNView {
             replacements.forEach { scene.rootNode.addChildNode($0) }
             terrainNodes = replacements
             terrainMesh = updated
+            for placement in originalObjects?.placements ?? [] {
+                guard let node = placementNodes[placement.identifier],
+                      excavation.tile(x: Int(placement.x), y: Int(placement.y))?.excavation.isDiscoveredCavern == true else { continue }
+                node.isHidden = placement.identifier == firstPersonRaider
+                if placement.isRockRaider { raiderMarkers[placement.identifier] = node }
+            }
             firstPersonController?.navigation = navigation
             onTerrainChanged?()
         } catch { onInteractionMessage?("Cave rebuild failed: \(error)") }
@@ -298,22 +330,31 @@ final class NativeLevel3DView: SCNView {
         }
         commandMove(to: .init(x: Double(order.approach.x) + 0.5,
                              y: Double(order.approach.y) + 0.5)) { [weak self, weak marker] in
-            guard let self, let marker else { return }
-            let generation = self.motionGenerations[id]
-            // Provisional work duration; retail drill speed/animation remain unported.
-            marker.runAction(.wait(duration: 0.75)) { [weak self, weak marker] in
-                DispatchQueue.main.async {
-                    guard let self, let marker, self.motionGenerations[id] == generation else { return }
-                    let p = marker.presentation.position
-                    let x = Double(p.x) + Double(self.world.width) / 2
-                    let y = Double(p.z) + Double(self.world.height) / 2
-                    guard hypot(x - Double(order.approach.x) - 0.5,
-                                y - Double(order.approach.y) - 0.5) < 0.1,
-                          self.excavation.finish(order, raiderAt: order.approach) else { return }
-                    if self.selectedWall == wall { self.selectedWall = nil }
-                    self.refreshExcavatedTerrain()
-                    self.onInteractionMessage?("Wall excavated. Rubble and resource collection remain unported.")
-                }
+            guard let self, marker != nil else { return }
+            self.performDrill(id: id, order: order)
+
+        }
+    }
+
+    private func performDrill(id: String, order: NativeExcavationState.DrillOrder) {
+        guard let marker = raiderMarkers[id], drillingRaiders.insert(id).inserted else { return }
+        let generation = motionGenerations[id]
+        let duration = raiderModels[id]?.beginDrilling() ?? 0.75
+        marker.eulerAngles = SCNVector3(0, Float(atan2(Double(order.wall.x - order.approach.x),
+                                                     Double(order.wall.y - order.approach.y))), 0)
+        marker.runAction(.wait(duration: duration)) { [weak self, weak marker] in
+            DispatchQueue.main.async {
+                guard let self, let marker else { return }
+                self.drillingRaiders.remove(id)
+                self.raiderModels[id]?.setMoving(false)
+                guard self.motionGenerations[id] == generation else { return }
+                let p = marker.presentation.position
+                let at = NativeLevelNavigation.Position(x: Int(floor(Double(p.x) + Double(self.world.width) / 2)),
+                                                       y: Int(floor(Double(p.z) + Double(self.world.height) / 2)))
+                guard self.excavation.finish(order, raiderAt: at) else { return }
+                self.selectedWall = nil
+                self.refreshExcavatedTerrain()
+                self.onInteractionMessage?("Wall excavated; rubble remains and connected caverns are revealed.")
             }
         }
     }
@@ -325,6 +366,7 @@ final class NativeLevel3DView: SCNView {
     /// and wall orientation are still under development.
     private static func textureID(for material: NativeTerrainMesh.Material) -> UInt8? {
         switch material {
+        case .rubble: return 0x10
         case .cavernFloor: return 0x00
         case .dirt, .wallFace: return 0x02
         case .mediumRock: return 0x03
@@ -340,6 +382,7 @@ final class NativeLevel3DView: SCNView {
 
     private static func color(_ material: NativeTerrainMesh.Material) -> NSColor {
         switch material {
+        case .rubble: return NSColor.darkGray
         case .cavernFloor: return NSColor(calibratedRed: 0.30, green: 0.39, blue: 0.35, alpha: 1)
         case .hardRock: return NSColor(calibratedRed: 0.46, green: 0.48, blue: 0.53, alpha: 1)
         case .mediumRock: return NSColor(calibratedRed: 0.60, green: 0.47, blue: 0.31, alpha: 1)
@@ -494,6 +537,18 @@ final class NativeLevel3DView: SCNView {
         let now = ProcessInfo.processInfo.systemUptime
         let elapsed = lastSimulationTime.map { max(0, now - $0) } ?? 0
         lastSimulationTime = now
+        firstPersonLight.isHidden = firstPersonRaider == nil
+        if firstPersonRaider != nil, let fog {
+            fogSeconds += min(elapsed, 0.1)
+            let rgb = fog.color(seconds: fogSeconds)
+            scene?.fogColor = NSColor(calibratedRed: rgb[0], green: rgb[1], blue: rgb[2], alpha: 1)
+            scene?.fogStartDistance = 0
+            scene?.fogEndDistance = fog.distance
+            scene?.fogDensityExponent = 1
+        } else {
+            scene?.fogStartDistance = 0
+            scene?.fogEndDistance = 0
+        }
         for model in raiderModels.values { model.update(time: now) }
         if firstPersonRaider == nil, window?.isKeyWindow == true {
             let horizontal = (heldKeys.contains(124) ? 1.0 : 0) - (heldKeys.contains(123) ? 1.0 : 0)
@@ -509,6 +564,7 @@ final class NativeLevel3DView: SCNView {
                       (heldKeys.contains(1) || heldKeys.contains(125) ? 1.0 : 0.0)
         let turn = (heldKeys.contains(2) || heldKeys.contains(124) ? 1.0 : 0.0) -
                    (heldKeys.contains(0) || heldKeys.contains(123) ? 1.0 : 0.0)
+        if drillingRaiders.contains(id) { return }
         let moved = controller.advance(
             forward: forward, turn: turn, elapsed: elapsed,
             obstacles: otherRaiderObstacles(excluding: id))
@@ -516,6 +572,15 @@ final class NativeLevel3DView: SCNView {
         if moved { marker.position = worldPosition(x: controller.position.x, z: controller.position.y) }
         marker.eulerAngles = SCNVector3(0, Float(controller.heading), 0)
         raiderModels[id]?.setMoving(moved)
+        if forward > 0 && !moved {
+            let at = NativeLevelNavigation.Position(x: Int(floor(controller.position.x)), y: Int(floor(controller.position.y)))
+            let target = NativeLevelNavigation.Position(
+                x: Int(floor(controller.position.x + sin(controller.heading) * 0.65)),
+                y: Int(floor(controller.position.y + cos(controller.heading) * 0.65)))
+            if abs(target.x - at.x) + abs(target.y - at.y) == 1, excavation.canDrill(target) {
+                performDrill(id: id, order: .init(wall: target, approach: at, route: [at]))
+            }
+        }
         firstPersonCamera.position = SCNVector3(marker.position.x, marker.position.y + 0.20, marker.position.z)
         // SceneKit cameras look along -Z; the original OL Raider faces +Z.
         firstPersonCamera.eulerAngles = SCNVector3(0, Float(controller.heading + .pi), 0)
@@ -528,13 +593,16 @@ final class NativeLevel3DView: SCNView {
                           Float(z) - Float(world.height) / 2)
     }
 
-    private func selectRaider(_ id: String) {
-        selectedRaider = id
+    private func selectRaider(_ id: String, extending: Bool = false) {
+        if extending {
+            if !selectedRaiders.insert(id).inserted { selectedRaiders.remove(id) }
+        } else { selectedRaiders = [id] }
+        selectedRaider = selectedRaiders.contains(id) ? id : selectedRaiders.sorted().first
         selectedWall = nil
         onSelectionChanged?()
         onRockRaiderSelected?(id)
         for (identifier, marker) in raiderMarkers {
-            let highlight = identifier == id ? NSColor(calibratedWhite: 0.15, alpha: 1) : NSColor.black
+            let highlight = selectedRaiders.contains(identifier) ? NSColor(calibratedWhite: 0.15, alpha: 1) : NSColor.black
             marker.geometry?.firstMaterial?.emission.contents = highlight
             marker.enumerateChildNodes { part, _ in
                 for material in part.geometry?.materials ?? [] { material.emission.contents = highlight }
@@ -552,8 +620,8 @@ final class NativeLevel3DView: SCNView {
 
     private var motionGenerations: [String: UUID] = [:]
 
-    private func commandMove(to destination: NativeLevelNavigation.Point, onArrival: (() -> Void)? = nil) {
-        guard let id = selectedRaider, let marker = raiderMarkers[id] else { return }
+    private func commandMove(to destination: NativeLevelNavigation.Point, raiderID: String? = nil, onArrival: (() -> Void)? = nil) {
+        guard let id = raiderID ?? selectedRaider, let marker = raiderMarkers[id] else { return }
         if let placement = originalObjects?.rockRaiders.first(where: {
             $0.identifier == id
         }), placement.drivingIdentifier != nil {
@@ -577,6 +645,7 @@ final class NativeLevel3DView: SCNView {
         let generation = UUID()
         motionGenerations[id] = generation
         marker.removeAllActions()
+        drillingRaiders.remove(id)
         marker.position = current // Retarget from the visible position without snapping.
         var previous = from
         let actions: [SCNAction] = route.dropFirst().map { target in
@@ -639,7 +708,7 @@ final class NativeLevel3DView: SCNView {
             return nil
         }.first
         if let id = pickedRaider {
-            if tutorialInputPolicy.canSelectObjects { selectRaider(id) }
+            if tutorialInputPolicy.canSelectObjects { selectRaider(id, extending: event.modifierFlags.contains(.shift)) }
         } else if tutorialInputPolicy.canClickMap,
                   let terrainHit = hits.first(where: {
             $0.node.name?.hasPrefix("Retail MAP /") == true
@@ -652,9 +721,13 @@ final class NativeLevel3DView: SCNView {
             if let tile = excavation.tile(x: x, y: z) {
                 onTileSelected?(tile)
                 if selectedRaider != nil && selectedWall == nil {
-                    commandMove(to: NativeLevelNavigation.Point(
-                        x: Double(point.x) + Double(world.width) / 2,
-                        y: Double(point.z) + Double(world.height) / 2))
+                    let ids = selectedRaiders.sorted()
+                    for (index, id) in ids.enumerated() {
+                        let angle = Double(index) * 2 * .pi / Double(max(1, ids.count))
+                        let radius = ids.count > 1 ? max(0.5, Double(ids.count) * 0.12) : 0
+                        commandMove(to: .init(x: Double(point.x) + Double(world.width) / 2 + cos(angle) * radius,
+                                              y: Double(point.z) + Double(world.height) / 2 + sin(angle) * radius), raiderID: id)
+                    }
                 }
             }
         }
@@ -682,6 +755,8 @@ final class NativeMissionWorkspace: NSView {
     private let diagnosticsButton = NSButton(checkboxWithTitle: "Diagnostics", target: nil, action: nil)
     private let nerpsState: NativeNERPsGameState?
     private let nerpsAudio = OriginalNERPsAudio()
+    private let caveAudio = OriginalMenuAudio()
+    private var startCaveAudio: (() -> Void)?
     private var nerpsTimer: Timer?
     private var previousTickTime: TimeInterval?
     private var nerpsHalted = false
@@ -724,6 +799,12 @@ final class NativeMissionWorkspace: NSView {
         nerpsState?.gotoTutorialCamera = { [weak self] id in self?.level3D.gotoTutorialCamera(id) }
         nerpsState?.cameraAtTutorial = { [weak self] id in self?.level3D.cameraAtTutorial(id) ?? 0 }
         nerpsState?.rockRaidersOnLevel = { [weak self] in self?.level3D.rockRaiderCount ?? 0 }
+        if let config, let wadURL {
+            startCaveAudio = { [weak self] in
+                _ = self?.caveAudio.start(config: config, resources: resources, beside: wadURL,
+                    additionalAudioRoot: extraAudioRoot, sampleName: "SFX_AmbientLoop")
+            }
+        }
         let soundFlag = config?.valueUnderGame(["Main", "SoundOn"])?.uppercased() ?? "TRUE"
         nerpsState?.playMessageSound = { [weak self] path in
             self?.nerpsAudio.start(path: path, resources: resources, wadURL: wadURL,
@@ -765,7 +846,7 @@ final class NativeMissionWorkspace: NSView {
         commands.onBack = { [weak self] in self?.returnToCommands() }
         level3D.onSelectionChanged = { [weak self] in
             guard let self else { return }
-            self.nerpsState?.reportRockRaiderSelection(self.level3D.hasSelectedRaider)
+            self.nerpsState?.reportRockRaiderSelection(count: self.level3D.selectionCount)
             self.commandPage = self.level3D.isInFirstPerson ? .firstPerson : self.level3D.hasSelectedRaider ? .raider : .main
             self.refreshWallControls()
         }
@@ -804,7 +885,7 @@ final class NativeMissionWorkspace: NSView {
         // A real click on an original OL Pilot marker changes the script's
         // GetMiniFigureSelected result during the next NERPs VM tick.
         level3D.onRockRaiderSelected = { [weak self] _ in
-            self?.nerpsState?.reportRockRaiderSelection(true)
+            if let self { self.nerpsState?.reportRockRaiderSelection(count: self.level3D.selectionCount) }
         }
         if let objects {
             status.stringValue = "\(objects.rockRaiders.count) Rock Raiders • \(level3D.textureSummary) • \(level3D.modelSummary) • click a Raider to select"
@@ -820,7 +901,8 @@ final class NativeMissionWorkspace: NSView {
         nerpsTimer?.invalidate()
         nerpsTimer = nil
         previousTickTime = nil
-        if window == nil { nerpsAudio.stop() }
+        if window == nil { nerpsAudio.stop(); caveAudio.stop() }
+        else { startCaveAudio?() }
         guard window != nil, nerpsState != nil, !nerpsHalted else { return }
         nerpsTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0,
                                           repeats: true) { [weak self] _ in

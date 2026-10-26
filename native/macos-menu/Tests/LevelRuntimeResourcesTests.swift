@@ -203,11 +203,11 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         precondition(defaultWorld.elevation(atX: 0, y: 1) == 2)
 
 
-        precondition(mesh.triangleCount > 8)  // four tile tops + exposed wall sides
+        precondition(mesh.triangleCount == 8) // four shared-vertex tiles, no cube side faces
         precondition(mesh.surfaces.contains { $0.material == .crystal })
         precondition(!mesh.surfaces.contains { $0.material == .wallFace })
         precondition(mesh.surfaces.contains { surface in
-            surface.material == .crystal && surface.normals.contains { abs($0.y) < 0.5 }
+            surface.material == .crystal && surface.normals.contains { $0.y > 0 && $0.y < 0.99 }
         })
         precondition(mesh.surfaces.allSatisfy {
             $0.vertices.count == $0.normals.count && $0.vertices.count % 3 == 0
@@ -222,6 +222,30 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
             _ = try NativeTerrainMesh(world: nativeWorld, maxTiles: 3)
             preconditionFailure("Tile-count memory guard was bypassed")
         } catch is NativeTerrainMesh.MeshError {}
+
+        // Hidden areas reveal through the original eight-neighbour flood,
+        // while separated cavities and liquid collision remain intact.
+        var hiddenPredug = [UInt16](repeating: 0, count: 25)
+        hiddenPredug[7] = 1
+        hiddenPredug[5] = 2
+        hiddenPredug[10] = 2
+        hiddenPredug[18] = 2
+        let hiddenResources = try GameResources(archives: [(0, syntheticWad([
+            ("Levels/GameLevels/Level01/Surf.map", syntheticMap([UInt16](repeating: 4, count: 25), width: 5, height: 5)),
+            ("Levels/GameLevels/Level01/Dugg.map", syntheticMap(hiddenPredug, width: 5, height: 5)),
+            ("Levels/GameLevels/Level01/High.map", syntheticMap([UInt16](repeating: 0, count: 25), width: 5, height: 5))
+        ]))])
+        let hiddenWorld = try LevelWorld(manifest: manifest, resources: hiddenResources)
+        let discovery = NativeExcavationState(world: hiddenWorld)
+        let dig = discovery.plan(from: .init(x: 2, y: 1), wall: .init(x: 1, y: 1))!
+        precondition(discovery.finish(dig, raiderAt: dig.approach))
+        precondition(discovery.revealed == [.init(x: 0, y: 1), .init(x: 0, y: 2)])
+        let revealedNav = NativeLevelNavigation(world: hiddenWorld, excavated: discovery.excavated, revealed: discovery.revealed)
+        precondition(revealedNav.canWalk(.init(x: 0, y: 2)))
+        precondition(!revealedNav.canWalk(.init(x: 3, y: 3)))
+        let revealedMesh = try NativeTerrainMesh(world: hiddenWorld, excavatedTiles: discovery.excavated,
+            revealedTiles: discovery.revealed, rubbleTiles: discovery.rubble)
+        precondition(revealedMesh.surfaces.contains { $0.material == .rubble })
 
         // Correctness of raw terrain IDs is anchored in
         // game/GameCommon.h::Lego_SurfaceType.
@@ -386,6 +410,7 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         precondition(mining.excavated.isEmpty)
         precondition(mining.finish(order, raiderAt: order.approach))
         precondition(mining.tutorialGroundValue(1) == 16)
+        precondition(mining.rubble.contains(order.wall))
         precondition(!mining.finish(order, raiderAt: order.approach))
         precondition(!mining.canDrill(wall))
         precondition(mining.tile(x: 1, y: 1)?.terrain == .tunnel)
