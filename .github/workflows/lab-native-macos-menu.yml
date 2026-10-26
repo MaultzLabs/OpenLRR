@@ -26,6 +26,8 @@ jobs:
         run: |
           swiftc --version
           bash native/macos-menu/test.sh
+      - name: Verify bounded soundtrack import and conversion
+        run: python3 -m unittest discover -s native/macos-menu/tools/tests -v
       - name: Verify gameplay capture never leaves the target game window
         run: |
           python3 -m unittest discover -s native/macos-menu/tools/gameplay-capture/tests -v

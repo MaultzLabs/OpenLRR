@@ -20,3 +20,20 @@ Updated 2026-10-23. The earlier 80% completion estimate is withdrawn: there was 
 Next selected milestone: verify the original Raider model/material and stand/walk pipeline, then implement first-person camera/control on the same collision-aware movement foundation. Dynamic object/building collision, original movement speed and animation timing remain separate from static terrain clearance.
 
 Daily reporting must name commits, tests actually run, user-visible results, remaining failures and the next chosen task. A day without validated advancement must be reported as such; no automatic 5% credit or five-day completion promise.
+
+
+## Model materials and terrain follow-up — PR #66
+
+Implemented original LWOB TIMG/TSIZ/TCTR/TFLG bitmap projection and UView v2
+per-corner coordinates, preserving texture seams. Original BMPs resolve from
+the component directory and configured shared texture directory. Dry exposed
+terrain uses floor material; wall sides retain rock/seam material. Floor UVs
+are aligned to map tiles on odd-sized levels.
+
+Added an RRU ZIP music importer: audio-only Track00–98 extraction, local M4A
+conversion, no Windows DLL installation, no overwrite of existing tracks.
+Four local FFmpeg integration tests pass, including corrupt-track rollback,
+path confinement and duplicate rejection. Swift regression/ARM64 CI remains
+the authority for build status. No original asset visual/audio validation yet.
+The actual RRU music ZIP download is pending the site's terms confirmation.
+Next: real-asset material review and first-person camera/control.
