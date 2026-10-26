@@ -14,6 +14,23 @@ import zipfile
 DEFAULT_DEST = Path.home() / 'Library/Application Support/RockRaidersNativeMenu/ConvertedMedia/Music'
 
 
+def validate_existing_track(target, ffmpeg):
+    message = (f'Existing track is not valid audio: {target}. '
+               'Move it out of the cache and retry; it was not overwritten.')
+    if not target.is_file() or target.stat().st_size == 0:
+        raise ValueError(message)
+    try:
+        # Decode the whole retained track, not just its header. FFmpeg can
+        # otherwise report success after recovering from corrupt audio packets.
+        subprocess.run([ffmpeg, '-nostdin', '-hide_banner', '-loglevel', 'error',
+                        '-xerror', '-err_detect', 'explode', '-abort_on', 'empty_output',
+                        '-i', str(target), '-map', '0:a:0', '-vn', '-f', 'null', '-'],
+                       check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    except subprocess.CalledProcessError as error:
+        detail = error.stderr.strip()
+        raise ValueError(message + (f'\nFFmpeg: {detail}' if detail else '')) from error
+
+
 def import_music(archive, destination=DEFAULT_DEST, ffmpeg='ffmpeg'):
     executable = shutil.which(ffmpeg)
     if not executable:
@@ -45,6 +62,7 @@ def import_music(archive, destination=DEFAULT_DEST, ffmpeg='ffmpeg'):
             for info, name in sorted(entries, key=lambda entry: entry[1]):
                 target = destination / (name + '.m4a')
                 if target.exists():
+                    validate_existing_track(target, executable)
                     print(f'Keeping existing {target.name}')
                     continue
                 source = work / (name + '.ogg')
@@ -56,14 +74,18 @@ def import_music(archive, destination=DEFAULT_DEST, ffmpeg='ffmpeg'):
                 if not converted.is_file() or converted.stat().st_size == 0:
                     raise ValueError(f'No converted audio for {name}')
                 staged.append((converted, target))
+            published = 0
             for converted, target in staged:
                 # Atomic publication without overwriting an existing track.
                 try:
                     os.link(converted, target)
                 except FileExistsError:
+                    validate_existing_track(target, executable)
                     print(f'Keeping existing {target.name}')
+                else:
+                    published += 1
             print(f'Mission music ready in {destination}. Return to the menu and reopen the mission.')
-            return len(staged)
+            return published
 
 
 def main():

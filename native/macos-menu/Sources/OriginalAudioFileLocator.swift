@@ -207,7 +207,11 @@ struct OriginalMissionTrackLocator {
         let packages = (try? fm.contentsOfDirectory(at: downloads, includingPropertiesForKeys: [.isDirectoryKey])) ?? []
         for package in packages.prefix(256) {
             let name = package.lastPathComponent.lowercased()
-            guard name.contains("rock") || name.contains("raider") || name.contains("soundtrack") else { continue }
+            // RRU's documented archive extracts to LRR_Music_Fix, which has
+            // none of the descriptive names below. Accept that exact name,
+            // not every LRR/music folder, and keep the same bounded probes.
+            guard name == "lrr_music_fix" || name.contains("rock") ||
+                  name.contains("raider") || name.contains("soundtrack") else { continue }
             folders.append(package)
             for suffix in ["Music", "Data/Music", "Sounds/Music", "Data/Sounds/Music"] {
                 folders.append(package.appendingPathComponent(suffix))
