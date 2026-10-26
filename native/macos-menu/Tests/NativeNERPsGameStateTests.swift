@@ -216,6 +216,32 @@ private func encode(_ operations: [(UInt16, UInt16)]) throws -> NERPsScript {
         // runs on every frame, and must respect the message-file line count.
         let guide = try NativeNERPsMessageFile(
             data: Data("Welcome_Raider!\nSelect_the_rock.\n".utf8))
+        // NERPsRuntime_UpdateTimers: the original enabled Next arrow
+        // waits for a real acknowledgement instead of silently expiring.
+        // SetMessage's nonzero second argument disables Next and restores
+        // the timed-message countdown, even while a message is pending.
+        let gated = NativeNERPsGameState(script: try encode([]), messages: guide)
+        let gatedFunctions = gated.functions()
+        _ = gatedFunctions[0x31]!.invoke([0])
+        _ = gatedFunctions[0x10]!.invoke([1, 0])
+        precondition(gated.messageTimer == 4000 && gated.messageNeedsAdvance)
+        try gated.advanceTimers(milliseconds: 5000)
+        precondition(gated.messageTimer == 4000)
+        precondition(gatedFunctions[0x6b]!.invoke([]) == 4000)
+        precondition(gated.advanceMessage())
+        try gated.advanceTimers(milliseconds: 16)
+        precondition(gated.messageTimer == 0)
+        _ = gatedFunctions[0x10]!.invoke([2, 1])
+        try gated.advanceTimers(milliseconds: 1250)
+        precondition(gated.messageTimer == 2750 && gated.messageNeedsAdvance)
+        let timed = NativeNERPsGameState(script: try encode([]),
+                                         messages: guide, hasNextButton: false)
+        let timedFunctions = timed.functions()
+        _ = timedFunctions[0x31]!.invoke([0])
+        _ = timedFunctions[0x10]!.invoke([1, 0])
+        try timed.advanceTimers(milliseconds: 500)
+        precondition(timed.messageTimer == 3500, "Messages without Next must expire")
+
         let guideState = NativeNERPsGameState(script: try encode([]),
                                               messages: guide)
         let guideFunctions = guideState.functions()
