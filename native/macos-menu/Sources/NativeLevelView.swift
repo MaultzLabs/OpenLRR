@@ -7,6 +7,7 @@ import Foundation
 /// does not impersonate the original 3D engine or invent functional units.
 final class NativeLevelView: NSView {
     let world: LevelWorld
+    var excavationState: NativeExcavationState?
     var onExit: (() -> Void)?
     var originalCursor: NSCursor? {
         didSet { if let window { window.invalidateCursorRects(for: self) } }
@@ -52,7 +53,7 @@ final class NativeLevelView: NSView {
         let center = sceneCenter
         let x = Int(floor((point.x - center.x) / tileSize + cameraX))
         let y = Int(floor((point.y - center.y) / tileSize + cameraY))
-        return world.tile(x: x, y: y)
+        return excavationState?.tile(x: x, y: y) ?? world.tile(x: x, y: y)
     }
 
     private func tileColor(_ tile: LevelWorld.Tile) -> NSColor {
@@ -112,7 +113,7 @@ final class NativeLevelView: NSView {
         if endX >= startX && endY >= startY {
             for y in startY...endY {
                 for x in startX...endX {
-                    guard let tile = world.tile(x: x, y: y) else { continue }
+                    guard let tile = excavationState?.tile(x: x, y: y) ?? world.tile(x: x, y: y) else { continue }
                     let rect = tileFrame(x: x, y: y)
                     tileColor(tile).setFill()
                     rect.fill()

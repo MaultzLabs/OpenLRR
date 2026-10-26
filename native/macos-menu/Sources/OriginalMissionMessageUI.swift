@@ -15,6 +15,15 @@ struct OriginalMissionMessageDefinition {
             .flatMap(Self.point)
     }
 
+    /// Extract a literal bitmap reference, without inventing a filename or
+    /// treating tooltip/sound fields as resources. Format variants may use
+    /// colon or comma separators. Missing images keep the native text control.
+    static func firstBitmapPath(_ setting: String?) -> String? {
+        setting?.split(whereSeparator: { $0 == ":" || $0 == "," })
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .first { $0.lowercased().hasSuffix(".bmp") }
+    }
+
     static func point(_ value: String) -> CGPoint? {
         let fields = value.split(separator: ",", omittingEmptySubsequences: false)
         guard fields.count == 2,
@@ -147,7 +156,7 @@ final class OriginalMissionMessageUI: NSView {
     override func mouseDown(with event: NSEvent) {}
     override func rightMouseDown(with event: NSEvent) {}
 
-    private static func image(_ path: String?, resources: GameResources) -> NSImage? {
+    static func image(_ path: String?, resources: GameResources) -> NSImage? {
         guard let path, let data = try? resources.data(at: path, maximumBytes: 8_000_000),
               let bitmap = try? PalettedBMP(data: data),
               let provider = CGDataProvider(data: Data(bitmap.blackKeyedRGBA()) as CFData),

@@ -22,6 +22,9 @@ import Foundation
             precondition(OriginalMissionMessageDefinition.point(value) == nil, value)
         }
         precondition(OriginalMissionMessageDefinition.point(" -20, 0 ") == CGPoint(x: -20, y: 0))
+        precondition(OriginalMissionMessageDefinition.firstBitmapPath("Drill:SFX_Dig:Interface/Dig.bmp:Interface/PDig.bmp") == "Interface/Dig.bmp")
+        precondition(OriginalMissionMessageDefinition.firstBitmapPath(nil) == nil)
+        precondition(OriginalMissionMessageDefinition.firstBitmapPath("Drill:SFX_Dig") == nil)
         print("Original mission message CFG tests passed")
     }
 }

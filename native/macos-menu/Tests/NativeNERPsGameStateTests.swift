@@ -44,6 +44,17 @@ private func encode(_ operations: [(UInt16, UInt16)]) throws -> NERPsScript {
 
         // The original OpenLRR functions use signed 32-bit registers.
         let callbacks = state.functions()
+        state.reportDigIconClick()
+        state.reportDigIconClick()
+        state.reportBackIconClick()
+        precondition(callbacks[0x41]!.invoke([]) == 2)
+        precondition(callbacks[0x41]!.invoke([]) == 2, "Query must not consume clicks")
+        precondition(callbacks[0x3e]!.invoke([]) == 1)
+        _ = callbacks[0x40]!.invoke([0])
+        precondition(callbacks[0x41]!.invoke([]) == 0)
+        precondition(callbacks[0x3e]!.invoke([]) == 1, "Separate icon counters")
+        _ = callbacks[0x3d]!.invoke([7])
+        precondition(callbacks[0x3e]!.invoke([]) == 7)
         _ = callbacks[0x19]!.invoke([Int32.max])
         precondition(callbacks[0x11]!.invoke([]) == Int32.max)
         _ = callbacks[0x21]!.invoke([1])

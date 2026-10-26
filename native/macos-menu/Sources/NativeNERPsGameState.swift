@@ -9,6 +9,12 @@ final class NativeNERPsGameState {
         case invalidElapsedTime
     }
 
+    private(set) var digIconClicks: Int32 = 0
+    private(set) var backIconClicks: Int32 = 0
+    // Counts are click events, not successful excavations. Retail Get*IconClicked
+    // does not consume its counter (NERPsFunctions.cpp).
+    func reportDigIconClick() { digIconClicks &+= 1 }
+    func reportBackIconClick() { backIconClicks &+= 1 }
     var isPaused = false
     let script: NERPsScript
     private(set) var registers = [Int32](repeating: 0, count: 8)
@@ -283,6 +289,16 @@ final class NativeNERPsGameState {
             self.tutorialFlags = args[0]
             return self.tutorialFlags
         })
+        // Original NPL table: Set/Get Dig (0x40/0x41), Back (0x3d/0x3e).
+        // https://kb.rockraidersunited.com/NERPs_documentation
+        callbacks[0x40] = .init(kind: .action(arity: 1), invoke: { [unowned self] args in
+            self.digIconClicks = args[0]; return 0
+        })
+        callbacks[0x41] = .init(kind: .expression(arity: 0), invoke: { [unowned self] _ in self.digIconClicks })
+        callbacks[0x3d] = .init(kind: .action(arity: 1), invoke: { [unowned self] args in
+            self.backIconClicks = args[0]; return 0
+        })
+        callbacks[0x3e] = .init(kind: .expression(arity: 0), invoke: { [unowned self] _ in self.backIconClicks })
         return callbacks
     }
 }

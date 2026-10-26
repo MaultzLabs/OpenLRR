@@ -9,11 +9,20 @@ import SceneKit
 /// derived exclusively from the user's original files.
 final class NativeLevel3DView: SCNView {
     let world: LevelWorld
-    let terrainMesh: NativeTerrainMesh
+    private(set) var terrainMesh: NativeTerrainMesh
     let originalObjects: OriginalObjectList?
     let textureSummary: String
     var onExit: (() -> Void)?
-    private let navigation: NativeLevelNavigation
+    private let excavation: NativeExcavationState
+    var excavationState: NativeExcavationState { excavation }
+    private var navigation: NativeLevelNavigation {
+        NativeLevelNavigation(world: world, excavated: excavation.excavated)
+    }
+    private var terrainNodes: [SCNNode] = []
+    private var terrainMaterials: [NativeTerrainMesh.Material: SCNMaterial] = [:]
+    var onTerrainChanged: (() -> Void)?
+    private var selectedWall: NativeLevelNavigation.Position?
+    var hasSelectedWall: Bool { selectedWall != nil }
     private var raiderMarkers: [String: SCNNode] = [:]
     private var selectedRaider: String?
     private var raiderModels: [String: OriginalRaiderModel] = [:]
@@ -50,7 +59,7 @@ final class NativeLevel3DView: SCNView {
         self.world = world
         self.terrainMesh = try NativeTerrainMesh(world: world)
         self.originalObjects = objects
-        self.navigation = NativeLevelNavigation(world: world)
+        self.excavation = NativeExcavationState(world: world)
 
         let textureCatalog = OriginalTerrainTextureCatalog(
             textureSetSetting: textureSet, resources: resources)
@@ -85,40 +94,11 @@ final class NativeLevel3DView: SCNView {
         scene.fogStartDistance = 18
         scene.fogEndDistance = 48
 
-        for surface in terrainMesh.surfaces {
-            // A few material-grouped triangle meshes replace thousands of
-            // SCNNode cubes, allowing normal level sizes to stay responsive.
-            let vertices: [SCNVector3] = surface.vertices.map {
-                SCNVector3($0.x, $0.y, $0.z)
-            }
-            let normals: [SCNVector3] = surface.normals.map {
-                SCNVector3($0.x, $0.y, $0.z)
-            }
-            guard vertices.count <= Int(UInt32.max) else { continue }
-            let indices = (0..<vertices.count).map { UInt32($0) }
-            // UVs repeat original wall/ground bitmaps once per tile. For
-            // vertical walls use their horizontal axis and height rather
-            // than projecting the same flat color over the entire level.
-            let uv: [CGPoint] = zip(surface.vertices, surface.normals).map { pair in
-                let p = pair.0
-                let n = pair.1
-                if abs(n.y) >= 0.5 {
-                    return CGPoint(x: CGFloat(p.x) + CGFloat(world.width) / 2, y: CGFloat(p.z) + CGFloat(world.height) / 2)
-                }
-                let horizontal = abs(n.x) > abs(n.z) ? p.z : p.x
-                return CGPoint(x: CGFloat(horizontal),
-                               y: CGFloat(p.y) / CGFloat(NativeTerrainMesh.previewWallHeight))
-            }
-            let geometry = SCNGeometry(
-                sources: [SCNGeometrySource(vertices: vertices),
-                          SCNGeometrySource(normals: normals),
-                          SCNGeometrySource(textureCoordinates: uv)],
-                elements: [SCNGeometryElement(indices: indices,
-                                              primitiveType: .triangles)])
+        // Cache every original material before excavation exposes new seams.
+        for kind in NativeTerrainMesh.Material.allCases {
             let material = SCNMaterial()
-            material.diffuse.contents = Self.color(surface.material)
-            if textureCatalog != nil,
-               let id = Self.textureID(for: surface.material),
+            material.diffuse.contents = Self.color(kind)
+            if textureCatalog != nil, let id = Self.textureID(for: kind),
                let image = originalBitmap(id) ?? groundTexture {
                 material.diffuse.contents = image
                 material.diffuse.wrapS = .repeat
@@ -129,9 +109,15 @@ final class NativeLevel3DView: SCNView {
             material.lightingModel = .blinn
             material.isDoubleSided = true
             material.specular.contents = NSColor(calibratedWhite: 0.14, alpha: 1)
+            terrainMaterials[kind] = material
+        }
+        for surface in terrainMesh.surfaces {
+            guard let geometry = makeGeometry(surface),
+                  let material = terrainMaterials[surface.material] else { continue }
             geometry.materials = [material]
             let node = SCNNode(geometry: geometry)
             node.name = "Retail MAP / \(surface.material.rawValue)"
+            terrainNodes.append(node)
             scene.rootNode.addChildNode(node)
         }
 
@@ -209,6 +195,97 @@ final class NativeLevel3DView: SCNView {
         }
         self.scene = scene
         self.pointOfView = camera
+    }
+
+    private func makeGeometry(_ surface: NativeTerrainMesh.Surface) -> SCNGeometry? {
+            // A few material-grouped triangle meshes replace thousands of
+            // SCNNode cubes, allowing normal level sizes to stay responsive.
+            let vertices: [SCNVector3] = surface.vertices.map {
+                SCNVector3($0.x, $0.y, $0.z)
+            }
+            let normals: [SCNVector3] = surface.normals.map {
+                SCNVector3($0.x, $0.y, $0.z)
+            }
+            guard vertices.count <= Int(UInt32.max) else { return nil }
+            let indices = (0..<vertices.count).map { UInt32($0) }
+            // UVs repeat original wall/ground bitmaps once per tile. For
+            // vertical walls use their horizontal axis and height rather
+            // than projecting the same flat color over the entire level.
+            let uv: [CGPoint] = zip(surface.vertices, surface.normals).map { pair in
+                let p = pair.0
+                let n = pair.1
+                if abs(n.y) >= 0.5 {
+                    return CGPoint(x: CGFloat(p.x) + CGFloat(world.width) / 2, y: CGFloat(p.z) + CGFloat(world.height) / 2)
+                }
+                let horizontal = abs(n.x) > abs(n.z) ? p.z : p.x
+                return CGPoint(x: CGFloat(horizontal),
+                               y: CGFloat(p.y) / CGFloat(NativeTerrainMesh.previewWallHeight))
+            }
+            let geometry = SCNGeometry(
+                sources: [SCNGeometrySource(vertices: vertices),
+                          SCNGeometrySource(normals: normals),
+                          SCNGeometrySource(textureCoordinates: uv)],
+                elements: [SCNGeometryElement(indices: indices,
+                                              primitiveType: .triangles)])
+        return geometry
+    }
+
+    private func refreshExcavatedTerrain() {
+        guard let scene else { return }
+        do {
+            let updated = try NativeTerrainMesh(world: world, excavatedTiles: excavation.excavated)
+            let replacements = updated.surfaces.compactMap { surface -> SCNNode? in
+                guard let geometry = makeGeometry(surface) else { return nil }
+                // The opened floor reuses the existing original floor bitmap.
+                if let material = terrainMaterials[surface.material] { geometry.materials = [material] }
+                let node = SCNNode(geometry: geometry)
+                node.name = "Retail MAP / \(surface.material.rawValue)"
+                return node
+            }
+            terrainNodes.forEach { $0.removeFromParentNode() }
+            replacements.forEach { scene.rootNode.addChildNode($0) }
+            terrainNodes = replacements
+            terrainMesh = updated
+            firstPersonController?.navigation = navigation
+            onTerrainChanged?()
+        } catch { onInteractionMessage?("Cave rebuild failed: \(error)") }
+    }
+
+    func dismissWallSelection() { selectedWall = nil }
+
+    func drillSelectedWall() {
+        guard firstPersonRaider == nil, tutorialInputPolicy.canClickIcons,
+              let wall = selectedWall, let id = selectedRaider,
+              let marker = raiderMarkers[id],
+              originalObjects?.rockRaiders.first(where: { $0.identifier == id })?.drivingIdentifier == nil
+        else { onInteractionMessage?("Select a Rock Raider and a mineable wall first."); return }
+        let point = marker.presentation.position
+        let from = NativeLevelNavigation.Position(
+            x: Int(floor(Double(point.x) + Double(world.width) / 2)),
+            y: Int(floor(Double(point.z) + Double(world.height) / 2)))
+        guard let order = excavation.plan(from: from, wall: wall) else {
+            onInteractionMessage?("No reachable drilling face."); return
+        }
+        commandMove(to: .init(x: Double(order.approach.x) + 0.5,
+                             y: Double(order.approach.y) + 0.5)) { [weak self, weak marker] in
+            guard let self, let marker else { return }
+            let generation = self.motionGenerations[id]
+            // Provisional work duration; retail drill speed/animation remain unported.
+            marker.runAction(.wait(duration: 0.75)) { [weak self, weak marker] in
+                DispatchQueue.main.async {
+                    guard let self, let marker, self.motionGenerations[id] == generation else { return }
+                    let p = marker.presentation.position
+                    let x = Double(p.x) + Double(self.world.width) / 2
+                    let y = Double(p.z) + Double(self.world.height) / 2
+                    guard hypot(x - Double(order.approach.x) - 0.5,
+                                y - Double(order.approach.y) - 0.5) < 0.1,
+                          self.excavation.finish(order, raiderAt: order.approach) else { return }
+                    if self.selectedWall == wall { self.selectedWall = nil }
+                    self.refreshExcavatedTerrain()
+                    self.onInteractionMessage?("Wall excavated. Rubble and resource collection remain unported.")
+                }
+            }
+        }
     }
 
     required init?(coder: NSCoder) { nil }
@@ -398,7 +475,7 @@ final class NativeLevel3DView: SCNView {
 
     private var motionGenerations: [String: UUID] = [:]
 
-    private func commandMove(to destination: NativeLevelNavigation.Point) {
+    private func commandMove(to destination: NativeLevelNavigation.Point, onArrival: (() -> Void)? = nil) {
         guard let id = selectedRaider, let marker = raiderMarkers[id] else { return }
         if let placement = originalObjects?.rockRaiders.first(where: {
             $0.identifier == id
@@ -464,6 +541,7 @@ final class NativeLevel3DView: SCNView {
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.motionGenerations[id] == generation else { return }
                 self.raiderModels[id]?.setMoving(false)
+                onArrival?()
             }
         }
         onInteractionMessage?("Rock Raider \(id): walking to the clicked position with wall clearance.")
@@ -490,18 +568,20 @@ final class NativeLevel3DView: SCNView {
             $0.node.name?.hasPrefix("Retail MAP /") == true
         }) {
             let point = terrainHit.worldCoordinates
-            let x = Int(floor(Double(point.x) + Double(world.width) / 2))
-            let z = Int(floor(Double(point.z) + Double(world.height) / 2))
-            if let tile = world.tile(x: x, y: z) {
+            let normal = terrainHit.worldNormal
+            let x = Int(floor(Double(point.x - normal.x * 0.01) + Double(world.width) / 2))
+            let z = Int(floor(Double(point.z - normal.z * 0.01) + Double(world.height) / 2))
+            selectedWall = excavation.canDrill(.init(x: x, y: z)) ? .init(x: x, y: z) : nil
+            if let tile = excavation.tile(x: x, y: z) {
                 onTileSelected?(tile)
-                if selectedRaider != nil {
+                if selectedRaider != nil && selectedWall == nil {
                     commandMove(to: NativeLevelNavigation.Point(
                         x: Double(point.x) + Double(world.width) / 2,
                         y: Double(point.z) + Double(world.height) / 2))
                 }
             }
         }
-        super.mouseDown(with: event) // Keep the native orbit camera controller.
+        if tutorialInputPolicy.canMoveCamera { super.mouseDown(with: event) }
     }
 }
 
@@ -515,6 +595,8 @@ final class NativeMissionWorkspace: NSView {
     private let status: NSTextField
     private let nerpsInfo: NSTextField
     private let missionHUD: OriginalMissionMessageUI
+    private let drillButton = NSButton(title: "Drill", target: nil, action: nil)
+    private let wallBackButton = NSButton(title: "Back", target: nil, action: nil)
     private let scriptButton = NSButton(checkboxWithTitle: "Run NERPs", target: nil, action: nil)
     private let diagnosticsButton = NSButton(checkboxWithTitle: "Diagnostics", target: nil, action: nil)
     private let nerpsState: NativeNERPsGameState?
@@ -551,6 +633,11 @@ final class NativeMissionWorkspace: NSView {
         self.status = NSTextField(labelWithString:
             "Original \(world.width)×\(world.height) tiles · Drag to orbit · Scroll to zoom · Click a tile")
         super.init(frame: frame)
+        level2D.excavationState = level3D.excavationState
+        level3D.onTerrainChanged = { [weak self] in
+            self?.level2D.needsDisplay = true
+            self?.refreshWallControls()
+        }
         wantsLayer = true
         level2D.isHidden = true
         addSubview(level3D)
@@ -572,6 +659,27 @@ final class NativeMissionWorkspace: NSView {
         nerpsInfo.lineBreakMode = .byTruncatingTail
         addSubview(nerpsInfo)
         addSubview(missionHUD)
+        drillButton.target = self
+        drillButton.action = #selector(drillWall)
+        drillButton.toolTip = "Order the selected Rock Raider to drill this wall"
+        drillButton.setAccessibilityLabel("Drill wall")
+        wallBackButton.target = self
+        wallBackButton.action = #selector(closeWallMenu)
+        // Use only bitmap paths present in the installed game's icon setting.
+        // Native text buttons remain a visible fallback if no icon is available.
+        for (button, key) in [(drillButton, "Interface_MenuItem_Dig"),
+                              (wallBackButton, "Interface_MenuItem_Back")] {
+            let setting = config?.valueUnderGame(["InterfaceImages", key])
+            if let path = OriginalMissionMessageDefinition.firstBitmapPath(setting),
+               let art = OriginalMissionMessageUI.image(path, resources: resources) {
+                button.image = art
+                button.title = ""
+                button.isBordered = false
+                button.imageScaling = .scaleProportionallyUpOrDown
+            }
+            addSubview(button)
+        }
+        refreshWallControls()
         missionHUD.onAdvance = { [weak self] in self?.advanceTutorialMessage() }
         diagnosticsButton.target = self
         diagnosticsButton.action = #selector(toggleDiagnostics(_:))
@@ -584,6 +692,7 @@ final class NativeMissionWorkspace: NSView {
         addSubview(scriptButton)
         setDiagnosticsVisible(false)
         level3D.onTileSelected = { [weak self] tile in
+            self?.refreshWallControls()
             self?.status.stringValue =
                 "Original (\(tile.x), \(tile.y)) · \(tile.terrain.rawValue) · \(tile.excavation.rawValue) · Height \(tile.heightCode)"
         }
@@ -629,6 +738,7 @@ final class NativeMissionWorkspace: NSView {
             let policy = nerpsState.inputPolicy
             level3D.tutorialInputPolicy = policy
             level2D.tutorialInputPolicy = policy
+            refreshWallControls()
             // Original message text and one-shot acknowledgement.
             // Chief sound playback is still unimplemented.
             refreshTutorialMessage()
@@ -654,12 +764,37 @@ final class NativeMissionWorkspace: NSView {
         let policy = state.isPaused ? NativeTutorialInputPolicy.unrestricted : state.inputPolicy
         level3D.tutorialInputPolicy = policy
         level2D.tutorialInputPolicy = policy
+        refreshWallControls()
         if state.isPaused {
             missionHUD.update(text: nil, canAdvance: false, hideArrow: true)
         } else { refreshTutorialMessage() }
         if nerpsHalted {
             nerpsInfo.toolTip = "The script stopped on an unsupported callback. Pausing releases tutorial input restrictions; resuming requires that callback to be implemented."
         }
+        focusActiveView()
+    }
+
+    private func refreshWallControls() {
+        let visible = level3D.hasSelectedWall && mode.selectedSegment == 0
+        drillButton.isHidden = !visible
+        wallBackButton.isHidden = !visible
+        let allowed = nerpsState == nil || nerpsState!.isPaused || nerpsState!.inputPolicy.canClickIcons
+        drillButton.isEnabled = allowed
+        wallBackButton.isEnabled = allowed
+    }
+
+    @objc private func drillWall() {
+        guard drillButton.isEnabled, !drillButton.isHidden else { return }
+        nerpsState?.reportDigIconClick()
+        level3D.drillSelectedWall()
+        focusActiveView()
+    }
+
+    @objc private func closeWallMenu() {
+        guard wallBackButton.isEnabled, !wallBackButton.isHidden else { return }
+        nerpsState?.reportBackIconClick()
+        level3D.dismissWallSelection()
+        refreshWallControls()
         focusActiveView()
     }
 
@@ -701,6 +836,9 @@ final class NativeMissionWorkspace: NSView {
         nerpsInfo.frame = NSRect(x: 12, y: 42, width: max(0, bounds.width - 24),
                                 height: 19)
         missionHUD.frame = bounds
+        // Right-side command placement is provisional until full retail surrounds land.
+        drillButton.frame = NSRect(x: max(0, bounds.width - 82), y: max(0, bounds.height - 136), width: 64, height: 48)
+        wallBackButton.frame = NSRect(x: max(0, bounds.width - 82), y: max(0, bounds.height - 190), width: 64, height: 48)
         diagnosticsButton.frame = NSRect(x: 12, y: max(0, bounds.height - 32), width: 112, height: 24)
         scriptButton.frame = NSRect(x: 132, y: max(0, bounds.height - 32), width: 112, height: 24)
         // Diagnostics sit above the message panel when explicitly enabled.
@@ -716,6 +854,7 @@ final class NativeMissionWorkspace: NSView {
         if sender.selectedSegment != 0 { level3D.leaveFirstPerson() }
         level3D.isHidden = sender.selectedSegment != 0
         level2D.isHidden = sender.selectedSegment == 0
+        refreshWallControls()
         status.stringValue = sender.selectedSegment == 0 ?
             "Original 3D MAP terrain · Drag to orbit · Scroll to zoom · Click a tile" :
             "Original 2D MAP terrain · Drag to pan · Scroll to zoom · Click a tile"

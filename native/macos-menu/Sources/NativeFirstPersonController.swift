@@ -5,7 +5,7 @@ import Foundation
 /// tracks a selected object (Game.cpp::Lego_SetViewMode / Camera.cpp::Camera_Update).
 /// Speeds and key bindings are provisional, not retail-verified.
 struct NativeFirstPersonController {
-    let navigation: NativeLevelNavigation
+    var navigation: NativeLevelNavigation
     private(set) var position: NativeLevelNavigation.Point
     private(set) var heading: Double
 

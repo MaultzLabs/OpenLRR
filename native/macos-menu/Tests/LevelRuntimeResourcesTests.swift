@@ -345,6 +345,50 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         precondition(abs(occupied.position.y - 0.75) < 0.00001)
         print("PASS: first-person steering, swept wall and live Raider clearance, reverse, turn and pause bounds")
 
+        // Native mining orders must reach a real cardinally adjacent cavern
+        // before a mineable wall becomes floor. WAD and MAP bytes stay intact.
+        let mining = NativeExcavationState(world: corridorWorld)
+        let wall = NativeLevelNavigation.Position(x: 1, y: 1)
+        precondition(mining.canDrill(wall))
+        precondition(!mining.canDrill(origin)) // exposed cavern is not a wall
+        precondition(!mining.canDrill(.init(x: -1, y: 1)))
+        guard let order = mining.plan(from: origin, wall: wall) else {
+            preconditionFailure("Expected accessible drilling face")
+        }
+        precondition(order.approach == .init(x: 2, y: 1))
+        precondition(order.route == [origin, order.approach])
+        precondition(!mining.finish(order, raiderAt: origin))
+        precondition(mining.excavated.isEmpty)
+        precondition(mining.finish(order, raiderAt: order.approach))
+        precondition(!mining.finish(order, raiderAt: order.approach))
+        precondition(!mining.canDrill(wall))
+        precondition(mining.tile(x: 1, y: 1)?.terrain == .tunnel)
+        precondition(mining.tile(x: 1, y: 1)?.excavation == .exposed)
+        precondition(corridorWorld.tile(x: 1, y: 1)?.excavation == .wall)
+        precondition(NativeLevelNavigation(world: corridorWorld,
+                     excavated: mining.excavated).canWalk(wall))
+        precondition(NativeLevelNavigation(world: corridorWorld).route(
+                     from: order.approach, to: wall) == nil)
+        precondition(NativeLevelNavigation(world: corridorWorld,
+                     excavated: mining.excavated).route(
+                     from: order.approach, to: wall) == [order.approach, wall])
+        let dugMesh = try NativeTerrainMesh(world: corridorWorld,
+                                            excavatedTiles: mining.excavated)
+        precondition(dugMesh.triangleCount > 0)
+        precondition(dugMesh.surfaces.contains { $0.material == .cavernFloor })
+        precondition(mining.plan(from: origin, wall: wall) == nil)
+        let openedNavigation = NativeLevelNavigation(world: corridorWorld, excavated: mining.excavated)
+        let beforeMining = NativeLevelNavigation.Point(x: 2.5, y: 1.5)
+        let openedFloor = NativeLevelNavigation.Point(x: 1.5, y: 1.5)
+        precondition(!routing.segmentIsClear(from: beforeMining, to: openedFloor))
+        precondition(openedNavigation.segmentIsClear(from: beforeMining, to: openedFloor))
+        var minerFP = NativeFirstPersonController(navigation: routing, position: beforeMining, heading: -.pi / 2)!
+        minerFP.navigation = openedNavigation
+        for _ in 0..<4 { _ = minerFP.advance(forward: 1, turn: 0, elapsed: 0.1) }
+        precondition(abs(minerFP.position.x - openedFloor.x) < 0.0001)
+        let illegalOverlay = NativeLevelNavigation(world: corridorWorld, excavated: [.init(x: 1, y: 0)])
+        precondition(!illegalOverlay.canWalk(.init(x: 1, y: 0)), "Excavation cannot turn lava into floor")
+
         // Source-grounded original BMP world atlas paths. A synthetic WAD
         // tests lookup without redistributing a copyrighted actual image.
         let textureWad = syntheticWad([

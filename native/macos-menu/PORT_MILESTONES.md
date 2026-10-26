@@ -1,6 +1,6 @@
 # Native port acceptance ledger
 
-Updated 2026-10-23. The earlier 80% completion estimate is withdrawn: there was no complete denominator or full-game acceptance run. Do not assign a completion percentage from source volume, passing parser tests, or a successful compile.
+Updated 2026-10-26. The earlier 80% completion estimate is withdrawn: there was no complete denominator or full-game acceptance run. Do not assign a completion percentage from source volume, passing parser tests, or a successful compile.
 
 | Area | Evidence and status | Required acceptance |
 | --- | --- | --- |
@@ -35,5 +35,27 @@ conversion, no Windows DLL installation, no overwrite of existing tracks.
 Four local FFmpeg integration tests pass, including corrupt-track rollback,
 path confinement and duplicate rejection. Swift regression/ARM64 CI remains
 the authority for build status. No original asset visual/audio validation yet.
-The actual RRU music ZIP download is pending the site's terms confirmation.
+The user approved the RRU terms, installed the converted soundtrack package, and the native build now bundles those locally installed tracks. Audible in-mission playback remains unverified.
 Next: real-asset material review and first-person camera/control.
+
+
+## Reuse of scheduled development — 2026-10-26
+
+The six-run hourly native task has ended (disabled). The daily native task is
+active. All commits from the hourly native branch through b5bf188 are ancestors
+of the combined PR #66 build. Its WAD/CFG, NERPs and input work is retained.
+PRs #63–65 provide first-person, mission messages and live Raider collision;
+they are integrated through d91a164. The Wine benchmark and visual-lab branches
+remain separate: their metrics are not native gameplay acceptance evidence.
+
+Next integration reuses the session excavation state and regression fixtures
+from PRs #58/#59 (748b454), adapting them to continuous clearance-aware movement,
+live Raider collision, original bitmap caching, and first-person navigation.
+Right-side Drill/Back controls issue actual excavation orders and feed the
+original NERPs Dig/Back counters (0x40/0x41 and 0x3d/0x3e). Configured original
+icon BMPs are used when available; native text controls are the fallback, and
+full surround layout remains provisional. Hard rock is not hand-drillable.
+
+Remaining: retail drill duration and animation, rubble/resource drops, hidden
+cavern reveal, task assignment without a selected Raider, construction/spawning,
+and local visual/gameplay checks. No new completion percentage is assigned.

@@ -75,7 +75,11 @@ struct NativeTerrainMesh {
         return cornerDifference < oppositeDifference
     }
 
-    init(world: LevelWorld, maxTiles: Int = 150_000) throws {
+    init(world: LevelWorld, excavatedTiles: Set<NativeLevelNavigation.Position> = [], maxTiles: Int = 150_000) throws {
+        func wasExcavated(_ x: Int, _ y: Int) -> Bool {
+            excavatedTiles.contains(.init(x: x, y: y)) &&
+            world.tile(x: x, y: y)?.terrain.isMineableWall == true
+        }
         let count = world.width * world.height
         guard count > 0 && count <= maxTiles else {
             throw MeshError.tooLarge(count)
@@ -107,6 +111,7 @@ struct NativeTerrainMesh {
 
         func isSolid(_ x: Int, _ y: Int) -> Bool {
             guard let tile = world.tile(x: x, y: y) else { return false }
+            if wasExcavated(x, y) { return false }
             switch tile.excavation {
             case .wall, .hidden, .hiddenSlugHole, .unknown: return true
             case .exposed, .slugHole: return false
@@ -114,7 +119,7 @@ struct NativeTerrainMesh {
         }
 
         func exposed(_ x: Int, _ z: Int) -> Bool {
-            world.tile(x: x, y: z)?.excavation.isDiscoveredCavern == true
+            wasExcavated(x, z) || world.tile(x: x, y: z)?.excavation.isDiscoveredCavern == true
         }
 
         func shouldRender(_ x: Int, _ z: Int) -> Bool {
