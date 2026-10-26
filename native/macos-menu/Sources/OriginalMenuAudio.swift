@@ -170,11 +170,16 @@ final class OriginalMissionAudio: NSObject, AVAudioPlayerDelegate {
            ["FALSE", "NO", "OFF", "0"].contains(flag.uppercased()) { return "Mission music disabled" }
         let selected = (UserDefaults.standard.stringArray(forKey: defaultsKey) ?? [])
             .map { URL(fileURLWithPath: $0) }
-        let discovered = OriginalMissionTrackLocator.locate(beside: wad, extraRoot: extraRoot)
-        tracks = selected.isEmpty ? discovered.playable : selected
+        let discovered = OriginalMissionTrackLocator.locate(beside: wad, extraRoot: extraRoot, bundledRoot: Bundle.main.resourceURL)
+        // Prefer the installed/bundled original soundtrack over stale saved choices.
+        tracks = discovered.playable.isEmpty ? selected : discovered.playable
         active = true
         playNext()
-        if player != nil { return "Original mission soundtrack" }
+        if player == nil && !selected.isEmpty && !discovered.playable.isEmpty {
+            tracks = selected
+            playNext()
+        }
+        if player != nil { return "Mission soundtrack: \(tracks.count) tracks" }
         if !discovered.ogg.isEmpty { return "RRU OGG tracks found: convert with tools/convert-original-media.sh for native playback" }
         return "Mission soundtrack missing: select original tracks with Mission Music…"
     }

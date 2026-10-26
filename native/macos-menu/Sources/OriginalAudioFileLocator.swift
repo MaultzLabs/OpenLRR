@@ -187,14 +187,14 @@ struct OriginalAudioFileLocator {
 /// converted equivalents; OGG is discovered separately to explain conversion.
 struct OriginalMissionTrackLocator {
     static func locate(beside wad: URL, home: URL = FileManager.default.homeDirectoryForCurrentUser,
-                       extraRoot: URL? = nil) -> (playable: [URL], ogg: [URL]) {
+                       extraRoot: URL? = nil, bundledRoot: URL? = nil) -> (playable: [URL], ogg: [URL]) {
         let fm = FileManager.default
         let install = wad.deletingLastPathComponent()
         let cache = home.appendingPathComponent("Library/Application Support/RockRaidersNativeMenu/ConvertedMedia")
         let roots = [install, install.deletingLastPathComponent(), cache]
             + OriginalAudioFileLocator.automaticAudioRoots(home: home)
             + (extraRoot.map { [$0] } ?? [])
-        var folders = [cache, cache.appendingPathComponent("Music")]
+        var folders = (bundledRoot.map { [$0.appendingPathComponent("Music")] } ?? []) + [cache, cache.appendingPathComponent("Music")]
         if let extraRoot { folders.append(extraRoot) }
         for root in roots {
             if let entries = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) {
@@ -202,6 +202,7 @@ struct OriginalMissionTrackLocator {
             }
         }
         var playable: [URL] = [], ogg: [URL] = []
+        var playableNames = Set<String>()
         var seen = Set<String>()
         for folder in folders {
             let entries = (try? fm.contentsOfDirectory(at: folder,
@@ -215,7 +216,8 @@ struct OriginalMissionTrackLocator {
                       (1...100_000_000).contains(size),
                       seen.insert(file.standardizedFileURL.path).inserted else { continue }
                 switch file.pathExtension.lowercased() {
-                case "wav", "m4a", "mp3", "aif", "aiff": playable.append(file)
+                case "wav", "m4a", "mp3", "aif", "aiff":
+                    if playableNames.insert(name).inserted { playable.append(file) }
                 case "ogg": ogg.append(file)
                 default: break
                 }

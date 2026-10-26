@@ -87,6 +87,17 @@ import Foundation
         precondition(missionTracks.playable.map { $0.lastPathComponent } == ["Track01.m4a"])
         precondition(missionTracks.ogg.map { $0.lastPathComponent } == ["Track00.ogg"])
 
+        let bundle = temp.appendingPathComponent("Native.app/Contents/Resources")
+        let bundledMusic = bundle.appendingPathComponent("Music")
+        try fm.createDirectory(at: bundledMusic, withIntermediateDirectories: true)
+        let bundledTrack = bundledMusic.appendingPathComponent("Track10.m4a")
+        try Data([1, 2, 3]).write(to: bundledTrack)
+        try Data([4, 5, 6]).write(to: musicFolder.appendingPathComponent("Track10.m4a"))
+        let withBundle = OriginalMissionTrackLocator.locate(beside: wad, home: home, bundledRoot: bundle)
+        precondition(withBundle.playable.first == bundledTrack)
+        precondition(withBundle.playable.filter { $0.lastPathComponent == "Track10.m4a" }.count == 1)
+        precondition(withBundle.playable.contains { $0.lastPathComponent == "Track01.m4a" })
+
         // Do not follow traversal or arbitrary formats from untrusted CFG.
         precondition(OriginalAudioFileLocator.locate("../Sounds/Atmosdel.wav", beside: wad) == nil)
         precondition(OriginalAudioFileLocator.locate("/etc/passwd.wav", beside: wad) == nil)
