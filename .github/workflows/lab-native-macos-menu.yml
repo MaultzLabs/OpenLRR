@@ -1,7 +1,7 @@
 name: Native Rock Raiders menu prototype verification
 on:
   push:
-    branches: [lab-native-macos-menu-v1, lab-native-nerps-state-v1, lab-native-tutorial-controls-integrated-v2, lab-native-texture-audio-fix-v1, lab-native-original-raider-model-v1, lab-native-model-textures-music-v1, lab-native-first-person-controls-v1, lab-native-mission-message-ui-v1, lab-native-raider-dynamic-collision-v1]
+    branches: [lab-native-macos-menu-v1, lab-native-nerps-state-v1, lab-native-tutorial-controls-integrated-v2, lab-native-texture-audio-fix-v1, lab-native-original-raider-model-v1, lab-native-model-textures-music-v1, lab-native-first-person-controls-v1, lab-native-mission-message-ui-v1, lab-native-raider-dynamic-collision-v1, lab-native-building-footprints-v1]
     paths:
       - native/macos-menu/**
       - .github/workflows/lab-native-macos-menu.yml
