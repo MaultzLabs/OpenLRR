@@ -95,6 +95,13 @@ swiftc -O Sources/WadArchive.swift Sources/GameResources.swift Sources/LegoConfi
 # Pure Swift collision regression: synthetic moving OL Raider positions only.
 swiftc -O Sources/NativeDynamicCollision.swift Tests/NativeDynamicCollisionTests.swift -o "$tmp16"
 "$tmp16"
+# Original AE Shape geometry without retail files or a macOS graphics context.
+(
+  shape_test="$(mktemp /tmp/openlrr-building-shape-test.XXXXXXXX)"
+  trap 'rm -f "$shape_test"' EXIT
+  swiftc -O Sources/NativeBuildingFootprints.swift Tests/NativeBuildingFootprintsTests.swift -o "$shape_test"
+  "$shape_test"
+)
 
 # Mission HUD configuration is portable; AppKit rendering is checked by build.sh.
 (
