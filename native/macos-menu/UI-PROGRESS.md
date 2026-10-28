@@ -306,3 +306,37 @@ Local shell syntax and whitespace checks passed. This Linux executor has no
 Swift compiler; portable execution and native ARM64 compilation must be
 established by the exact-commit hosted workflow. Audible playback with private
 retail files still requires the user's Mac and is not claimed here.
+
+## Original LWOB model material inputs (2026-10-28)
+
+The shared original-model renderer now reads source surface properties instead
+of forcing every object to an opaque, double-sided material. `DIFF`, `LUMI`,
+`TRAN`, `SPEC` and `GLOS` retain Lwt's unsigned 16-bit / 256 values and zero
+defaults. `COLR` uses the original / 256 channel conversion. Untextured diffuse
+and emission channels and opacity use the original final clamps. Surface lookup
+uses the first case-insensitive SRFS/SURF match; a later `TTEX` layer cannot
+overwrite the first surface's color or material scalars. Malformed field sizes
+are rejected without reading outside the supplied chunk.
+
+SceneKit materials honor the original double-sided flag and pixel-filtering
+flag, transparent surfaces avoid writing opaque depth, and textured surfaces
+use the original white-or-SHARPTERMINATOR color tint with separate diffuse and
+emission intensities. SPEC/GLOS remain decoded metadata: specular is disabled,
+matching `Mesh_SetMeshRenderDesc`, rather than fabricating a glossy effect.
+Powered crystal RGB still replaces source diffuse/emission, resetting the new
+texture intensities and tint so it is not accidentally darkened twice.
+
+Source: `Lwt.cpp:310–345,448–552,653–691`,
+`Mesh.cpp:501–565,660–689,1430–1437,1830–1855,1874–1890,1955–2013`.
+Portable synthetic fixtures cover scalar interpretation, absence/defaults,
+out-of-range final clamps, case/order, layer isolation and malformed chunks.
+The existing hosted SceneKit test also exercises culling, opacity, filtering,
+textured tint and the crystal override with entirely synthetic LWOB/BMP bytes.
+Local whitespace checks passed; Swift execution and ARM64 compilation must
+come from the exact-commit hosted workflow because this Linux executor has no
+Swift compiler. No original asset bytes are added.
+
+This is a material-input fidelity step, not renderer parity: SceneKit lighting,
+color space, textured saturation above unity and transparency ordering differ
+from Direct3D. Additive blending, color keys, mipmaps and all additional texture
+layers remain unported; private real-asset appearance has not been verified.

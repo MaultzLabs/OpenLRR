@@ -134,6 +134,9 @@ final class OriginalMissionObjectModel {
                 for material in geometry.materials {
                     material.diffuse.contents = color
                     material.emission.contents = color
+                    material.diffuse.intensity = 1
+                    material.emission.intensity = 1
+                    material.multiply.contents = NSColor.white
                 }
             }
             root.addChildNode(SCNNode(geometry: geometry))

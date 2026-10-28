@@ -30,7 +30,7 @@ enum OriginalLightWaveRenderer {
         var groups: [Int: [UInt32]] = [:]
         for (polygonID, polygon) in mesh.polygons.enumerated() {
             let surfaceName = polygon.surfaceIndex < mesh.surfaceNames.count ? mesh.surfaceNames[polygon.surfaceIndex] : ""
-            let projection = mesh.surfaceTextures[surfaceName] ?? LightWaveObject.Texture()
+            let projection = mesh.material(named: surfaceName).texture
             let start = renderVertices.count
             for (corner, vertexID) in polygon.indices.enumerated() {
                 renderVertices.append(vertices[vertexID])
@@ -47,14 +47,27 @@ enum OriginalLightWaveRenderer {
         for index in groups.keys.sorted() {
             elements.append(SCNGeometryElement(indices: groups[index]!, primitiveType: .triangles))
             let material = SCNMaterial()
-            material.isDoubleSided = true
-            material.lightingModel = .lambert
             let name = index < mesh.surfaceNames.count ? mesh.surfaceNames[index] : ""
-            if let color = mesh.surfaceColors[name] {
-                material.diffuse.contents = NSColor(calibratedRed: CGFloat(color.red) / 255,
-                    green: CGFloat(color.green) / 255, blue: CGFloat(color.blue) / 255, alpha: 1)
-            } else { material.diffuse.contents = NSColor.gray }
-            let reference = uvMap.flatMap { $0.images.indices.contains(index) ? $0.images[index] : nil } ?? mesh.surfaceTextures[name]?.image ?? ""
+            let surface = mesh.material(named: name)
+            material.isDoubleSided = surface.isDoubleSided
+            material.cullMode = .back
+            // Mesh_SetMeshRenderDesc explicitly disables specular lighting.
+            // Retain SPEC/GLOS in the parser without inventing shiny Phong art.
+            material.lightingModel = .lambert
+            material.specular.contents = NSColor.black
+            // Mesh_CreateGroupMaterial initializes ambient reflectance to zero.
+            material.locksAmbientWithDiffuse = false
+            material.ambient.contents = NSColor.black
+            let reference = uvMap.flatMap { $0.images.indices.contains(index) ? $0.images[index] : nil } ?? surface.texture.image
+            let textured = !reference.isEmpty
+            material.diffuse.contents = color(surface.diffuseColor(textured: textured))
+            material.emission.contents = color(surface.emissionColor(textured: textured))
+            material.transparency = CGFloat(surface.opacity)
+            material.transparencyMode = .aOne
+            // Standard source-alpha opacity is an approximation of D3D's
+            // ordered alpha pass. Additive/color-key modes remain unported.
+            material.blendMode = .alpha
+            material.writesToDepthBuffer = surface.opacity == 1 && !surface.isAdditive
             // Mesh.cpp:598–658,1724–1758 strips the texture's
             // author path, then tries mesh-local before SharedTextures.
             let candidates = LightWaveResourcePaths.candidates(reference: reference,
@@ -63,16 +76,34 @@ enum OriginalLightWaveRenderer {
                let bytes = try? resources.data(at: imagePath, maximumBytes: 4_000_000),
                let source = CGImageSourceCreateWithData(bytes as CFData, nil),
                let image = CGImageSourceCreateImageAtIndex(source, 0, nil) {
-                material.diffuse.contents = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
-                material.diffuse.wrapS = .repeat
-                material.diffuse.wrapT = .repeat
-                material.diffuse.magnificationFilter = .nearest
+                let contents = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
+                material.diffuse.contents = contents
+                material.emission.contents = contents
+                material.diffuse.intensity = CGFloat(surface.diffuse)
+                material.emission.intensity = CGFloat(surface.luminosity)
+                material.multiply.contents = color(surface.baseColor(textured: true))
+                // SceneKit's separate material channels approximate D3D's
+                // texture × (lit diffuse + emissive). Saturation above unity,
+                // lighting, blending order and color space are not identical.
+                let pixelBlending = surface.texture.flags & 0x20 != 0
+                for channel in [material.diffuse, material.emission] {
+                    channel.wrapS = .repeat
+                    channel.wrapT = .repeat
+                    channel.magnificationFilter = pixelBlending ? .linear : .nearest
+                    channel.minificationFilter = pixelBlending ? .linear : .nearest
+                    channel.mipFilter = .none
+                }
             }
             materials.append(material)
         }
         let geometry = SCNGeometry(sources: [SCNGeometrySource(vertices: renderVertices), SCNGeometrySource(normals: renderNormals), SCNGeometrySource(textureCoordinates: coordinates)], elements: elements)
         geometry.materials = materials
         return geometry
+    }
+
+    private static func color(_ rgb: LightWaveObject.Surface.RGB) -> NSColor {
+        NSColor(calibratedRed: CGFloat(rgb.red), green: CGFloat(rgb.green),
+                blue: CGFloat(rgb.blue), alpha: 1)
     }
 
     final class Clip {

@@ -52,6 +52,49 @@ struct LightWaveObject {
     struct Color { let red: UInt8; let green: UInt8; let blue: UInt8 }
     let surfaceColors: [String: Color]
     let surfaceNames: [String]
+    /// Lwt::SURFprc zero-initializes each surface, then reads the original
+    /// uint16 fixed-point fields as value / 256 (including SPEC and GLOS).
+    /// Do not substitute LightWave-editor defaults for absent chunks.
+    struct Surface {
+        struct RGB {
+            let red: Float
+            let green: Float
+            let blue: Float
+            func scaled(_ amount: Float) -> RGB {
+                // Mesh_SetGroupColour clamps after multiplying each channel.
+                RGB(red: min(1, max(0, red * amount)),
+                    green: min(1, max(0, green * amount)),
+                    blue: min(1, max(0, blue * amount)))
+            }
+        }
+        var color = Color(red: 0, green: 0, blue: 0)
+        var flags: UInt16 = 0
+        var diffuse: Float = 0
+        var luminosity: Float = 0
+        var transparency: Float = 0
+        var specular: Float = 0
+        var glossiness: Float = 0
+        var texture = Texture()
+
+        var isDoubleSided: Bool { flags & 0x100 != 0 }
+        var isAdditive: Bool { flags & 0x200 != 0 }
+        var opacity: Float { min(1, max(0, 1 - transparency)) }
+        func baseColor(textured: Bool) -> RGB {
+            // Mesh_GetSurfInfo uses white for a declared texture unless
+            // SFM_SHARPTERMINATOR is set. COLR uses /256, not /255.
+            if textured && flags & 0x80 == 0 { return RGB(red: 1, green: 1, blue: 1) }
+            return RGB(red: Float(color.red) / 256, green: Float(color.green) / 256,
+                       blue: Float(color.blue) / 256)
+        }
+        func diffuseColor(textured: Bool) -> RGB { baseColor(textured: textured).scaled(diffuse) }
+        func emissionColor(textured: Bool) -> RGB { baseColor(textured: textured).scaled(luminosity) }
+    }
+    /// Canonical names follow LoadLWOB's case-insensitive SRFS/SURF match.
+    let surfaceMaterials: [String: Surface]
+    func material(named name: String) -> Surface {
+        // LoadLWOB's unmatched SRFS placeholder is white, with zero scalars.
+        surfaceMaterials[name.lowercased()] ?? Surface(color: Color(red: 255, green: 255, blue: 255))
+    }
 
     init(data: Data) throws {
         guard data.count >= 12, data.count <= 20_000_000,
@@ -77,7 +120,7 @@ struct LightWaveObject {
         var pointRange: Range<Int>?
         var polygonRange: Range<Int>?
         var surfaceRange: Range<Int>?
-        var colorChunks: [Range<Int>] = []
+        var surfaceChunks: [Range<Int>] = []
         while position + 8 <= end {
             let fourCC = String(decoding: data[position..<(position + 4)],
                                 as: UTF8.self)
@@ -91,7 +134,7 @@ struct LightWaveObject {
             case "PNTS": pointRange = chunkStart..<chunkEnd
             case "POLS": polygonRange = chunkStart..<chunkEnd
             case "SRFS": surfaceRange = chunkStart..<chunkEnd
-            case "SURF": colorChunks.append(chunkStart..<chunkEnd)
+            case "SURF": surfaceChunks.append(chunkStart..<chunkEnd)
             default: break
             }
             position = chunkEnd + (length & 1)
@@ -209,29 +252,44 @@ struct LightWaveObject {
         }
         var colors: [String: Color] = [:]
         var textures: [String: Texture] = [:]
-        for chunk in colorChunks {
+        var materials: [String: Surface] = [:]
+        for chunk in surfaceChunks {
             guard let endName = data[chunk].firstIndex(of: 0) else {
                 throw MeshError.invalid("unterminated SURF name")
             }
             let name = String(decoding: data[chunk.lowerBound..<endName], as: UTF8.self)
+            guard endName - chunk.lowerBound <= 256 else { throw MeshError.invalid("oversized SURF name") }
             let nameLength = endName - chunk.lowerBound + 1
             var offset = endName + 1 + (nameLength & 1)
             var texture = Texture()
+            var material = Surface()
             var additionalLayer = false
             while offset + 6 <= chunk.upperBound {
-                let tag = String(decoding: data[offset..<(offset + 4)], as: UTF8.self)
+                let tag = String(decoding: data[offset..<(offset + 4)], as: UTF8.self).uppercased()
                 let length = Int(be16(offset + 4))
                 offset += 6
                 guard length <= chunk.upperBound - offset else {
                     throw MeshError.invalid("truncated SURF subchunk")
                 }
-                if tag == "COLR" {
-                    guard length >= 3 else { throw MeshError.invalid("short COLR") }
-                    colors[name] = Color(red: data[offset], green: data[offset + 1], blue: data[offset + 2])
-                }
                 if tag == "TTEX" { additionalLayer = true }
+                // TTEX advances Lwt's srfb to a separate linked surface. Its
+                // material/color chunks must not overwrite the base surface.
+                // Validate known fixed-size fields even in unsupported layers.
+                if ["FLAG", "DIFF", "LUMI", "TRAN", "SPEC", "GLOS"].contains(tag), length != 2 {
+                    throw MeshError.invalid("invalid \(tag) size")
+                }
+                if tag == "COLR", length != 4 { throw MeshError.invalid("invalid COLR size") }
                 if !additionalLayer {
                     switch tag {
+                    case "COLR":
+                        material.color = Color(red: data[offset], green: data[offset + 1], blue: data[offset + 2])
+                        colors[name] = material.color
+                    case "FLAG": material.flags = be16(offset)
+                    case "DIFF": material.diffuse = Float(be16(offset)) / 256
+                    case "LUMI": material.luminosity = Float(be16(offset)) / 256
+                    case "TRAN": material.transparency = Float(be16(offset)) / 256
+                    case "SPEC": material.specular = Float(be16(offset)) / 256
+                    case "GLOS": material.glossiness = Float(be16(offset)) / 256
                     case "TIMG":
                         guard let zero = data[offset..<(offset + length)].firstIndex(of: 0) else {
                             throw MeshError.invalid("unterminated TIMG")
@@ -255,10 +313,14 @@ struct LightWaveObject {
             }
             guard offset == chunk.upperBound else { throw MeshError.invalid("SURF alignment") }
             textures[name] = texture
+            material.texture = texture
+            // LoadLWOB selects the first matching SURF when ordering SRFS.
+            if materials[name.lowercased()] == nil { materials[name.lowercased()] = material }
         }
         self.polygons = decodedPolygons
         surfaceTextures = textures
         surfaceColors = colors
+        surfaceMaterials = materials
         vertices = decodedVertices
         triangles = decodedTriangles
         surfaceNames = decodedSurfaces

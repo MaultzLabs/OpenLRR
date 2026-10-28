@@ -30,15 +30,26 @@ private enum MissionObjectFixture {
     static func chunk(_ name: String, _ payload: [UInt8]) -> [UInt8] {
         Array(name.utf8) + be32(UInt32(payload.count)) + payload + (payload.count % 2 == 1 ? [0] : [])
     }
-    static func mesh(size: Float = 1) -> Data {
+    static func subchunk(_ name: String, _ payload: [UInt8]) -> [UInt8] {
+        Array(name.utf8) + be16(UInt16(payload.count)) + payload + (payload.count % 2 == 1 ? [0] : [])
+    }
+    static func mesh(size: Float = 1, surfaceFields: [UInt8]? = nil) -> Data {
         let points = point(0, 0, 0) + point(size, 0, 0) + point(size, 0, size) + point(0, 0, size)
         let names = Array("Fixture".utf8) + [0]
         let polygon = be16(4) + be16(0) + be16(1) + be16(2) + be16(3) + be16(1)
-        let color = names + Array("COLR".utf8) + be16(4) + [80, 90, 100, 0]
+        let color = names + (surfaceFields ?? (subchunk("COLR", [80, 90, 100, 0]) + subchunk("DIFF", be16(256))))
         let body = Array("LWOB".utf8) + chunk("PNTS", points) + chunk("SRFS", names) +
             chunk("POLS", polygon) + chunk("SURF", color)
         return Data(Array("FORM".utf8) + be32(UInt32(body.count)) + body)
     }
+    static let bitmap: Data = {
+        var bytes: [UInt8] = [0x42, 0x4d]
+        bytes += u32(58) + u32(0) + u32(54)
+        bytes += u32(40) + u32(1) + u32(1) + [1, 0, 24, 0]
+        bytes += u32(0) + u32(4) + u32(0) + u32(0) + u32(0) + u32(0)
+        bytes += [30, 20, 10, 0] // One synthetic BGR pixel plus row padding.
+        return Data(bytes)
+    }()
     static let uv = Data("""
     2
     1
@@ -155,6 +166,7 @@ private enum MissionObjectFixture {
         visibility()
         #if os(macOS)
         try sceneKitIntegration()
+        try sceneKitMaterials()
         #endif
         print("PASS: synthetic original mission-object mapping, stand-only AE, Scale/LOOPING, component priority, diagnostics and reveal visibility")
     }
@@ -358,6 +370,85 @@ private enum MissionObjectFixture {
     }
 
     #if os(macOS)
+    static func sceneKitMaterials() throws {
+        let path = "Fixture/Materials/Body.lwo"
+        func render(_ fields: [UInt8], withTexture: Bool = false) throws -> SCNMaterial {
+            var assets = [F.Asset(path: path, bytes: F.mesh(surfaceFields: fields))]
+            if withTexture { assets.append(F.Asset(path: "Fixture/Materials/Pixel.bmp", bytes: F.bitmap)) }
+            let resources = try F.resources(assets)
+            let asset = try OriginalLightWaveMeshAsset.load(path: path, resources: resources)
+            let geometry = OriginalLightWaveRenderer.geometry(asset: asset, resources: resources, sharedTextures: nil)
+            precondition(geometry.materials.count == 1 && geometry.elements[0].primitiveCount == 2)
+            return geometry.materials[0]
+        }
+        func checkColor(_ contents: Any?, _ red: Double, _ green: Double, _ blue: Double) {
+            guard let source = contents as? NSColor,
+                  let color = source.usingColorSpace(.genericRGB) else { preconditionFailure("Missing material color") }
+            precondition(near(Double(color.redComponent), red))
+            precondition(near(Double(color.greenComponent), green))
+            precondition(near(Double(color.blueComponent), blue))
+        }
+        let colors = F.subchunk("COLR", [128, 64, 255, 0])
+        let coefficients = F.subchunk("DIFF", F.be16(128)) + F.subchunk("LUMI", F.be16(64))
+        let fields = colors + coefficients + F.subchunk("FLAG", F.be16(0x100)) +
+            F.subchunk("TRAN", F.be16(64)) + F.subchunk("SPEC", F.be16(256))
+        let plain = try render(fields)
+        precondition(plain.isDoubleSided && plain.cullMode == .back)
+        precondition(plain.lightingModel == .lambert, "Original Mesh_SetMeshRenderDesc disables specular")
+        precondition(!plain.locksAmbientWithDiffuse)
+        precondition(near(Double(plain.transparency), 0.75) && plain.transparencyMode == .aOne)
+        precondition(plain.blendMode == .alpha && !plain.writesToDepthBuffer)
+        checkColor(plain.diffuse.contents, 0.25, 0.125, 255 / 512.0)
+        checkColor(plain.emission.contents, 0.125, 0.0625, 255 / 1024.0)
+        checkColor(plain.specular.contents, 0, 0, 0)
+        checkColor(plain.ambient.contents, 0, 0, 0)
+
+        let blank = try render([])
+        precondition(!blank.isDoubleSided && blank.writesToDepthBuffer && blank.transparency == 1)
+        checkColor(blank.diffuse.contents, 0, 0, 0)
+        checkColor(blank.emission.contents, 0, 0, 0)
+        let invisible = try render(colors + F.subchunk("TRAN", F.be16(65535)))
+        precondition(invisible.transparency == 0 && !invisible.writesToDepthBuffer)
+
+        let image = F.subchunk("TIMG", Array("Pixel.bmp".utf8) + [0])
+        for blendPixels in [false, true] {
+            for sharp in [false, true] {
+                let textured = try render(colors + coefficients + image +
+                    F.subchunk("FLAG", F.be16(sharp ? 0x80 : 0)) +
+                    F.subchunk("TFLG", F.be16(blendPixels ? 0x20 : 0)), withTexture: true)
+                precondition(textured.diffuse.contents is NSImage && textured.emission.contents is NSImage)
+                precondition(near(Double(textured.diffuse.intensity), 0.5))
+                precondition(near(Double(textured.emission.intensity), 0.25))
+                checkColor(textured.multiply.contents, sharp ? 0.5 : 1, sharp ? 0.25 : 1, sharp ? 255 / 256.0 : 1)
+                for channel in [textured.diffuse, textured.emission] {
+                    precondition(channel.wrapS == .repeat && channel.wrapT == .repeat)
+                    precondition(channel.magnificationFilter == (blendPixels ? .linear : .nearest))
+                    precondition(channel.minificationFilter == (blendPixels ? .linear : .nearest))
+                    precondition(channel.mipFilter == .none)
+                }
+            }
+        }
+
+        // Powered crystals replace original diffuse/emissive values, even if
+        // the LWO originally carried a texture, tint and low scalar intensities.
+        let crystalPath = "Fixture/Resources/Crystal.lwo"
+        let crystalResources = try F.resources([
+            F.Asset(path: crystalPath, bytes: F.mesh(surfaceFields: colors + coefficients + image +
+                F.subchunk("FLAG", F.be16(0x80)))),
+            F.Asset(path: "Fixture/Resources/Pixel.bmp", bytes: F.bitmap)
+        ])
+        let crystalAsset = try OriginalMissionObjectAsset.load(type: "PowerCrystal", config: F.config(), resources: crystalResources)
+        let crystal = try OriginalMissionObjectModel(asset: crystalAsset, resources: crystalResources, blockSize: 40, sharedTextures: nil)
+        guard let crystalMaterial = crystal.root.childNodes.first?.geometry?.materials.first else {
+            preconditionFailure("Missing crystal material")
+        }
+        precondition(crystalMaterial.diffuse.intensity == 1 && crystalMaterial.emission.intensity == 1)
+        checkColor(crystalMaterial.multiply.contents, 1, 1, 1)
+        checkColor(crystalMaterial.diffuse.contents, 32 / 255.0, 128 / 255.0, 224 / 255.0)
+        checkColor(crystalMaterial.emission.contents, 32 / 255.0, 128 / 255.0, 224 / 255.0)
+        print("PASS: SceneKit original LWOB material coefficients, opacity, culling, texture filtering and crystal override")
+    }
+
     static func sceneKitIntegration() throws {
         let config = try F.config()
         let resources = try F.resources(F.buildingAssets(scale: "2.5") + F.resourceAssets())
