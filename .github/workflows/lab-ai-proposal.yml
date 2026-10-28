@@ -1,122 +1,43 @@
-name: OpenLRR AI Graphics Proposal (review only)
+name: OpenLRR Native Gameplay Review (one call, opt-in)
 
 on:
-  # Manual-only until the evidence-driven planner supplies reviewed feedback.
-  # A clock-driven unconditioned patch generator is intentionally disabled.
   workflow_dispatch:
+    inputs:
+      run_model:
+        description: 'Authorize ONE billable API review; false only prepares the packet'
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: openlrr-ai-proposal
+  group: openlrr-native-gameplay-review
   cancel-in-progress: false
 
 jobs:
-  propose:
-    if: github.event_name == 'workflow_dispatch' || vars.OPENLRR_AI_LAB_ENABLED == 'true'
+  review:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 6
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: bd2fb45fa1c1afda8314508de95ef4d8cfba0f9a
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: Install isolated model client
-        run: python -m pip install 'openai-agents==0.24.0'
-      - name: Validate coding scope and API key
+          persist-credentials: false
+      - name: Validate reviewer without model calls
+        run: python3 -m unittest discover -s lab/native-reviewer/tests -v
+      - name: Prepare exact-commit public-source packet
+        run: python3 lab/native-reviewer/review.py
+      - name: Make one explicitly authorized API request
+        if: inputs.run_model == true
         env:
           OPENAI_API_KEY: ${{ secrets.OPENLRR_AI_LAB_KEY }}
-        run: |
-          python scripts/agent/generate_candidate.py --preflight
-          test -n "$OPENAI_API_KEY" || { echo 'OPENLRR_AI_LAB_KEY secret not configured'; exit 2; }
-      - name: Propose one narrowly scoped experiment
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENLRR_AI_LAB_KEY }}
-        run: |
-          python scripts/agent/generate_candidate.py --model gpt-6-luna --out candidate-output
-      - uses: actions/upload-artifact@v4
+        run: python3 lab/native-reviewer/review.py --authorize-one-paid-call
+      - name: Preserve review for inspection
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          name: OpenLRR-AI-Research-Result
-          path: candidate-output/
-          if-no-files-found: error
-          retention-days: 14
-
-  compile-proposal:
-    needs: propose
-    runs-on: windows-2022
-    timeout-minutes: 35
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: bd2fb45fa1c1afda8314508de95ef4d8cfba0f9a
-      - uses: actions/download-artifact@v4
-        with:
-          name: OpenLRR-AI-Research-Result
-          path: candidate-output
-      - name: Classify AI research result
-        id: candidate
-        shell: pwsh
-        run: |
-          $report = Get-Content candidate-output/proposal.json -Raw | ConvertFrom-Json
-          $patchExists = Test-Path candidate-output/proposal.patch
-          if ($report.status -eq 'needs_better_evidence' -and -not $patchExists) {
-            Write-Host 'AI abstained; saved a request for better diagnostic evidence. No DLL will be built.'
-            'compile=false' >> $env:GITHUB_OUTPUT
-          } elseif ($report.status -eq 'patch_ready' -and $patchExists) {
-            if ((Get-Item candidate-output/proposal.patch).Length -lt 100) {
-              throw 'Unexpectedly empty patch'
-            }
-            'compile=true' >> $env:GITHUB_OUTPUT
-          } else {
-            throw 'Inconsistent AI proposal status and patch contents; fail closed.'
-          }
-      - name: Apply proposed patch only after source scope check
-        if: steps.candidate.outputs.compile == 'true'
-        shell: pwsh
-        run: |
-          $paths = @(git apply --numstat -- candidate-output/proposal.patch)
-          if ($LASTEXITCODE -ne 0) { throw 'Malformed patch' }
-          if ($paths.Count -ne 1 -or $paths[0] -notmatch 'src/openlrr/engine/drawing/DirectDraw\.cpp$') {
-            throw 'AI patch outside approved graphics file'
-          }
-          git apply --check -- candidate-output/proposal.patch
-          if ($LASTEXITCODE -ne 0) { throw 'AI patch does not apply cleanly' }
-          git apply -- candidate-output/proposal.patch
-          if ($LASTEXITCODE -ne 0) { throw 'AI patch apply failed' }
-          $changed = @(git diff --name-only)
-          if ($changed.Count -ne 1 -or $changed[0] -ne 'src/openlrr/engine/drawing/DirectDraw.cpp') {
-            throw 'AI patch touched an unexpected file'
-          }
-      - uses: microsoft/setup-msbuild@v2
-        if: steps.candidate.outputs.compile == 'true'
-      - name: Compile 32-bit proposed DLL (never execute it)
-        if: steps.candidate.outputs.compile == 'true'
-        shell: pwsh
-        run: |
-          msbuild openlrr.sln /t:openlrr /m /p:Configuration=Release /p:Platform=x86 /verbosity:minimal
-          if ($LASTEXITCODE -ne 0) { throw 'Compiler rejected proposed source' }
-          $dll = 'bin/openlrr.dll'
-          if (-not (Test-Path $dll)) { throw 'Expected DLL absent' }
-          $bytes = [System.IO.File]::ReadAllBytes((Resolve-Path $dll))
-          $pe = [System.BitConverter]::ToInt32($bytes, 0x3c)
-          $arch = [System.BitConverter]::ToUInt16($bytes, $pe+4)
-          if ($arch -ne 0x014c) { throw 'Expected a 32-bit DLL' }
-          New-Item -ItemType Directory -Path dist -Force | Out-Null
-          Copy-Item $dll dist/openlrr.dll
-          Copy-Item candidate-output/proposal.patch dist/
-          Copy-Item candidate-output/proposal.json dist/
-          (Get-FileHash $dll -Algorithm SHA256).Hash | Set-Content dist/SHA256.txt
-          "NOT APPROVED FOR EXECUTION ON A PERSONAL MAC. Source and binary require review." |
-            Set-Content dist/REVIEW-REQUIRED.txt
-      - uses: actions/upload-artifact@v4
-        if: steps.candidate.outputs.compile == 'true'
-        with:
-          name: OpenLRR-AI-Compiled-Draft-REVIEW-REQUIRED
-          path: dist/
-          if-no-files-found: error
+          name: OpenLRR-Native-Gameplay-Review
+          path: native-review-output/
+          if-no-files-found: warn
           retention-days: 14

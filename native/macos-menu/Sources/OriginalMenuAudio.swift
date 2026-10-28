@@ -30,7 +30,7 @@ final class OriginalMenuAudio {
     @discardableResult
     func start(config: LegoConfig, resources: GameResources,
                beside selectedWadURL: URL,
-               additionalAudioRoot: URL? = nil) -> String {
+               additionalAudioRoot: URL? = nil, sampleName: String = "SFX_AmbientMusicLoop") -> String {
         stop()
 
         if let enabled = (config.valueUnderGame(["Main", "SoundOn"]) ??
@@ -41,7 +41,7 @@ final class OriginalMenuAudio {
         }
 
         let configured = try? SoundSampleCatalog(config: config)
-            .samples(named: "SFX_AmbientMusicLoop")
+            .samples(named: sampleName)
 
         var attemptedDecoding = false
         for sample in configured ?? [] {
@@ -65,6 +65,9 @@ final class OriginalMenuAudio {
             }
         }
 
+        if sampleName != "SFX_AmbientMusicLoop" {
+            return "Original cave ambience unavailable: \(sampleName)"
+        }
         // RRU identifies this as the main-menu recording in loose Data/Sounds.
         // Unlike the CD soundtrack it is already a WAV and needs no conversion.
         for candidate in ["Sounds/Streamed/Atmosdel.wav", "Sounds/Atmosdel.wav"] {
@@ -104,14 +107,14 @@ final class OriginalMenuButtonAudio {
     }
 
     func configure(config: LegoConfig, resources: GameResources,
-                   beside wadURL: URL, extraAudioRoot: URL? = nil) {
+                   beside wadURL: URL, extraAudioRoot: URL? = nil, sampleName: String = "SFX_Okay") {
         stop()
         // The same SoundOn setting governs SFX and menu ambience.
         if let flag = (config.valueUnderGame(["Main", "SoundOn"]) ??
                           config.value("LegoRR", "SoundOn") ??
                        config.valueUnderGame(["SoundOn"]))?.uppercased(),
            ["FALSE", "NO", "OFF", "0"].contains(flag) { return }
-        let samples = try? SoundSampleCatalog(config: config).samples(named: "SFX_Okay")
+        let samples = try? SoundSampleCatalog(config: config).samples(named: sampleName)
         guard let sample = samples?.first else { return }
         let filename = sample.wavPath
         let decibels = Float(pow(10.0, Double(sample.volume) / 2000.0))
@@ -146,62 +149,156 @@ final class OriginalMenuButtonAudio {
 /// Game.cpp Lego_SetMusicPlaying uses SoundMode::Once and selects the next
 /// track on completion. Only explicitly selected user-owned tracks are read.
 final class OriginalMissionAudio: NSObject, AVAudioPlayerDelegate {
-    private let defaultsKey = "OriginalMissionSoundtrackPaths.v1"
+    private let defaultsKey = "OriginalMissionSoundtrackPaths.v2"
+    var onStatus: ((String) -> Void)?
+    private(set) var playbackStatus = "Mission music stopped"
+    var enabled: Bool {
+        get { UserDefaults.standard.object(forKey: "NativeMissionMusicEnabled.v1") as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: "NativeMissionMusicEnabled.v1") }
+    }
+    private func report(_ message: String) {
+        playbackStatus = message
+        onStatus?(message)
+    }
     private var player: AVAudioPlayer?
-    private var active = false
-    private var previous: URL?
-    private var tracks: [URL] = []
+    private let session = OriginalMissionMusicSession()
+    private var attempt: OriginalMissionMusicSession.Attempt?
 
     func setTracks(_ urls: [URL]) {
         UserDefaults.standard.set(urls.map { $0.path }, forKey: defaultsKey)
     }
 
     func stop() {
-        active = false
-        player?.delegate = nil
-        player?.stop()
-        player = nil
+        session.stop()
+        discardPlayer()
     }
 
     @discardableResult
     func start(config: LegoConfig, beside wad: URL, extraRoot: URL?) -> String {
         stop()
-        if let flag = config.valueUnderGame(["Main", "MusicOn"]),
-           ["FALSE", "NO", "OFF", "0"].contains(flag.uppercased()) { return "Mission music disabled" }
+        // Native file playback has its own visible preference, independent of
+        // the legacy CD-device MusicOn setting. Never re-enable it on restart.
+        guard enabled else { report("Mission music off"); return playbackStatus }
         let selected = (UserDefaults.standard.stringArray(forKey: defaultsKey) ?? [])
             .map { URL(fileURLWithPath: $0) }
-        let discovered = OriginalMissionTrackLocator.locate(beside: wad, extraRoot: extraRoot)
-        tracks = selected.isEmpty ? discovered.playable : selected
-        active = true
-        playNext()
-        if player != nil { return "Original mission soundtrack" }
-        if !discovered.ogg.isEmpty { return "RRU OGG tracks found: convert with tools/convert-original-media.sh for native playback" }
-        return "Mission soundtrack missing: select original tracks with Mission Music…"
+        let discovered = OriginalMissionTrackLocator.locate(beside: wad, extraRoot: extraRoot, bundledRoot: Bundle.main.resourceURL)
+        play(session.start(selected: selected, discovered: discovered.playable))
+        if player != nil || !session.failures.isEmpty { return playbackStatus }
+        if !discovered.ogg.isEmpty { report("OGG music needs conversion; select the installed M4A tracks with Mission Music…") }
+        else { report("No mission tracks found. Use Mission Music… to select original soundtrack files.") }
+        return playbackStatus
     }
 
-    private func playNext() {
-        guard active else { return }
-        // Try each file at most once. Missing or undecodable tracks cannot
-        // cause a recursive retry loop or substitute menu ambience.
-        let candidates = tracks.filter { $0 != previous }.shuffled()
-            + tracks.filter { $0 == previous }
-        for url in candidates {
-            guard let next = try? AVAudioPlayer(contentsOf: url) else { continue }
+    private func discardPlayer() {
+        player?.delegate = nil
+        player?.stop()
+        player = nil
+        attempt = nil
+    }
+
+    private func play(_ first: OriginalMissionMusicSession.Attempt?) {
+        discardPlayer()
+        var candidate = first
+        // No recursion: each failure consumes one unique file for this session.
+        while let current = candidate {
+            let next: AVAudioPlayer
+            do { next = try AVAudioPlayer(contentsOf: current.url) }
+            catch {
+                candidate = session.finished(current, error: error.localizedDescription)
+                continue
+            }
+            guard next.duration.isFinite, next.duration > 0 else {
+                candidate = session.finished(current, error: "empty or invalid audio duration")
+                continue
+            }
             next.numberOfLoops = 0
+            next.volume = 1
             next.delegate = self
-            next.prepareToPlay()
-            guard next.play() else { continue }
             player = next
-            previous = url
+            attempt = current
+            guard next.prepareToPlay(), next.play() else {
+                discardPlayer()
+                candidate = session.finished(current, error: "audio output would not start")
+                continue
+            }
+            let skipped = session.failures.isEmpty ? "" : " • \(session.failures.count) unavailable file(s) skipped"
+            report("Playing \(current.url.lastPathComponent) • \(session.availableTrackCount) mission tracks" + skipped)
             return
         }
-        player = nil
+        if !session.failures.isEmpty {
+            report("Music could not play: " + session.failures.map {
+                "\($0.url.lastPathComponent): \($0.reason)"
+            }.joined(separator: "; "))
+        }
     }
 
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        guard active, self.player === player else { return }
-        if flag { playNext() } else { stop() }
+        guard self.player === player, let attempt else { return }
+        play(session.finished(attempt, error: flag ? nil : "playback stopped unexpectedly"))
+    }
+
+    func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
+        guard self.player === player, let attempt else { return }
+        play(session.finished(attempt, error: "decode error: " + (error?.localizedDescription ?? "unknown audio error")))
     }
 }
 
+#endif
+
+#if os(macOS)
+/// Original Chief samples are one-shot speech, separate from mission music.
+final class OriginalNERPsAudio {
+    private var player: AVAudioPlayer?
+    func stop() { player?.stop(); player = nil }
+    func start(path: String, resources: GameResources, wadURL: URL?,
+               extraRoot: URL?, soundEnabled: Bool, volume: Int = 0) -> Double? {
+        var candidate: AVAudioPlayer?
+        if let wadURL {
+            for url in OriginalAudioFileLocator.locateAll(path, beside: wadURL, additionalRoot: extraRoot) {
+                if let decoded = try? AVAudioPlayer(contentsOf: url) { candidate = decoded; break }
+            }
+        }
+        if candidate == nil, resources.exists(path),
+           let data = try? resources.data(at: path, maximumBytes: 50_000_000) {
+            candidate = try? AVAudioPlayer(data: data)
+        }
+        guard let candidate, candidate.duration.isFinite, candidate.duration >= 0 else { return nil }
+        stop()
+        candidate.numberOfLoops = 0
+        candidate.volume = Float(pow(10.0, Double(volume) / 2000.0))
+        if soundEnabled {
+            candidate.prepareToPlay()
+            guard candidate.play() else { return nil }
+            player = candidate
+        }
+        // Retail still uses sample duration when sound is disabled.
+        return candidate.duration
+    }
+    deinit { stop() }
+}
+
+/// Stream_Objective_<full level identifier>, not NERPMessageFile speech.
+/// One attempt per initial briefing is enforced by the workspace startup gate.
+final class OriginalMissionBriefingAudio {
+    private let speech = OriginalNERPsAudio()
+    func stop() { speech.stop() }
+    func start(definition: OriginalMissionBriefingDefinition, config: LegoConfig?,
+               resources: GameResources, wadURL: URL?, extraRoot: URL?) -> String {
+        stop()
+        guard let config else { return "Original briefing speech unavailable: no Lego.cfg" }
+        let flag = config.valueUnderGame(["Main", "SoundOn"])?.uppercased() ?? "TRUE"
+        guard !["FALSE", "NO", "OFF", "0"].contains(flag) else { return "Briefing speech off (SoundOn disabled)" }
+        do {
+            let samples = try SoundSampleCatalog(config: config).samples(named: definition.speechSampleName)
+            for sample in samples {
+                if speech.start(path: sample.wavPath, resources: resources, wadURL: wadURL,
+                                extraRoot: extraRoot, soundEnabled: true, volume: sample.volume) != nil {
+                    return "Playing original briefing speech: \(sample.wavPath)"
+                }
+            }
+            return "Original briefing speech missing or unplayable: \(definition.speechSampleName)"
+        } catch { return "Original briefing speech unavailable: \(error)" }
+    }
+    deinit { stop() }
+}
 #endif

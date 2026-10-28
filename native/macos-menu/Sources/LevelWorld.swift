@@ -126,6 +126,7 @@ struct LevelWorld {
     let terrainMap: RockRaidersMap
     let predugMap: RockRaidersMap
     let surfaceMap: RockRaidersMap
+    let blockPointersMap: RockRaidersMap?
 
     init(manifest: LevelRuntimeResources, resources: GameResources) throws {
         func required(_ key: String) throws -> RockRaidersMap {
@@ -153,6 +154,25 @@ struct LevelWorld {
         self.terrainMap = terrain
         self.predugMap = predug
         self.surfaceMap = surface
+        if manifest.mapPaths["BlockPointersMap"] != nil {
+            let pointers = try required("BlockPointersMap")
+            guard pointers.width == terrain.width, pointers.height == terrain.height else {
+                throw WorldError.invalidDimensions("block-pointer and terrain dimensions differ")
+            }
+            self.blockPointersMap = pointers
+        } else { self.blockPointersMap = nil }
+    }
+
+    /// Zero is unmarked; repeated IDs designate every matching playable tile.
+    func tutorialBlocks(_ id: Int32) -> [(x: Int, y: Int)] {
+        guard id > 0, id <= 255, let map = blockPointersMap else { return [] }
+        var result: [(x: Int, y: Int)] = []
+        for y in 0..<height {
+            for x in 0..<width where map.value(x: x, y: y) == UInt16(id) {
+                result.append((x, y))
+            }
+        }
+        return result
     }
 
     func tile(x: Int, y: Int) -> Tile? {

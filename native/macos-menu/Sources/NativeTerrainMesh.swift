@@ -24,6 +24,7 @@ struct NativeTerrainMesh {
     }
 
     enum Material: String, CaseIterable {
+        case rubble
         case cavernFloor
         case hardRock
         case mediumRock
@@ -75,7 +76,11 @@ struct NativeTerrainMesh {
         return cornerDifference < oppositeDifference
     }
 
-    init(world: LevelWorld, maxTiles: Int = 150_000) throws {
+    init(world: LevelWorld, excavatedTiles: Set<NativeLevelNavigation.Position> = [], revealedTiles: Set<NativeLevelNavigation.Position> = [], rubbleTiles: Set<NativeLevelNavigation.Position> = [], maxTiles: Int = 150_000) throws {
+        func wasExcavated(_ x: Int, _ y: Int) -> Bool {
+            excavatedTiles.contains(.init(x: x, y: y)) &&
+            world.tile(x: x, y: y)?.terrain.isMineableWall == true
+        }
         let count = world.width * world.height
         guard count > 0 && count <= maxTiles else {
             throw MeshError.tooLarge(count)
@@ -107,6 +112,7 @@ struct NativeTerrainMesh {
 
         func isSolid(_ x: Int, _ y: Int) -> Bool {
             guard let tile = world.tile(x: x, y: y) else { return false }
+            if wasExcavated(x, y) || revealedTiles.contains(.init(x: x, y: y)) { return false }
             switch tile.excavation {
             case .wall, .hidden, .hiddenSlugHole, .unknown: return true
             case .exposed, .slugHole: return false
@@ -114,7 +120,7 @@ struct NativeTerrainMesh {
         }
 
         func exposed(_ x: Int, _ z: Int) -> Bool {
-            world.tile(x: x, y: z)?.excavation.isDiscoveredCavern == true
+            wasExcavated(x, z) || revealedTiles.contains(.init(x: x, y: z)) || world.tile(x: x, y: z)?.excavation.isDiscoveredCavern == true
         }
 
         func shouldRender(_ x: Int, _ z: Int) -> Bool {
@@ -123,8 +129,7 @@ struct NativeTerrainMesh {
             // first ring of adjacent solid rock forms the cave wall.
             if exposed(x, z) { return true }
             guard isSolid(x, z) else { return false }
-            return exposed(x - 1, z) || exposed(x + 1, z) ||
-                   exposed(x, z - 1) || exposed(x, z + 1)
+            return (-1...1).contains { dz in (-1...1).contains { dx in exposed(x + dx, z + dz) } }
         }
 
         func material(for tile: LevelWorld.Tile) -> Material {
@@ -151,16 +156,23 @@ struct NativeTerrainMesh {
                           z: Float(z) - Float(world.height) / 2)
         }
 
+        // Original destruction lowers the four shared MAP vertices. A wall
+        // adjoining floor is therefore a triangulated slope, not a cube.
+        func wallVertex(_ x: Int, _ z: Int) -> Point3 {
+            let lowered = exposed(x, z) || exposed(x - 1, z) ||
+                          exposed(x, z - 1) || exposed(x - 1, z - 1)
+            return vertex(x, z, extraHeight: lowered ? 0 : Self.previewWallHeight)
+        }
+
         for z in 0..<world.height {
             for x in 0..<world.width {
                 guard shouldRender(x, z),
                       let tile = world.tile(x: x, y: z) else { continue }
                 let wall = isSolid(x, z)
-                let lift = wall ? Self.previewWallHeight : 0
-                let a = vertex(x, z, extraHeight: lift)
-                let b = vertex(x + 1, z, extraHeight: lift)
-                let c = vertex(x, z + 1, extraHeight: lift)
-                let d = vertex(x + 1, z + 1, extraHeight: lift)
+                let a = wall ? wallVertex(x, z) : vertex(x, z)
+                let b = wall ? wallVertex(x + 1, z) : vertex(x + 1, z)
+                let c = wall ? wallVertex(x, z + 1) : vertex(x, z + 1)
+                let d = wall ? wallVertex(x + 1, z + 1) : vertex(x + 1, z + 1)
                 // Each original 3D block picks its triangle diagonal from
                 // the four HIGH map samples. Fixed triangulation distorted
                 // steep seams, unlike the retail Map3D geometry.
@@ -168,7 +180,8 @@ struct NativeTerrainMesh {
                 let h10 = world.surfaceMap.value(x: x + 1, y: z) ?? 0
                 let h01 = world.surfaceMap.value(x: x, y: z + 1) ?? 0
                 let h11 = world.surfaceMap.value(x: x + 1, y: z + 1) ?? 0
-                let tileMaterial = material(for: tile)
+                // Exposed rock is floor, not a rock/seam wall texture.
+                let tileMaterial: Material = rubbleTiles.contains(.init(x: x, y: z)) ? .rubble : !wall && ![LevelWorld.Terrain.water, .lake, .lava].contains(tile.terrain) ? .cavernFloor : material(for: tile)
                 if Self.usesUpperLeftDiagonal(topLeft: h00,
                                              topRight: h10,
                                              bottomLeft: h01,
@@ -181,26 +194,7 @@ struct NativeTerrainMesh {
                     addQuad(a, c, b, d, material: tileMaterial)
                 }
 
-                guard wall else { continue }
 
-                // Wall faces only along uncovered edges. Internal boundaries
-                // are not drawn, keeping real-world levels affordable.
-                if z == 0 || !isSolid(x, z - 1) {
-                    addQuad(a, vertex(x, z), b, vertex(x + 1, z),
-                            material: .wallFace)
-                }
-                if z == world.height - 1 || !isSolid(x, z + 1) {
-                    addQuad(d, vertex(x + 1, z + 1), c, vertex(x, z + 1),
-                            material: .wallFace)
-                }
-                if x == 0 || !isSolid(x - 1, z) {
-                    addQuad(c, vertex(x, z + 1), a, vertex(x, z),
-                            material: .wallFace)
-                }
-                if x == world.width - 1 || !isSolid(x + 1, z) {
-                    addQuad(b, vertex(x + 1, z), d, vertex(x + 1, z + 1),
-                            material: .wallFace)
-                }
             }
         }
 

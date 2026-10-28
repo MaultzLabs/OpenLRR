@@ -180,24 +180,58 @@ struct LightWaveScene {
                                              pivot: $0.pivot, parentIndex: $0.parent) }
     }
 
-    /// Resolve a classic relative object reference against the directory
-    /// of the original LWS. A Windows absolute path in an untrusted scene
-    /// must not escape the user's selected WAD; prefer its basename.
-    static func candidatePaths(reference: String, scenePath: String) -> [String] {
+    /// Lws_Parse discards the author's directories; Lws_LoadMesh tries the
+    /// scene directory before Main::SharedObjects (Lws.cpp:112–117,793–817).
+    static func candidatePaths(reference: String, scenePath: String,
+                               sharedObjects: String? = nil) -> [String] {
+        LightWaveResourcePaths.candidates(reference: reference, assetPath: scenePath,
+            sharedDirectory: sharedObjects, requiredExtension: "lwo")
+    }
+}
+
+/// Ordered archive-relative lookups shared by LWS components and LWOB textures.
+/// Author-machine paths identify a basename, never a host file or search root.
+/// Existence/read checks remain in GameResources, preserving WAD priority and
+/// failing closed when a higher-priority archive entry cannot be read.
+enum LightWaveResourcePaths {
+    static func candidates(reference: String, assetPath: String,
+                           sharedDirectory: String?, requiredExtension: String) -> [String] {
         let raw = reference.replacingOccurrences(of: "\\", with: "/")
-        let base = scenePath.replacingOccurrences(of: "\\", with: "/")
-        let directory = base.split(separator: "/").dropLast().joined(separator: "/")
-        guard let filename = raw.split(separator: "/").last.map(String.init),
-              !filename.isEmpty, filename != ".", filename != "..",
-              filename.lowercased().hasSuffix(".lwo"), filename.utf8.count <= 256
-        else { return [] }
-        var result = [directory + "/" + filename]
-        if !raw.contains(":") && !raw.hasPrefix("/") &&
-           !raw.split(separator: "/").contains("..") &&
-           !raw.split(separator: "/").contains(".") {
-            result.insert(raw, at: 0)
-            result.append(directory + "/" + raw)
+        let asset = assetPath.replacingOccurrences(of: "\\", with: "/")
+        guard reference.utf8.count <= 8192, !hasControlCharacters(reference),
+              let filename = raw.split(separator: "/", omittingEmptySubsequences: false)
+                .last.map(String.init),
+              filename.utf8.count <= 256, safePath(filename),
+              filename.lowercased().hasSuffix("." + requiredExtension),
+              safePath(asset) else { return [] }
+
+        let directory = asset.split(separator: "/").dropLast().joined(separator: "/")
+        let local = directory.isEmpty ? filename : directory + "/" + filename
+        guard safePath(local) else { return [] }
+        var result = [local]
+        if var shared = sharedDirectory?.replacingOccurrences(of: "\\", with: "/"),
+           shared.utf8.count <= 1024 {
+            // Configured game directories may end in a separator, but must
+            // never be converted from absolute/parent paths to relative ones.
+            while shared.hasSuffix("/") { shared.removeLast() }
+            if safePath(shared) {
+                let path = shared + "/" + filename
+                if safePath(path), !result.contains(where: { $0.lowercased() == path.lowercased() }) {
+                    result.append(path)
+                }
+            }
         }
-        return Array(Set(result)).sorted() // deterministic WAD lookup
+        return result
+    }
+
+    private static func hasControlCharacters(_ path: String) -> Bool {
+        path.unicodeScalars.contains { CharacterSet.controlCharacters.contains($0) }
+    }
+
+    private static func safePath(_ path: String) -> Bool {
+        !path.isEmpty && path.utf8.count <= 1024 && !path.contains(":") &&
+        !hasControlCharacters(path) &&
+        path.split(separator: "/", omittingEmptySubsequences: false)
+            .allSatisfy { !$0.isEmpty && $0 != "." && $0 != ".." }
     }
 }

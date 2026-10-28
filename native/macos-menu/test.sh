@@ -16,7 +16,8 @@ tmp12="$(mktemp /tmp/openlrr-texture-set-test.XXXXXXXX)"
 tmp13="$(mktemp /tmp/openlrr-nerps-runtime-test.XXXXXXXX)"
 tmp14="$(mktemp /tmp/openlrr-nerps-game-state-test.XXXXXXXX)"
 tmp15="$(mktemp /tmp/openlrr-raider-model-test.XXXXXXXX)"
-trap 'rm -f "$tmp1" "$tmp2" "$tmp3" "$tmp4" "$tmp5" "$tmp6" "$tmp7" "$tmp8" "$tmp9" "$tmp10" "$tmp11" "$tmp12" "$tmp13" "$tmp14" "$tmp15"' EXIT
+tmp16="$(mktemp /tmp/openlrr-dynamic-collision-test.XXXXXXXX)"
+trap 'rm -f "$tmp1" "$tmp2" "$tmp3" "$tmp4" "$tmp5" "$tmp6" "$tmp7" "$tmp8" "$tmp9" "$tmp10" "$tmp11" "$tmp12" "$tmp13" "$tmp14" "$tmp15" "$tmp16"' EXIT
 swiftc -O Sources/WadArchive.swift Tests/WadArchiveTests.swift -o "$tmp1"
 "$tmp1"
 swiftc -O Sources/WadArchive.swift Sources/GameResources.swift \
@@ -48,7 +49,7 @@ swiftc -O Sources/OriginalSaveFile.swift Tests/OriginalSaveFileTests.swift -o "$
 
 swiftc -O Sources/WadArchive.swift Sources/GameResources.swift \
   Sources/LegoConfig.swift Sources/MapFile.swift Sources/LevelRuntimeResources.swift \
-  Sources/LevelWorld.swift Sources/NativeTerrainMesh.swift Sources/NativeLevelNavigation.swift \
+  Sources/LevelWorld.swift Sources/NativeTerrainMesh.swift Sources/NativeLevelNavigation.swift Sources/NativeExcavationState.swift Sources/NativeDynamicCollision.swift Sources/NativeFirstPersonController.swift \
   Sources/OriginalTerrainTextureCatalog.swift Tests/LevelRuntimeResourcesTests.swift -o "$tmp8"
 "$tmp8"
 
@@ -81,12 +82,61 @@ swiftc -O Sources/WadArchive.swift Sources/GameResources.swift \
 swiftc -O Sources/WadArchive.swift Sources/GameResources.swift \
   Sources/LegoConfig.swift Sources/NERPsScript.swift \
   Sources/NERPsRuntime.swift Sources/NativeNERPsMessageFile.swift \
-  Sources/NativeTutorialInputPolicy.swift Sources/NativeNERPsGameState.swift \
+  Sources/NativeTutorialInputPolicy.swift Sources/NativeNERPsGameState.swift Sources/OriginalMissionBriefing.swift \
   Tests/NativeNERPsGameStateTests.swift -o "$tmp14"
 "$tmp14"
 
 # Original Raider activity references and original mesh/scene parsers.
 swiftc -O Sources/WadArchive.swift Sources/GameResources.swift Sources/LegoConfig.swift \
-  Sources/LightWaveObject.swift Sources/LightWaveScene.swift Sources/OriginalRaiderModel.swift \
+  Sources/LightWaveObject.swift Sources/LightWaveScene.swift Sources/OriginalModelAsset.swift Sources/OriginalLightWaveRenderer.swift Sources/OriginalMissionObjectModel.swift Sources/OriginalRaiderModel.swift \
   Tests/OriginalRaiderModelTests.swift -o "$tmp15"
 "$tmp15"
+
+# Pure Swift collision regression: synthetic moving OL Raider positions only.
+swiftc -O Sources/NativeDynamicCollision.swift Tests/NativeDynamicCollisionTests.swift -o "$tmp16"
+"$tmp16"
+
+# Mission HUD configuration is portable; AppKit rendering is checked by build.sh.
+(
+  mission_ui_test="$(mktemp /tmp/openlrr-mission-ui-test.XXXXXXXX)"
+  trap 'rm -f "$mission_ui_test"' EXIT
+  swiftc -O Sources/WadArchive.swift Sources/GameResources.swift Sources/PalettedBMP.swift Sources/OriginalBitmapFont.swift Sources/LegoConfig.swift Sources/OriginalMissionMessageUI.swift Sources/OriginalMissionCommands.swift Sources/OriginalMissionPanels.swift Sources/NativeOverheadCamera.swift Sources/OriginalFontLayout.swift \
+    Tests/OriginalMissionMessageUITests.swift -o "$mission_ui_test"
+  "$mission_ui_test"
+)
+
+# OL building/resource mapping and actual LWOB/LWS loading, entirely synthetic.
+# On macOS this same executable also verifies SceneKit geometry/materials.
+(
+  object_model_test="$(mktemp /tmp/openlrr-object-model-test.XXXXXXXX)"
+  trap 'rm -f "$object_model_test"' EXIT
+  swiftc -O Sources/WadArchive.swift Sources/GameResources.swift Sources/LegoConfig.swift \
+    Sources/LightWaveObject.swift Sources/LightWaveScene.swift Sources/OriginalModelAsset.swift \
+    Sources/OriginalLightWaveRenderer.swift Sources/OriginalMissionObjectModel.swift Sources/OriginalRaiderModel.swift \
+    Tests/OriginalMissionObjectModelTests.swift -o "$object_model_test"
+  "$object_model_test"
+)
+
+# Original initial-objective text, geometry, input and pause/handoff lifecycle.
+(
+  briefing_test="$(mktemp /tmp/openlrr-briefing-test.XXXXXXXX)"
+  trap 'rm -f "$briefing_test"' EXIT
+  swiftc -O Sources/LegoConfig.swift Sources/OriginalMissionBriefing.swift \
+    Tests/OriginalMissionBriefingTests.swift -o "$briefing_test"
+  "$briefing_test"
+)
+(
+  briefing_layout_test="$(mktemp /tmp/openlrr-briefing-layout-test.XXXXXXXX)"
+  trap 'rm -f "$briefing_layout_test"' EXIT
+  swiftc -O Sources/OriginalFontLayout.swift Sources/OriginalBriefingTextLayout.swift \
+    Tests/OriginalBriefingTextLayoutTests.swift -o "$briefing_layout_test"
+  "$briefing_layout_test"
+)
+
+# Real production music lifecycle with synthetic players/callbacks, no audio.
+(
+  music_session_test="$(mktemp /tmp/openlrr-music-session-test.XXXXXXXX)"
+  trap 'rm -f "$music_session_test"' EXIT
+  swiftc -O Sources/OriginalMissionMusicSession.swift Tests/OriginalMissionMusicSessionTests.swift -o "$music_session_test"
+  "$music_session_test"
+)

@@ -7,7 +7,9 @@ import Foundation
 /// does not impersonate the original 3D engine or invent functional units.
 final class NativeLevelView: NSView {
     let world: LevelWorld
+    var excavationState: NativeExcavationState?
     var onExit: (() -> Void)?
+    var missionInputBlocked = false
     var originalCursor: NSCursor? {
         didSet { if let window { window.invalidateCursorRects(for: self) } }
     }
@@ -52,7 +54,7 @@ final class NativeLevelView: NSView {
         let center = sceneCenter
         let x = Int(floor((point.x - center.x) / tileSize + cameraX))
         let y = Int(floor((point.y - center.y) / tileSize + cameraY))
-        return world.tile(x: x, y: y)
+        return excavationState?.tile(x: x, y: y) ?? world.tile(x: x, y: y)
     }
 
     private func tileColor(_ tile: LevelWorld.Tile) -> NSColor {
@@ -112,7 +114,7 @@ final class NativeLevelView: NSView {
         if endX >= startX && endY >= startY {
             for y in startY...endY {
                 for x in startX...endX {
-                    guard let tile = world.tile(x: x, y: y) else { continue }
+                    guard let tile = excavationState?.tile(x: x, y: y) ?? world.tile(x: x, y: y) else { continue }
                     let rect = tileFrame(x: x, y: y)
                     tileColor(tile).setFill()
                     rect.fill()
@@ -122,7 +124,8 @@ final class NativeLevelView: NSView {
             }
         }
 
-        if let tile = selected {
+        if let old = selected,
+           let tile = excavationState?.tile(x: old.x, y: old.y) ?? world.tile(x: old.x, y: old.y) {
             let outline = tileFrame(x: tile.x, y: tile.y).insetBy(dx: -1.5, dy: -1.5)
             NSColor.systemYellow.setStroke()
             let selection = NSBezierPath(rect: outline)
@@ -141,7 +144,8 @@ final class NativeLevelView: NSView {
         NSColor(calibratedWhite: 0.075, alpha: 0.94).setFill()
         footer.fill()
         let detail: String
-        if let tile = selected {
+        if let old = selected,
+           let tile = excavationState?.tile(x: old.x, y: old.y) ?? world.tile(x: old.x, y: old.y) {
             detail = "Tile (\(tile.x), \(tile.y))   \(tile.terrain.rawValue)   " +
                 "\(tile.excavation.rawValue)   Height \(tile.heightCode)"
         } else {
@@ -164,6 +168,7 @@ final class NativeLevelView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        guard !missionInputBlocked else { return }
         let point = convert(event.locationInWindow, from: nil)
         if tutorialInputPolicy.canClickMap &&
            point.y >= 75 && point.y < bounds.height - 57 {
@@ -174,6 +179,7 @@ final class NativeLevelView: NSView {
     }
 
     override func mouseDragged(with event: NSEvent) {
+        guard !missionInputBlocked else { return }
         let point = convert(event.locationInWindow, from: nil)
         if tutorialInputPolicy.canMoveCamera, let last = previousDragPoint {
             cameraX -= (point.x - last.x) / tileSize
@@ -189,16 +195,19 @@ final class NativeLevelView: NSView {
     }
 
     override func scrollWheel(with event: NSEvent) {
+        guard !missionInputBlocked else { return }
         guard tutorialInputPolicy.canMoveCamera else { return }
         zoomBy(event.scrollingDeltaY > 0 ? 1.12 : 1.0 / 1.12)
     }
 
     override func magnify(with event: NSEvent) {
+        guard !missionInputBlocked else { return }
         guard tutorialInputPolicy.canMoveCamera else { return }
         zoomBy(1 + event.magnification)
     }
 
     override func keyDown(with event: NSEvent) {
+        guard !missionInputBlocked else { return }
         // Mac Escape always returns to the native menu, including when the
         // retail NERPs script has locked movement during a tutorial prompt.
         if event.keyCode == 53 { onExit?(); return }

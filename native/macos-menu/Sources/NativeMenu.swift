@@ -2,37 +2,10 @@
 import AppKit
 import Foundation
 import ImageIO
+import UniformTypeIdentifiers
 
 /// Prototype view: places real WAD images and Lego.cfg menu items at the
 /// original logical 640x480 coordinates. Font and overlays remain incomplete.
-private struct OriginalBitmapFont {
-    let image: NSImage
-    let characterWidths: [Int]
-    let cellWidth: Int
-    let cellHeight: Int
-    let sheetHeight: Int
-
-    func layout(_ text: String) -> OriginalFontLayout? {
-        OriginalFontLayout.make(text, characterWidths: characterWidths,
-                                lineHeight: cellHeight)
-    }
-
-    func draw(_ layout: OriginalFontLayout, at point: CGPoint) {
-        for placement in layout.glyphs {
-            let col = placement.index % 10
-            let row = placement.index / 10
-            let width = CGFloat(characterWidths[placement.index])
-            let source = CGRect(x: CGFloat(col * cellWidth),
-                                y: CGFloat(sheetHeight - ((row + 1) * cellHeight)),
-                                width: width, height: CGFloat(cellHeight))
-            let destination = CGRect(x: point.x + CGFloat(placement.x),
-                                     y: point.y + CGFloat(placement.y),
-                                     width: width, height: CGFloat(cellHeight))
-            image.draw(in: destination, from: source, operation: .sourceOver,
-                       fraction: 1, respectFlipped: true, hints: nil)
-        }
-    }
-}
 
 final class OriginalMenuCanvas: NSView {
     var resources: GameResources? { didSet { clearCache(); gameCursor = nil; needsDisplay = true } }
@@ -47,6 +20,7 @@ final class OriginalMenuCanvas: NSView {
     var onQuitConfirmed: (() -> Void)?
     var onButtonActivated: (() -> Void)?
     var onMenuTransition: ((Int) -> Bool)?
+    var transitionInProgress = false
     private var menuIndex = 0
     private var hoverIndex: Int?
     private var imageCache: [String: NSImage] = [:]
@@ -457,6 +431,7 @@ final class OriginalMenuCanvas: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        guard !transitionInProgress else { return }
         let pos = logicalPoint(event)
         if let index = saveRects.first(where: { $0.1.contains(pos) })?.0,
            saveSlots.indices.contains(index) {
@@ -506,6 +481,7 @@ final class OriginalMenuCanvas: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
+        guard !transitionInProgress else { return }
         if event.keyCode == 53, let previous = history.popLast() {
             menuIndex = previous
             menuScroll.reset()
@@ -555,10 +531,13 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
     private var savedMenuWindowFrame: NSRect?
     private var toolbarButtons: NSStackView!
     private var backToMenuButton: NSButton!
+    private var missionMusicButton: NSButton!
+    private var missionMusicToggle: NSButton!
     private var status: NSTextField!
     private let originalAudio = OriginalMenuAudio()
     private let missionAudio = OriginalMissionAudio()
     private let buttonAudio = OriginalMenuButtonAudio()
+    private let rockWipeAudio = OriginalMenuButtonAudio()
     private let selectedWadDefaultsKey = "OriginalGameWadURL.v1"
     private let audioFolderDefaultsKey = "OriginalGameAudioFolderURL.v1"
     private var activeWadURL: URL?
@@ -638,6 +617,18 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
         backToMenuButton.isHidden = true
         backToMenuButton.translatesAutoresizingMaskIntoConstraints = false
         toolbar.addSubview(backToMenuButton)
+        missionMusicButton = NSButton(title: "Mission Music…", target: self, action: #selector(chooseMissionMusic))
+        missionMusicToggle = NSButton(checkboxWithTitle: "Music", target: self, action: #selector(toggleMissionMusic))
+        missionMusicToggle.state = missionAudio.enabled ? .on : .off
+        for control in [missionMusicButton!, missionMusicToggle!] {
+            control.isHidden = true
+            control.translatesAutoresizingMaskIntoConstraints = false
+            toolbar.addSubview(control)
+        }
+        missionAudio.onStatus = { [weak self] message in
+            self?.status.stringValue = message
+            self?.status.toolTip = message
+        }
         buttons.orientation = .horizontal
         buttons.alignment = .centerY
         buttons.spacing = 12
@@ -653,6 +644,10 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
             buttons.topAnchor.constraint(equalTo: toolbar.topAnchor, constant: 9),
             backToMenuButton.leadingAnchor.constraint(equalTo: toolbar.leadingAnchor, constant: 16),
             backToMenuButton.topAnchor.constraint(equalTo: toolbar.topAnchor, constant: 9),
+            missionMusicButton.leadingAnchor.constraint(equalTo: backToMenuButton.trailingAnchor, constant: 16),
+            missionMusicButton.centerYAnchor.constraint(equalTo: backToMenuButton.centerYAnchor),
+            missionMusicToggle.leadingAnchor.constraint(equalTo: missionMusicButton.trailingAnchor, constant: 16),
+            missionMusicToggle.centerYAnchor.constraint(equalTo: backToMenuButton.centerYAnchor),
             status.leadingAnchor.constraint(equalTo: toolbar.leadingAnchor, constant: 16),
             status.trailingAnchor.constraint(lessThanOrEqualTo: toolbar.trailingAnchor, constant: -16),
             status.topAnchor.constraint(equalTo: buttons.bottomAnchor, constant: 7)
@@ -699,6 +694,12 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
               let wipe = NativeRockWipeView(frame: canvas.frame,
                                            config: activeConfig,
                                            resources: activeResources) else { return false }
+        canvas.transitionInProgress = true
+        if let wad = activeWadURL {
+            rockWipeAudio.configure(config: activeConfig, resources: activeResources,
+                beside: wad, extraAudioRoot: selectedAudioFolder, sampleName: "SFX_RockWipe")
+            rockWipeAudio.play()
+        }
         root.rockWipeView = wipe
         root.addSubview(wipe, positioned: .above, relativeTo: canvas)
         root.needsLayout = true
@@ -708,6 +709,8 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
         }, completed: { [weak self, weak wipe] in
             wipe?.removeFromSuperview()
             self?.root.rockWipeView = nil
+            self?.canvas.transitionInProgress = false
+            self?.rockWipeAudio.stop()
             if let self { self.window.makeFirstResponder(self.canvas) }
         })
         return true
@@ -724,6 +727,13 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
     }
 
     private func openLevel(identifier: String) {
+        // Snapshot the launching gesture before synchronous archive/scene loads.
+        // Selection runs on mouseDown; a queued mouseUp must never close the brief.
+        var openingInput = OriginalMissionBriefingUI.heldInput()
+        if NSApp.currentEvent?.type == .leftMouseDown {
+            openingInput.leftDown = true
+            openingInput.leftClicked = true
+        }
         guard let resources = activeResources, let config = activeConfig else {
             presentLevelError("Load the original game archives before opening a mission.")
             return
@@ -755,21 +765,32 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
                 frame: root.bounds, world: world, objects: placements,
                 resources: resources, textureSet: manifest.textureSetSetting,
                 nerpsState: missionNERPs, config: config,
-                blockSize: Double(config.valueUnderGame(identifier.components(separatedBy: "::") + ["BlockSize"]) ?? "40") ?? 40)
+                blockSize: Double(config.valueUnderGame(identifier.components(separatedBy: "::") + ["BlockSize"]) ?? "40") ?? 40,
+                wadURL: activeWadURL, extraAudioRoot: selectedAudioFolder, openingInput: openingInput)
             viewer.originalCursor = canvas.gameCursor
             viewer.onBack = { [weak self] in self?.returnToMainMenu() }
+            missionView?.endSession()
             missionView?.removeFromSuperview()
             missionView = viewer
             originalAudio.stop()
             buttonAudio.stop()
-            let musicStatus = activeWadURL.map {
-                missionAudio.start(config: config, beside: $0, extraRoot: selectedAudioFolder)
-            } ?? "Mission soundtrack unavailable"
+            missionAudio.stop()
+            viewer.onGameplayStart = { [weak self, weak viewer] in
+                guard let self, let viewer, self.missionView === viewer else { return }
+                self.restartMissionMusic()
+            }
+            viewer.onStartupStatus = { [weak self, weak viewer] message in
+                guard let self, let viewer, self.missionView === viewer else { return }
+                self.status.stringValue = message
+                self.status.toolTip = message
+            }
             root.missionView = viewer
             root.addSubview(viewer, positioned: .above, relativeTo: canvas)
             canvas.isHidden = true
             toolbarButtons.isHidden = true
             backToMenuButton.isHidden = false
+            missionMusicButton.isHidden = false
+            missionMusicToggle.isHidden = false
 
             if savedMenuWindowFrame == nil {
                 savedMenuWindowFrame = window.frame
@@ -787,7 +808,8 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
             viewer.focusActiveView()
             window.makeKeyAndOrderFront(nil)
             status.stringValue = "\(world.title) • \(world.width)×\(world.height) blocks • \(placements?.rockRaiders.count ?? 0) Rock Raiders"
-            status.stringValue += " • \(musicStatus)"
+            if viewer.isBriefingActive { status.stringValue += " • " + viewer.startupStatus }
+            else { status.stringValue += " • " + viewer.startupStatus + " • " + missionAudio.playbackStatus }
             status.toolTip = status.stringValue
         } catch {
             presentLevelError("\(identifier): \(error)")
@@ -800,12 +822,15 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
 
     private func returnToMainMenu() {
         missionAudio.stop()
+        missionView?.endSession()
         missionView?.removeFromSuperview()
         missionView = nil
         root.missionView = nil
         canvas.isHidden = false
         toolbarButtons.isHidden = false
         backToMenuButton.isHidden = true
+        missionMusicButton.isHidden = true
+        missionMusicToggle.isHidden = true
         if let saved = savedMenuWindowFrame {
             window.setFrame(saved, display: true, animate: false)
             savedMenuWindowFrame = nil
@@ -861,16 +886,36 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
         }
     }
 
+    @objc private func toggleMissionMusic() {
+        missionAudio.enabled = missionMusicToggle.state == .on
+        restartMissionMusic()
+    }
+
+    private func restartMissionMusic() {
+        guard let missionView, let config = activeConfig, let wad = activeWadURL else { return }
+        guard !missionView.isBriefingActive else {
+            missionAudio.stop()
+            status.stringValue = missionAudio.enabled ? "Mission music waits for the briefing" : "Mission music off"
+            status.toolTip = status.stringValue
+            return
+        }
+        status.stringValue = missionAudio.start(config: config, beside: wad, extraRoot: selectedAudioFolder)
+        status.toolTip = status.stringValue
+    }
+
     @objc private func chooseMissionMusic() {
         let panel = NSOpenPanel()
         panel.title = "Select original Rock Raiders soundtrack tracks"
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = true
-        panel.allowedFileTypes = ["wav", "mp3", "m4a", "aiff", "aif"]
+        panel.allowedContentTypes = ["wav", "mp3", "m4a", "aiff", "aif"].compactMap { UTType(filenameExtension: $0) }
         panel.beginSheetModal(for: window) { [weak self] response in
             guard response == .OK, let self else { return }
             self.missionAudio.setTracks(panel.urls)
+            self.missionAudio.enabled = true
+            self.missionMusicToggle.state = .on
             self.status.stringValue = "Original soundtrack selected for missions"
+            self.restartMissionMusic()
         }
     }
 

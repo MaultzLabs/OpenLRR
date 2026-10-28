@@ -71,6 +71,7 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
               SurfaceMap Levels\\GameLevels\\Level01\\High.map
               OListFile Levels\\GameLevels\\Level01\\Objects.ol
               NERPFile Levels\\GameLevels\\Level01\\Level01.npl
+              ObjectiveText Levels\\ObjectiveText.txt
               NextLevel Levels::Level02
             }
           }
@@ -84,6 +85,7 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         precondition(manifest.mapPaths.count == 3)
         precondition(manifest.objectListPath?.hasSuffix("Objects.ol") == true)
         precondition(manifest.scriptPath?.hasSuffix("Level01.npl") == true)
+        precondition(manifest.objectiveTextPath == "Levels\\ObjectiveText.txt")
         precondition(manifest.nextLevel == "Levels::Level02")
 
         let first = syntheticMap([0, 4, 9, 5], width: 2, height: 2)
@@ -203,9 +205,12 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         precondition(defaultWorld.elevation(atX: 0, y: 1) == 2)
 
 
-        precondition(mesh.triangleCount > 8)  // four tile tops + exposed wall sides
+        precondition(mesh.triangleCount == 8) // four shared-vertex tiles, no cube side faces
         precondition(mesh.surfaces.contains { $0.material == .crystal })
-        precondition(mesh.surfaces.contains { $0.material == .wallFace })
+        precondition(!mesh.surfaces.contains { $0.material == .wallFace })
+        precondition(mesh.surfaces.contains { surface in
+            surface.material == .crystal && surface.normals.contains { $0.y > 0 && $0.y < 0.99 }
+        })
         precondition(mesh.surfaces.allSatisfy {
             $0.vertices.count == $0.normals.count && $0.vertices.count % 3 == 0
         })
@@ -219,6 +224,30 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
             _ = try NativeTerrainMesh(world: nativeWorld, maxTiles: 3)
             preconditionFailure("Tile-count memory guard was bypassed")
         } catch is NativeTerrainMesh.MeshError {}
+
+        // Hidden areas reveal through the original eight-neighbour flood,
+        // while separated cavities and liquid collision remain intact.
+        var hiddenPredug = [UInt16](repeating: 0, count: 25)
+        hiddenPredug[7] = 1
+        hiddenPredug[5] = 2
+        hiddenPredug[10] = 2
+        hiddenPredug[18] = 2
+        let hiddenResources = try GameResources(archives: [(0, syntheticWad([
+            ("Levels/GameLevels/Level01/Surf.map", syntheticMap([UInt16](repeating: 4, count: 25), width: 5, height: 5)),
+            ("Levels/GameLevels/Level01/Dugg.map", syntheticMap(hiddenPredug, width: 5, height: 5)),
+            ("Levels/GameLevels/Level01/High.map", syntheticMap([UInt16](repeating: 0, count: 25), width: 5, height: 5))
+        ]))])
+        let hiddenWorld = try LevelWorld(manifest: manifest, resources: hiddenResources)
+        let discovery = NativeExcavationState(world: hiddenWorld)
+        let dig = discovery.plan(from: .init(x: 2, y: 1), wall: .init(x: 1, y: 1))!
+        precondition(discovery.finish(dig, raiderAt: dig.approach))
+        precondition(discovery.revealed == [.init(x: 0, y: 1), .init(x: 0, y: 2)])
+        let revealedNav = NativeLevelNavigation(world: hiddenWorld, excavated: discovery.excavated, revealed: discovery.revealed)
+        precondition(revealedNav.canWalk(.init(x: 0, y: 2)))
+        precondition(!revealedNav.canWalk(.init(x: 3, y: 3)))
+        let revealedMesh = try NativeTerrainMesh(world: hiddenWorld, excavatedTiles: discovery.excavated,
+            revealedTiles: discovery.revealed, rubbleTiles: discovery.rubble)
+        precondition(revealedMesh.surfaces.contains { $0.material == .rubble })
 
         // Correctness of raw terrain IDs is anchored in
         // game/GameCommon.h::Lego_SurfaceType.
@@ -242,13 +271,35 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         let predugData = syntheticMap(corridor, width: 5, height: 5)
         let highData = syntheticMap([UInt16](repeating: 2, count: 25),
                                     width: 5, height: 5)
+        var pointerCells = [UInt16](repeating: 0, count: 25)
+        pointerCells[6] = 1 // wall (1,1)
+        pointerCells[7] = 1 // exposed (2,1)
+        pointerCells[24] = 1 // border vertex must not be enumerated
+        let pointerConfig = try LegoConfig(text: """
+        Lego* {
+          Levels {
+            Level01 {
+              TerrainMap Levels/GameLevels/Level01/Surf.map
+              PredugMap Levels/GameLevels/Level01/Dugg.map
+              SurfaceMap Levels/GameLevels/Level01/High.map
+              BlockPointersMap Tuto.map
+            }
+          }
+        }
+        """)
+        let pointerManifest = try LevelRuntimeResources(config: pointerConfig, identifier: "Levels::Level01")
         let pathWad = syntheticWad([
+            ("Tuto.map", syntheticMap(pointerCells, width: 5, height: 5)),
             ("Levels\\GameLevels\\Level01\\Surf.map", terrainData),
             ("Levels\\GameLevels\\Level01\\Dugg.map", predugData),
             ("Levels\\GameLevels\\Level01\\High.map", highData)
         ])
         let corridorWorld = try LevelWorld(
-            manifest: manifest, resources: GameResources(archives: [(0, pathWad)]))
+            manifest: pointerManifest, resources: GameResources(archives: [(0, pathWad)]))
+        precondition(corridorWorld.tutorialBlocks(1).count == 2)
+        precondition(corridorWorld.tutorialBlocks(0).isEmpty)
+        precondition(corridorWorld.tutorialBlocks(-1).isEmpty)
+        precondition(corridorWorld.tutorialBlocks(256).isEmpty)
         let routing = NativeLevelNavigation(world: corridorWorld)
         let origin = NativeLevelNavigation.Position(x: 2, y: 0)
         let destination = NativeLevelNavigation.Position(x: 0, y: 2)
@@ -284,6 +335,113 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
             to: .init(x: 2.95, y: 1.5)) == nil) // Center fits; body would clip wall.
         precondition(!routing.segmentIsClear(from: .init(x: .nan, y: 1), to: preciseGoal))
         precondition(!routing.segmentIsClear(from: .init(x: 0.1, y: 2.5), to: preciseGoal))
+
+        // First-person control uses the same discovered-cavern swept clearance
+        // as click routing. These are synthetic map fixtures, not retail footage.
+        let fpStart = NativeLevelNavigation.Point(x: 2.5, y: 0.5)
+        var fp = NativeFirstPersonController(
+            navigation: routing, position: fpStart, heading: 0)!
+        precondition(fp.advance(forward: 1, turn: 0, elapsed: 0.1))
+        precondition(abs(fp.position.y - 0.75) < 0.00001)
+        precondition(fp.advance(forward: -1, turn: 0, elapsed: 0.1))
+        precondition(abs(fp.position.y - fpStart.y) < 0.00001)
+        precondition(!fp.advance(forward: 0, turn: 1, elapsed: 0.1))
+        precondition(abs(fp.heading - 0.24) < 0.00001)
+        let beforeInvalid = fp.heading
+        precondition(!fp.advance(forward: 1, turn: 1, elapsed: .nan))
+        precondition(fp.heading == beforeInvalid)
+        precondition(!fp.advance(forward: .infinity, turn: 1, elapsed: 0.1))
+        precondition(fp.heading == beforeInvalid)
+
+        var wall = NativeFirstPersonController(
+            navigation: routing, position: fpStart, heading: .pi / 2)!
+        precondition(wall.advance(forward: 1, turn: 0, elapsed: 0.1))
+        precondition(abs(wall.position.x - 2.75) < 0.00001)
+        for _ in 0..<20 {
+            precondition(!wall.advance(forward: 1, turn: 0, elapsed: 0.1))
+        }
+        precondition(wall.position.x < 2.77) // Expanded solid wall starts here.
+        precondition(wall.advance(forward: -1, turn: 0, elapsed: 0.1))
+        precondition(abs(wall.position.x - 2.5) < 0.00001)
+        precondition(NativeFirstPersonController(
+            navigation: routing, position: .init(x: 1.5, y: 0.5),
+            heading: 0) == nil)
+        precondition(NativeFirstPersonController(
+            navigation: routing, position: fpStart, heading: .nan) == nil)
+        var paused = NativeFirstPersonController(
+            navigation: routing, position: fpStart, heading: 0)!
+        precondition(paused.advance(forward: 1, turn: 0, elapsed: 50))
+        precondition(abs(paused.position.y - 0.75) < 0.00001) // 100 ms cap
+
+        // A second original OL Raider may stand on an otherwise open tile.
+        // The static MAP clearance must not allow direct-control overlap.
+        var occupied = NativeFirstPersonController(
+            navigation: routing, position: fpStart, heading: 0)!
+        let otherRaider = NativeDynamicCollision.Disc(
+            center: .init(x: 2.5, y: 1.0),
+            radius: NativeDynamicCollision.otherRaiderRadius)
+        precondition(!occupied.advance(forward: 1, turn: 0, elapsed: 0.1,
+                                       obstacles: [otherRaider]))
+        precondition(occupied.position == fpStart)
+        // Live positions are refreshed every frame; when the other Raider
+        // moves away the identical input is no longer blocked.
+        let movedAway = NativeDynamicCollision.Disc(
+            center: .init(x: 2.5, y: 2.0),
+            radius: NativeDynamicCollision.otherRaiderRadius)
+        precondition(occupied.advance(forward: 1, turn: 0, elapsed: 0.1,
+                                      obstacles: [movedAway]))
+        precondition(abs(occupied.position.y - 0.75) < 0.00001)
+        print("PASS: first-person steering, swept wall and live Raider clearance, reverse, turn and pause bounds")
+
+        // Native mining orders must reach a real cardinally adjacent cavern
+        // before a mineable wall becomes floor. WAD and MAP bytes stay intact.
+        do {
+        let mining = NativeExcavationState(world: corridorWorld)
+        precondition(mining.tutorialGroundValue(1) == 8)
+        precondition(mining.tutorialGroundValue(2) == 0)
+        let wall = NativeLevelNavigation.Position(x: 1, y: 1)
+        precondition(mining.canDrill(wall))
+        precondition(!mining.canDrill(origin)) // exposed cavern is not a wall
+        precondition(!mining.canDrill(.init(x: -1, y: 1)))
+        guard let order = mining.plan(from: origin, wall: wall) else {
+            preconditionFailure("Expected accessible drilling face")
+        }
+        precondition(order.approach == .init(x: 2, y: 1))
+        precondition(order.route == [origin, order.approach])
+        precondition(!mining.finish(order, raiderAt: origin))
+        precondition(mining.excavated.isEmpty)
+        precondition(mining.finish(order, raiderAt: order.approach))
+        precondition(mining.tutorialGroundValue(1) == 16)
+        precondition(mining.rubble.contains(order.wall))
+        precondition(!mining.finish(order, raiderAt: order.approach))
+        precondition(!mining.canDrill(wall))
+        precondition(mining.tile(x: 1, y: 1)?.terrain == .tunnel)
+        precondition(mining.tile(x: 1, y: 1)?.excavation == .exposed)
+        precondition(corridorWorld.tile(x: 1, y: 1)?.excavation == .wall)
+        precondition(NativeLevelNavigation(world: corridorWorld,
+                     excavated: mining.excavated).canWalk(wall))
+        precondition(NativeLevelNavigation(world: corridorWorld).route(
+                     from: order.approach, to: wall) == nil)
+        precondition(NativeLevelNavigation(world: corridorWorld,
+                     excavated: mining.excavated).route(
+                     from: order.approach, to: wall) == [order.approach, wall])
+        let dugMesh = try NativeTerrainMesh(world: corridorWorld,
+                                            excavatedTiles: mining.excavated)
+        precondition(dugMesh.triangleCount > 0)
+        precondition(dugMesh.surfaces.contains { $0.material == .cavernFloor })
+        precondition(mining.plan(from: origin, wall: wall) == nil)
+        let openedNavigation = NativeLevelNavigation(world: corridorWorld, excavated: mining.excavated)
+        let beforeMining = NativeLevelNavigation.Point(x: 2.5, y: 1.5)
+        let openedFloor = NativeLevelNavigation.Point(x: 1.5, y: 1.5)
+        precondition(!routing.segmentIsClear(from: beforeMining, to: openedFloor))
+        precondition(openedNavigation.segmentIsClear(from: beforeMining, to: openedFloor))
+        var minerFP = NativeFirstPersonController(navigation: routing, position: beforeMining, heading: -.pi / 2)!
+        minerFP.navigation = openedNavigation
+        for _ in 0..<4 { _ = minerFP.advance(forward: 1, turn: 0, elapsed: 0.1) }
+        precondition(abs(minerFP.position.x - openedFloor.x) < 0.0001)
+        let illegalOverlay = NativeLevelNavigation(world: corridorWorld, excavated: [.init(x: 1, y: 0)])
+        precondition(!illegalOverlay.canWalk(.init(x: 1, y: 0)), "Excavation cannot turn lava into floor")
+        }
 
         // Source-grounded original BMP world atlas paths. A synthetic WAD
         // tests lookup without redistributing a copyrighted actual image.

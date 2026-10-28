@@ -16,7 +16,8 @@ final class NativeRockWipeView: SCNView {
     private let originalScene: LightWaveScene
     private var animated: [AnimatedObject] = []
     private var timer: Timer?
-    private var startedAt: TimeInterval = 0
+    private var previousTime: TimeInterval = 0
+    private var animationFrame: Double = 0
     private var didSwitch = false
     private var midpointAction: (() -> Void)?
     private var completionAction: (() -> Void)?
@@ -59,8 +60,10 @@ final class NativeRockWipeView: SCNView {
         camera.camera = SCNCamera()
         camera.camera?.zNear = 0.01
         camera.camera?.zFar = 1_000
-        camera.position = SCNVector3(0, 0, 5)
-        camera.look(at: SCNVector3(0, 0, 0))
+        camera.position = SCNVector3(0, 0, -5)
+        // Original camera is (0,0,5), facing +Z. Reflect original Z
+        // into SceneKit's -Z convention for BOTH the scene and camera.
+        camera.look(at: SCNVector3(0, 0, -6))
         scene.rootNode.addChildNode(camera)
         pointOfView = camera
         let light = SCNNode()
@@ -90,6 +93,9 @@ final class NativeRockWipeView: SCNView {
                                     size: CGSize(width: image.width, height: image.height)))
         }
 
+        let originalRoot = SCNNode()
+        originalRoot.scale = SCNVector3(1, 1, -1)
+        scene.rootNode.addChildNode(originalRoot)
         var nodes: [SCNNode] = []
         for (index, object) in script.objects.enumerated() {
             let node = SCNNode()
@@ -108,8 +114,13 @@ final class NativeRockWipeView: SCNView {
                         [UInt32(triangle.first), UInt32(triangle.second),
                          UInt32(triangle.third)]
                     }
+                    let projection = mesh.surfaceNames.first.flatMap { mesh.surfaceTextures[$0] } ?? LightWaveObject.Texture()
+                    let uv = mesh.vertices.map { vertex -> CGPoint in
+                        let coordinate = projection.uv(vertex)
+                        return CGPoint(x: CGFloat(coordinate.u), y: CGFloat(1 - coordinate.v))
+                    }
                     let geometry = SCNGeometry(
-                        sources: [SCNGeometrySource(vertices: points)],
+                        sources: [SCNGeometrySource(vertices: points), SCNGeometrySource(textureCoordinates: uv)],
                         elements: [SCNGeometryElement(indices: indexes,
                                                       primitiveType: .triangles)])
                     let material = SCNMaterial()
@@ -135,7 +146,7 @@ final class NativeRockWipeView: SCNView {
                parentIndex - 1 != index {
                 nodes[parentIndex - 1].addChildNode(nodes[index])
             } else {
-                scene.rootNode.addChildNode(nodes[index])
+                originalRoot.addChildNode(nodes[index])
             }
         }
         self.scene = scene
@@ -153,15 +164,25 @@ final class NativeRockWipeView: SCNView {
         for part in animated {
             let channels = part.sceneObject.channels(at: frame)
             guard channels.count == 9 else { continue }
-            let n = part.node
-            n.position = SCNVector3(Float(channels[0]),
-                                    Float(channels[1]), Float(channels[2]))
-            let degrees = Float.pi / 180
-            n.eulerAngles = SCNVector3(Float(channels[4]) * degrees,
-                                       Float(channels[3]) * degrees,
-                                       Float(channels[5]) * degrees)
-            n.scale = SCNVector3(Float(channels[6]),
-                                 Float(channels[7]), Float(channels[8]))
+            let r = Double.pi / 180
+            let cx = cos(channels[4] * r), sx = sin(channels[4] * r)
+            let cy = cos(channels[3] * r), sy = sin(channels[3] * r)
+            let cz = cos(channels[5] * r), sz = sin(channels[5] * r)
+            var m = SCNMatrix4Identity
+            m.m11 = CGFloat((cz * cy + sz * sx * sy) * channels[6])
+            m.m12 = CGFloat(sz * cx * channels[6])
+            m.m13 = CGFloat((sz * sx * cy - cz * sy) * channels[6])
+            m.m21 = CGFloat((cz * sx * sy - sz * cy) * channels[7])
+            m.m22 = CGFloat(cz * cx * channels[7])
+            m.m23 = CGFloat((sz * sy + cz * sx * cy) * channels[7])
+            m.m31 = CGFloat(cx * sy * channels[8])
+            m.m32 = CGFloat(-sx * channels[8])
+            m.m33 = CGFloat(cx * cy * channels[8])
+            let px = CGFloat(-part.sceneObject.pivot[0]), py = CGFloat(-part.sceneObject.pivot[1]), pz = CGFloat(-part.sceneObject.pivot[2])
+            m.m41 = m.m11 * px + m.m21 * py + m.m31 * pz + CGFloat(channels[0])
+            m.m42 = m.m12 * px + m.m22 * py + m.m32 * pz + CGFloat(channels[1])
+            m.m43 = m.m13 * px + m.m23 * py + m.m33 * pz + CGFloat(channels[2])
+            part.node.transform = m
         }
     }
 
@@ -170,7 +191,9 @@ final class NativeRockWipeView: SCNView {
         midpointAction = midpoint
         completionAction = completed
         didSwitch = false
-        startedAt = ProcessInfo.processInfo.systemUptime
+        previousTime = ProcessInfo.processInfo.systemUptime
+        animationFrame = Double(originalScene.firstFrame)
+        rendersContinuously = true
         timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0,
                                       repeats: true) { [weak self] _ in
             self?.advance()
@@ -180,9 +203,11 @@ final class NativeRockWipeView: SCNView {
     private func advance() {
         // Original Front_Menu_Update drives RockWipe at 2 original frames
         // per standard 25Hz unit = 50 animation frames per second.
-        let elapsed = max(0, ProcessInfo.processInfo.systemUptime - startedAt)
-        let frame = min(Double(originalScene.lastFrame),
-                        Double(originalScene.firstFrame) + elapsed * 50)
+        let now = ProcessInfo.processInfo.systemUptime
+        let delta = min(3, max(0, now - previousTime) * 50)
+        previousTime = now
+        animationFrame = min(Double(originalScene.lastFrame), animationFrame + delta)
+        let frame = animationFrame
         apply(frame: frame)
         if !didSwitch &&
            frame >= Double(originalScene.firstFrame +
@@ -193,6 +218,7 @@ final class NativeRockWipeView: SCNView {
         if frame >= Double(originalScene.lastFrame) {
             timer?.invalidate()
             timer = nil
+            rendersContinuously = false
             if !didSwitch { midpointAction?() }
             completionAction?()
             midpointAction = nil

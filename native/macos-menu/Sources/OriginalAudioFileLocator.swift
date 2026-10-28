@@ -187,18 +187,39 @@ struct OriginalAudioFileLocator {
 /// converted equivalents; OGG is discovered separately to explain conversion.
 struct OriginalMissionTrackLocator {
     static func locate(beside wad: URL, home: URL = FileManager.default.homeDirectoryForCurrentUser,
-                       extraRoot: URL? = nil) -> (playable: [URL], ogg: [URL]) {
+                       extraRoot: URL? = nil, bundledRoot: URL? = nil) -> (playable: [URL], ogg: [URL]) {
         let fm = FileManager.default
         let install = wad.deletingLastPathComponent()
         let cache = home.appendingPathComponent("Library/Application Support/RockRaidersNativeMenu/ConvertedMedia")
         let roots = [install, install.deletingLastPathComponent(), cache]
             + OriginalAudioFileLocator.automaticAudioRoots(home: home)
             + (extraRoot.map { [$0] } ?? [])
-        var folders = [cache, cache.appendingPathComponent("Music")]
+        var folders = (bundledRoot.map { [$0.appendingPathComponent("Music")] } ?? []) + [cache, cache.appendingPathComponent("Music"), home.appendingPathComponent("Downloads/Rock-Raiders-Mission-Music-Mac/Music")]
         if let extraRoot { folders.append(extraRoot) }
         for root in roots {
             if let entries = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) {
                 folders += entries.filter { $0.lastPathComponent.lowercased() == "music" }
+            }
+        }
+        // Tracks may be directly in Data, or inside an extracted RRU patch.
+        folders += roots
+        let downloads = home.appendingPathComponent("Downloads")
+        let packages = (try? fm.contentsOfDirectory(at: downloads, includingPropertiesForKeys: [.isDirectoryKey])) ?? []
+        for package in packages.prefix(256) {
+            let name = package.lastPathComponent.lowercased()
+            // RRU's documented archive extracts to LRR_Music_Fix, which has
+            // none of the descriptive names below. Accept that exact name,
+            // not every LRR/music folder, and keep the same bounded probes.
+            guard name == "lrr_music_fix" || name.contains("rock") ||
+                  name.contains("raider") || name.contains("soundtrack") else { continue }
+            folders.append(package)
+            for suffix in ["Music", "Data/Music", "Sounds/Music", "Data/Sounds/Music"] {
+                folders.append(package.appendingPathComponent(suffix))
+            }
+        }
+        for root in roots {
+            for suffix in ["Data/Music", "Data/Sounds/Music", "Sounds/Music"] {
+                folders.append(root.appendingPathComponent(suffix))
             }
         }
         var playable: [URL] = [], ogg: [URL] = []
@@ -215,7 +236,8 @@ struct OriginalMissionTrackLocator {
                       (1...100_000_000).contains(size),
                       seen.insert(file.standardizedFileURL.path).inserted else { continue }
                 switch file.pathExtension.lowercased() {
-                case "wav", "m4a", "mp3", "aif", "aiff": playable.append(file)
+                case "wav", "m4a", "mp3", "aif", "aiff":
+                    playable.append(file) // Keep alternate copies: decode decides whether each works.
                 case "ogg": ogg.append(file)
                 default: break
                 }

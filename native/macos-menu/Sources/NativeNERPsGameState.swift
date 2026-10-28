@@ -9,12 +9,26 @@ final class NativeNERPsGameState {
         case invalidElapsedTime
     }
 
+    private(set) var digIconClicks: Int32 = 0
+    private(set) var backIconClicks: Int32 = 0
+    private(set) var buildIconClicks: Int32 = 0
+    // Counts are click events, not successful excavations. Retail Get*IconClicked
+    // does not consume its counter (NERPsFunctions.cpp).
+    func reportDigIconClick() { digIconClicks &+= 1 }
+    func reportBackIconClick() { backIconClicks &+= 1 }
+    func reportBuildIconClick() { buildIconClicks &+= 1 }
+    var isPaused = false
     let script: NERPsScript
     private(set) var registers = [Int32](repeating: 0, count: 8)
     private(set) var timers = [Float](repeating: 0, count: 4)
     // NERPFunc__GetObjectiveSwitch consumes the one-shot objective signal.
     // This is a script-visible latch, not an invented mission-completion UI.
     private(set) var objectiveSwitch: Int32 = 0
+    private var initialBriefingDismissalReported = false
+    /// Bind to the actual objective overlay, not the one-shot ObjectiveSwitch.
+    /// NERPFunc__GetObjectiveShowing (retail NPL 0x32) queries Objective_IsShowing.
+    /// No overlay attached means no objective is showing.
+    var objectiveShowing: (() -> Bool)?
     private(set) var tutorialFlags: Int32 = 0
     /// Camera masks change when original ClickOnly* functions execute.
     private(set) var allowCameraMovementMask: UInt32 = 0
@@ -34,18 +48,44 @@ final class NativeNERPsGameState {
     private(set) var nextArrowDisabled = false
     // The retail interpreter's message history, acknowledgement counter and
     // message-control NPL functions are distinct from the current HUD text.
-    // Audio-driven message timing is zero until an original sound is loaded.
+    // Message timing uses the original configured default or decoded sound duration.
     private(set) var messageNeedsAdvance = false
     private(set) var messageWait = false
     private(set) var acknowledgedMessageCount: UInt32 = 0
     private(set) var recentMessageNumbers: [Int32] = []
     private(set) var messageTimerValues: [Float] = [1000, 500, 4000]
     private(set) var messageTimer: Float = 0
+    /// The platform player returns the decoded sample duration in seconds.
+    /// Invoked only when a different sound is requested, never every VM tick.
+    var tutorialGroundValue: ((Int32) -> Int32)?
+    var gotoTutorialCamera: ((Int32) -> Void)?
+    var cameraAtTutorial: ((Int32) -> Int32)?
+    var rockRaidersOnLevel: (() -> Int32)?
+    var playMessageSound: ((String) -> Double?)?
+    private var lastSoundPath: String?
+    private var randomState: UInt32 = 1
+    private func nextRandom() -> Int32 {
+        // engine/core/Random.cpp: original Microsoft C runtime generator.
+        randomState = randomState &* 214013 &+ 2531011
+        return Int32((randomState >> 16) & 0x7fff)
+    }
     private let messages: NativeNERPsMessageFile?
 
     init(script: NERPsScript, messages: NativeNERPsMessageFile? = nil) {
         self.script = script
         self.messages = messages
+    }
+
+    /// Objective_StopShowing signals the initial briefing-to-play transition
+    /// once. Call on user dismissal only, never when exiting the mission or
+    /// merely detaching its view. Later BF/C0 script writes/reads remain free
+    /// to manage their own latch; repeated UI callbacks must not re-arm it.
+    @discardableResult
+    func reportInitialBriefingDismissed() -> Bool {
+        guard !initialBriefingDismissalReported else { return false }
+        initialBriefingDismissalReported = true
+        objectiveSwitch = 1
+        return true
     }
 
     /// Receives real frame elapsed time in milliseconds, instead of
@@ -58,8 +98,7 @@ final class NativeNERPsGameState {
             throw StateError.invalidElapsedTime
         }
         for i in timers.indices { timers[i] += milliseconds }
-        // Message timers are sample-dependent in retail. Without original
-        // audio playback, do NOT synthesize a countdown for tutorial text.
+        // Retail also provides timerValues[2] for text without a sample.
         if messageTimer > 0 {
             messageTimer = max(0, messageTimer - milliseconds)
         }
@@ -87,8 +126,15 @@ final class NativeNERPsGameState {
         return true
     }
 
+    /// During the initial briefing the caller passes zero interface elapsed
+    /// time, but still ticks NERPs (GameState.cpp). isPaused is the separate
+    /// diagnostic VM pause, not the objective overlay's world-time pause.
     func tick(elapsedMilliseconds: Float, maxSteps: Int = 200_000,
               onCall: ((NERPsRuntime.Call) -> Void)? = nil) throws -> NERPsRuntime.Tick {
+        guard !isPaused else {
+            return NERPsRuntime.Tick(visitedInstructions: 0, functionCalls: 0,
+                                    actionsExecuted: 0, stoppedByStopFunction: false)
+        }
         try advanceTimers(milliseconds: elapsedMilliseconds)
         let result = try NERPsRuntime.run(script, functions: functions(),
                                           maxSteps: maxSteps, onCall: onCall)
@@ -98,6 +144,10 @@ final class NativeNERPsGameState {
 
     /// Called by actual selection events in NativeLevel3DView, not from a
     /// simulated user or a placeholder mission.
+    func reportRockRaiderSelection(count: Int32) {
+        selectedRockRaiderCount = max(0, count)
+    }
+
     func reportRockRaiderSelection(_ selected: Bool) {
         selectedRockRaiderCount = selected ? 1 : 0
     }
@@ -106,7 +156,30 @@ final class NativeNERPsGameState {
     /// NERPsRuntime throws rather than manufacturing gameplay outcomes.
     func functions() -> [Int: NERPsRuntime.Function] {
         var callbacks: [Int: NERPsRuntime.Function] = [:]
+        callbacks[0x32] = .init(kind: .expression(arity: 0),
+                                invoke: { [unowned self] _ in
+            self.objectiveShowing?() == true ? 1 : 0
+        })
+        if let query = tutorialGroundValue {
+            callbacks[0x72] = .init(kind: .expression(arity: 1), invoke: { query($0[0]) })
+        }
+        if let move = gotoTutorialCamera {
+            callbacks[0x73] = .init(kind: .action(arity: 1), invoke: { move($0[0]); return 0 })
+        }
+        if let query = cameraAtTutorial {
+            callbacks[0x8f] = .init(kind: .expression(arity: 1), invoke: { query($0[0]) })
+        }
+        if let count = rockRaidersOnLevel {
+            callbacks[0x34] = .init(kind: .expression(arity: 0), invoke: { _ in count() })
+        }
         callbacks[0] = .init(kind: .action(arity: 0), invoke: { _ in 0 }) // Stop
+        callbacks[1] = .init(kind: .expression(arity: 0), invoke: { _ in 1 })
+        callbacks[2] = .init(kind: .expression(arity: 0), invoke: { _ in 0 })
+        callbacks[3] = .init(kind: .expression(arity: 0), invoke: { _ in 0 })
+        callbacks[4] = .init(kind: .expression(arity: 0), invoke: { [unowned self] _ in self.nextRandom() & 0xfff })
+        callbacks[5] = .init(kind: .expression(arity: 0), invoke: { [unowned self] _ in self.nextRandom() % 10 })
+        callbacks[6] = .init(kind: .expression(arity: 0), invoke: { [unowned self] _ in self.nextRandom() % 100 })
+        callbacks[7] = .init(kind: .expression(arity: 0), invoke: { [unowned self] _ in self.nextRandom() & 1 })
         for i in 0..<8 {
             let slot = i
             callbacks[0x11 + i] = .init(kind: .expression(arity: 0),
@@ -185,13 +258,26 @@ final class NativeNERPsGameState {
         callbacks[0x10] = .init(kind: .action(arity: 2),
                                 invoke: { [unowned self] args in
             guard !self.messagePermit else { return 0 }
-            let isNew = self.lastMessageNumber != args[0]
-            self.lastMessageNumber = args[0]
+            // Retail normalizes zero and one to the same first line.
+            let number = args[0] == 0 ? 1 : args[0]
+            let isNew = self.lastMessageNumber != number
+            self.lastMessageNumber = number
             self.messageText = self.messages?.text(for: args[0])
             self.nextArrowDisabled = args[1] != 0
             // A repeated SetMessage on each script update must not
             // re-arm the already-acknowledged Next button.
             if isNew, self.messageText != nil {
+                // NERPs_Level_NERPMessage_Parse starts with timerValues[2],
+                // then uses sampleSeconds * timerValues[0] + timerValues[1].
+                self.messageTimer = self.messageTimerValues[2]
+                for path in self.messages?.soundPaths(for: number) ?? [] {
+                    guard path.lowercased() != self.lastSoundPath else { continue }
+                    if let seconds = self.playMessageSound?(path), seconds.isFinite,
+                       seconds >= 0, seconds <= 600 {
+                        self.lastSoundPath = path.lowercased()
+                        self.messageTimer = Float(seconds) * self.messageTimerValues[0] + self.messageTimerValues[1]
+                    }
+                }
                 if self.recentMessageNumbers.last != args[0] {
                     self.recentMessageNumbers.append(args[0])
                     if self.recentMessageNumbers.count > 8 {
@@ -278,6 +364,20 @@ final class NativeNERPsGameState {
             self.tutorialFlags = args[0]
             return self.tutorialFlags
         })
+        // Original NPL table: Set/Get Dig (0x40/0x41), Back (0x3d/0x3e).
+        // https://kb.rockraidersunited.com/NERPs_documentation
+        callbacks[0x40] = .init(kind: .action(arity: 1), invoke: { [unowned self] args in
+            self.digIconClicks = args[0]; return 0
+        })
+        callbacks[0x41] = .init(kind: .expression(arity: 0), invoke: { [unowned self] _ in self.digIconClicks })
+        callbacks[0x3d] = .init(kind: .action(arity: 1), invoke: { [unowned self] args in
+            self.backIconClicks = args[0]; return 0
+        })
+        callbacks[0x3e] = .init(kind: .expression(arity: 0), invoke: { [unowned self] _ in self.backIconClicks })
+        callbacks[0x36] = .init(kind: .action(arity: 1), invoke: { [unowned self] args in
+            self.buildIconClicks = args[0]; return 0
+        })
+        callbacks[0x35] = .init(kind: .expression(arity: 0), invoke: { [unowned self] _ in self.buildIconClicks })
         return callbacks
     }
 }
