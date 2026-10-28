@@ -271,3 +271,38 @@ repository. No original game/audio bytes or generated art/narration are included
 Still outside this change: mission completion/failure/replay screens, Chief LWS
 advisor animation, objective economy/simulation, original prompt image/SFX,
 full retail render fidelity and native real-asset gameplay/audio verification.
+
+## Bounded mission soundtrack recovery (2026-10-28)
+
+Native mission music now continues to another available original file after a
+mid-track decode or unsuccessful-completion callback, not only after normal
+completion. Every failed file is quarantined until the next explicit music
+restart/mission entry; an all-broken collection stops with the actual failures
+instead of a recursive retry loop. Original selected files retain precedence
+over automatically discovered tracks, including after a mid-track failure.
+
+Track00–98 copies are grouped by their case-insensitive track number. The
+existing native shuffle/no-immediate-repeat policy now chooses songs rather
+than file copies; alternative formats/install locations keep discovery order
+and do not increase a song's probability or masquerade as another song. Exact
+standardized paths are deduplicated; arbitrary user-named selections remain
+distinct. Stale completion/error callbacks after stop, replacement, restart or
+an earlier completion cannot advance the current session. Failure diagnostics
+remain available after recovery. No file is modified, converted or downloaded.
+
+Source basis: `Game.cpp:2899–2920` requests one-shot music and starts the next
+track from its completion callback. File-copy grouping and failure quarantine
+are native robustness measures, **not** claims of retail random-number or Music
+Fix DLL emulation. The existing explicit native Music preference remains
+independent of legacy CD-device `MusicOn`; this change does not alter that
+behavior or infer a CD-track mapping from filenames.
+
+The production session is portable and tested with synthetic paths/callback
+outcomes: alternate-copy priority, logical-song shuffle, selected/discovered
+fallback, mid-track failure, all-file failure bounds, recovery on restart,
+single-track repetition and late/duplicate callbacks. These tests are added to
+`test.sh`; `build.sh` includes the same session for AVFoundation playback.
+Local shell syntax and whitespace checks passed. This Linux executor has no
+Swift compiler; portable execution and native ARM64 compilation must be
+established by the exact-commit hosted workflow. Audible playback with private
+retail files still requires the user's Mac and is not claimed here.

@@ -132,3 +132,11 @@ swiftc -O Sources/NativeDynamicCollision.swift Tests/NativeDynamicCollisionTests
     Tests/OriginalBriefingTextLayoutTests.swift -o "$briefing_layout_test"
   "$briefing_layout_test"
 )
+
+# Real production music lifecycle with synthetic players/callbacks, no audio.
+(
+  music_session_test="$(mktemp /tmp/openlrr-music-session-test.XXXXXXXX)"
+  trap 'rm -f "$music_session_test"' EXIT
+  swiftc -O Sources/OriginalMissionMusicSession.swift Tests/OriginalMissionMusicSessionTests.swift -o "$music_session_test"
+  "$music_session_test"
+)
