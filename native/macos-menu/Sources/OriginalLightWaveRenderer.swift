@@ -84,7 +84,7 @@ enum OriginalLightWaveRenderer {
             self.asset = asset
             parts = zip(asset.scene.objects, asset.components).map { object, mesh in
                 let node = SCNNode()
-                node.name = object.filename
+                node.name = object.nullName ?? object.filename
                 if let mesh {
                     node.geometry = OriginalLightWaveRenderer.geometry(asset: mesh, resources: resources,
                                                                       sharedTextures: sharedTextures)

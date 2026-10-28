@@ -112,7 +112,7 @@ private enum MissionObjectFixture {
         FirstFrame \(first)
         LastFrame \(last)
         FramesPerSecond 10
-        AddNullObject FixtureGroup
+        AddNullObject FixtureGroup_00
         ObjectMotion (unnamed)
         9
         1
@@ -390,6 +390,8 @@ private enum MissionObjectFixture {
         let raiderDefinition = try LegoConfig(text: """
         Lego* {
           Scale 2.5
+          CameraNullName FixtureGroup
+          CameraNullFrames 1
           Activities {
             Activity_Stand Idle
             Activity_Route Idle
@@ -412,11 +414,22 @@ private enum MissionObjectFixture {
         precondition(standMesh.geometry != nil && near(Double(standMesh.transform.m42), 3),
                      "Raider Stand is initialized at frame zero, with original pivot")
         precondition(!standRoot.isHidden && routeRoot.isHidden)
+        precondition(standRoot.childNodes[0].name == "FixtureGroup_00", "Keep original LWS null labels")
+        guard let standCamera = raider.firstPersonCameraAnchor() else {
+            preconditionFailure("Original camera frame must be resolved, not synthesized")
+        }
+        precondition(standCamera.name == "FixtureGroup_00")
+        precondition(near(Double(standCamera.worldPosition.x), 12 + 7 * 2.5 / 40) &&
+                     near(Double(standCamera.worldPosition.y), 3.25 + 8 * 2.5 / 40) &&
+                     near(Double(standCamera.worldPosition.z), -7 + 9 * 2.5 / 40),
+                     "Animated frame must inherit original model scale and OL anchor")
         let anchors = ["Object17": anchor]
         precondition(OriginalObjectPresentation.placementIdentifier(containing: standMesh, anchors: anchors) == "Object17")
         precondition(OriginalObjectPresentation.placementIdentifier(containing: SCNNode(), anchors: anchors) == nil)
         raider.setMoving(true)
         precondition(standRoot.isHidden && !routeRoot.isHidden)
+        precondition(raider.firstPersonCameraAnchor()?.parent === routeRoot,
+                     "Camera null must follow the active original walking activity")
         let routeMesh = routeRoot.childNodes[0].childNodes[0]
         precondition(OriginalObjectPresentation.placementIdentifier(containing: routeMesh, anchors: anchors) == "Object17")
         raider.setMoving(false)

@@ -28,6 +28,8 @@ private func fixtureWad(_ assets: [FixtureAsset]) -> Data {
     static func main() throws {
         let definition = try LegoConfig(text: """
         Lego* {
+          CameraNullName Camera
+          CameraNullFrames 2
           Activities {
             Activity_Stand Stand
             Activity_Route Walk
@@ -43,6 +45,10 @@ private func fixtureWad(_ assets: [FixtureAsset]) -> Data {
         }
         """)
         let activities = try OriginalRaiderActivities(directory: "MiniFigures\\Pilot", definition: definition)
+        precondition(activities.cameraNullPartName(frame: 0) == "Camera_00")
+        precondition(activities.cameraNullPartName(frame: 1) == "Camera_01")
+        precondition(activities.cameraNullPartName(frame: 2) == nil)
+        precondition(activities.cameraNullPartName(frame: -1) == nil)
         let stand = try activities.scenePath(activity: "Activity_Stand")
         precondition(stand == "MiniFigures/Pilot/PilotStand.lws")
         let walk = try activities.scenePath(activity: "Activity_Route")

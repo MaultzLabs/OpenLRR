@@ -38,6 +38,11 @@ import Foundation
         precondition(parsed.objects[0].channels(at: 10)[6] == 1.5)
         precondition(parsed.objects[0].channels(at: 25)[3] == 90)
         precondition(parsed.objects[1].filename == nil)
+        precondition(parsed.objects[1].nullName == "WipeGroup")
+        precondition(parsed.objects[0].nullName == nil)
+        let cameraNulls = try LightWaveScene(data: Data("LWSC\n1\nAddNullObject Camera_00\nAddNullObject Camera_01".utf8))
+        precondition(cameraNulls.objects.map(\.nullName) == ["Camera_00", "Camera_01"])
+        precondition(cameraNulls.objects.allSatisfy { $0.filename == nil })
         precondition(parsed.objects[1].parentIndex == 1)
 
         let paths = LightWaveScene.candidatePaths(

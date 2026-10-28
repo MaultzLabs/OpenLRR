@@ -25,6 +25,7 @@ struct LightWaveScene {
 
     struct Object {
         let filename: String?          // nil for a LightWave null/group object.
+        let nullName: String?          // AddNullObject name (retail camera/tool frames).
         let keys: [MotionKey]
         let pivot: [Double]
         let parentIndex: Int?          // 1-based index as encoded by LWSC 1.
@@ -72,6 +73,7 @@ struct LightWaveScene {
         var fps = 25.0
         struct Pending {
             var name: String?
+            var nullName: String?
             var keys: [MotionKey] = []
             var parent: Int?
             var pivot = [0.0, 0.0, 0.0]
@@ -114,7 +116,11 @@ struct LightWaveScene {
                 // Preserve the raw path; only the bounded game resource
                 // resolver decides whether it is safe to load.
                 let name = raw.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
-                pending.append(Pending(name: key == "AddNullObject" ? nil : name))
+                // Lws_Parse preserves the AddNullObject label; Creature_FindNull
+                // locates CameraNullName_00 by that label. Discarding it made
+                // original first-person camera frames inaccessible.
+                let nullName = key == "AddNullObject" && !name.isEmpty && name.utf8.count <= 256 ? name : nil
+                pending.append(Pending(name: key == "AddNullObject" ? nil : name, nullName: nullName))
             case "ParentObject":
                 if !pending.isEmpty {
                     let value = Int(arguments(line))
@@ -176,7 +182,7 @@ struct LightWaveScene {
         self.firstFrame = firstFrame
         self.lastFrame = lastFrame
         self.framesPerSecond = fps
-        self.objects = pending.map { Object(filename: $0.name, keys: $0.keys,
+        self.objects = pending.map { Object(filename: $0.name, nullName: $0.nullName, keys: $0.keys,
                                              pivot: $0.pivot, parentIndex: $0.parent) }
     }
 

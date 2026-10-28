@@ -11,6 +11,7 @@ final class OriginalRaiderModel {
     private let standing: OriginalLightWaveRenderer.Clip
     private let walking: OriginalLightWaveRenderer.Clip
     private let drilling: OriginalLightWaveRenderer.Clip?
+    private let cameraPartName: String?
     private var isDrilling = false
     private var moving = false
     private var epoch = ProcessInfo.processInfo.systemUptime
@@ -25,6 +26,7 @@ final class OriginalRaiderModel {
                 activities: activities, activity: activity, resources: resources),
                 resources: resources, sharedTextures: sharedTextures)
         }
+        cameraPartName = activities.cameraNullPartName(frame: 0)
         standing = try clip("Activity_Stand")
         walking = try clip("Activity_Route")
         drilling = try? clip("Activity_Drill")
@@ -47,6 +49,15 @@ final class OriginalRaiderModel {
         epoch = ProcessInfo.processInfo.systemUptime
         standing.root.isHidden = moving
         walking.root.isHidden = !moving
+    }
+
+    /// Return the actual named, animated LWS camera null for this activity.
+    /// The view uses a provisional eye height only when that retail frame
+    /// cannot be resolved. Camera heading/flip still need parity validation.
+    func firstPersonCameraAnchor() -> SCNNode? {
+        guard let name = cameraPartName else { return nil }
+        let clip = isDrilling ? (drilling ?? standing) : moving ? walking : standing
+        return clip.parts.first { $0.name?.caseInsensitiveCompare(name) == .orderedSame }
     }
 
     func beginDrilling() -> TimeInterval? {

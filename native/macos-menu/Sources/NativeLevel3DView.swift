@@ -701,8 +701,11 @@ final class NativeLevel3DView: SCNView {
                 performDrill(id: id, order: .init(wall: target, approach: at, route: [at]))
             }
         }
-        // Preserve the existing eye height while placement anchors now sit on ground.
-        firstPersonCamera.position = OriginalObjectPresentation.eyePosition(above: marker.position)
+        // Creature_GetCameraNull uses the active original LWS named null.
+        // Follow its animated world-space position when the user-owned AE/LWS
+        // supplies it; retain the labeled provisional eye height otherwise.
+        firstPersonCamera.position = raiderModels[id]?.firstPersonCameraAnchor()?.presentation.worldPosition
+            ?? OriginalObjectPresentation.eyePosition(above: marker.position)
         // SceneKit cameras look along -Z; the original OL Raider faces +Z.
         firstPersonCamera.eulerAngles = SCNVector3(0, Float(controller.heading + .pi), 0)
     }
