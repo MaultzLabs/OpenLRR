@@ -83,6 +83,20 @@ struct OriginalModelActivities {
     }
 
     func scenePath(activity: String) throws -> String { try self.activity(activity).path }
+
+    /// Creature_Load / Creature_GetCameraNull locate the original frame with
+    /// Container_FormatPartName's LWS "name_%02d" convention. The executable
+    /// stores at most CREATURE_MAXCAMERAS (4) entries; never guess a frame.
+    func cameraNullPartName(frame: Int) -> String? {
+        guard let name = definition.valueUnderGame(["CameraNullName"])?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              !name.isEmpty, name.utf8.count <= 128,
+              !name.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }),
+              let countText = definition.valueUnderGame(["CameraNullFrames"]),
+              let count = Int(countText), (1...4).contains(count),
+              (0..<count).contains(frame) else { return nil }
+        return name + "_" + String(format: "%02d", frame)
+    }
 }
 
 /// Portable original bytes decoded once, then used by the common SceneKit

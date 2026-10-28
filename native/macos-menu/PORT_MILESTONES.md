@@ -1,6 +1,6 @@
 # Native port acceptance ledger
 
-Updated 2026-10-26. The earlier 80% completion estimate is withdrawn: there was no complete denominator or full-game acceptance run. Do not assign a completion percentage from source volume, passing parser tests, or a successful compile.
+Updated 2026-10-28. The earlier 80% completion estimate is withdrawn: there was no complete denominator or full-game acceptance run. Do not assign a completion percentage from source volume, passing parser tests, or a successful compile.
 
 | Area | Evidence and status | Required acceptance |
 | --- | --- | --- |
@@ -59,3 +59,15 @@ full surround layout remains provisional. Hard rock is not hand-drillable.
 Remaining: retail drill duration and animation, rubble/resource drops, hidden
 cavern reveal, task assignment without a selected Raider, construction/spawning,
 and local visual/gameplay checks. No new completion percentage is assigned.
+
+## Original Raider first-person camera-null integration — 2026-10-28
+
+Preserve the names of LWS AddNullObject frames, resolve the AE CameraNullName/
+CameraNullFrames reference using the original Creature_GetCameraNull and
+Container_FormatPartName conventions, and position the native first-person
+camera at the live animated named LWS null, when available. The former fixed
+0.68-unit eye offset remains a visibly provisional fallback for missing or
+unsupported frames. Synthetic parser, AE-bound and SceneKit animation/scale
+regressions cover the new path. Original camera orientation/CameraFlipDir,
+real-asset visual placement, timing and first-person hands remain unverified;
+this is not a retail gameplay acceptance claim.
