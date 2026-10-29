@@ -71,3 +71,26 @@ unsupported frames. Synthetic parser, AE-bound and SceneKit animation/scale
 regressions cover the new path. Original camera orientation/CameraFlipDir,
 real-asset visual placement, timing and first-person hands remain unverified;
 this is not a retail gameplay acceptance claim.
+
+## First-person camera during drilling — 2026-10-29
+
+First-person camera positioning now updates after every original LWS activity
+animation tick, **before** the Activity_Drill/direct-input guard. Previously
+the drill animation played but the separate native camera remained frozen at
+its last pre-drill frame because the frame loop returned early. Following the
+original Creature_GetCameraNull path from PR #69, this fix tracks the active
+named null during Stand, Route and Drill; it also refreshes position after a
+successful player move. Mac synthetic testing exposed a second issue: the
+original Raider hierarchy is hidden during first-person play, so SceneKit's
+presentation transform can be stale. The live original LWS model transform
+(worldPosition), which Clip.update changes each frame, is used instead. A missing or nonfinite camera null retains the explicit
+provisional eye height rather than creating a replacement model/camera offset.
+
+New portable pose-priority/invalid-transform tests and hosted SceneKit synthetic
+animated-null tests cover this path. They do not prove the appearance or head
+orientation of the original retail Raider, and the original CameraFlipDir,
+FPPoly/hands, first-person drill sound and gameplay timing remain unverified.
+
+Next: validate camera orientation, original FPPoly/hand assets and drill tool
+animation against actual user-owned models, then restore further task/economy
+behaviors under full first-tutorial script control.
