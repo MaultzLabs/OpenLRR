@@ -72,12 +72,8 @@ import SceneKit
                              fallback: fallback, heading: 0)
         precondition(near(Double(camera.position.y), 1.68),
                      "Unavailable camera null still uses explicit provisional eye height")
-        cameraNull.position = SCNVector3(Float.infinity, 0, 0)
-        Tracking.synchronize(camera: camera, animatedAnchor: cameraNull,
-                             fallback: fallback, heading: 0)
-        precondition(near(Double(camera.position.x), 10) &&
-                     near(Double(camera.position.y), 1.68),
-                     "Malformed original animation must not move camera to infinity")
+        // Nonfinite transforms are exercised in the portable pose test.
+        // Avoid feeding infinities into SceneKit's unmanaged presentation tree.
     }
     #endif
 }
