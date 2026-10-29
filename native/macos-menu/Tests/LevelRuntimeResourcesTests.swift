@@ -310,6 +310,17 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
             NativeLevelNavigation.Position(x: 1, y: 2),
             destination
         ])
+        // An original AE building's solid cell blocks pathfinding and the
+        // same continuous clearance used by first-person input.
+        let buildingCell = NativeLevelNavigation.Position(x: 2, y: 1)
+        let withBuilding = NativeLevelNavigation(world: corridorWorld,
+                                                  blockedBuildingTiles: [buildingCell])
+        precondition(!withBuilding.canWalk(buildingCell))
+        precondition(withBuilding.route(from: origin, to: buildingCell) == nil)
+        precondition(!withBuilding.segmentIsClear(from: .init(x: 2.5, y: 0.5),
+                                                 to: .init(x: 2.5, y: 1.5)))
+        precondition(withBuilding.continuousRoute(from: .init(x: 2.5, y: 0.5),
+                                                 to: .init(x: 2.5, y: 1.5)) == nil)
         precondition(routing.route(from: origin, to: origin) == [origin])
         precondition(routing.route(from: NativeLevelNavigation.Position(x: 0, y: 0),
                                    to: destination) == nil)

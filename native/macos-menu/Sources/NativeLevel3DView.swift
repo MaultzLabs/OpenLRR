@@ -15,8 +15,10 @@ final class NativeLevel3DView: SCNView {
     var onExit: (() -> Void)?
     private let excavation: NativeExcavationState
     var excavationState: NativeExcavationState { excavation }
+    private var blockedBuildingTiles = Set<NativeLevelNavigation.Position>()
     private var navigation: NativeLevelNavigation {
-        NativeLevelNavigation(world: world, excavated: excavation.excavated, revealed: excavation.revealed)
+        NativeLevelNavigation(world: world, excavated: excavation.excavated,
+                              revealed: excavation.revealed, blockedBuildingTiles: blockedBuildingTiles)
     }
     private var terrainNodes: [SCNNode] = []
     private var terrainMaterials: [NativeTerrainMesh.Material: SCNMaterial] = [:]
@@ -149,6 +151,46 @@ final class NativeLevel3DView: SCNView {
             "Original \(textureCatalog?.family.rawValue ?? "world") BMP terrain textures"
 
         super.init(frame: frame, options: nil)
+        // The retail Building_Load shape is stored in each building's AE,
+        // not the OL. Apply original solid cells to both clicked paths and
+        // first-person sweeps; paired Shape points remain open entrances.
+        if let config, let objects {
+            for placement in objects.placements where !placement.isCamera && !placement.isRockRaider {
+                guard let configured = config.valueUnderGame(["BuildingTypes", placement.type]),
+                      placement.x >= 0, placement.y >= 0,
+                      placement.x < Double(world.width), placement.y < Double(world.height) else { continue }
+                var directory = configured.replacingOccurrences(of: "\\", with: "/")
+                while directory.hasSuffix("/") { directory.removeLast() }
+                let origin = NativeBuildingFootprints.Tile(x: Int(floor(placement.x)),
+                                                            y: Int(floor(placement.y)))
+                var shape: String?
+                if OriginalModelActivities.safe(directory),
+                   let basename = directory.split(separator: "/").last {
+                    let aePath = "\(directory)/\(basename).ae"
+                    do {
+                        let bytes = try resources.data(at: aePath, maximumBytes: 1_000_000)
+                        shape = try LegoConfig(data: bytes).valueUnderGame(["Shape"])
+                    } catch {
+                        modelDiagnostics.append("\(placement.identifier): missing building Shape; using origin-only clearance (\(error))")
+                    }
+                } else {
+                    modelDiagnostics.append("\(placement.identifier): unsafe building AE path; using origin-only clearance")
+                }
+                do {
+                    let tiles = try NativeBuildingFootprints.occupiedTiles(
+                        shape: shape, origin: origin, headingDegrees: placement.headingDegrees)
+                    for tile in tiles where tile.x >= 0 && tile.y >= 0 &&
+                        tile.x < world.width && tile.y < world.height {
+                        blockedBuildingTiles.insert(.init(x: tile.x, y: tile.y))
+                    }
+                } catch {
+                    // Malformed AE shape must not silently make the building
+                    // origin traversable. Do not invent missing footprint cells.
+                    blockedBuildingTiles.insert(.init(x: origin.x, y: origin.y))
+                    modelDiagnostics.append("\(placement.identifier): invalid building Shape; blocked origin only")
+                }
+            }
+        }
         backgroundColor = NSColor(calibratedRed: 0.06, green: 0.075, blue: 0.09, alpha: 1)
         autoenablesDefaultLighting = true
         allowsCameraControl = true

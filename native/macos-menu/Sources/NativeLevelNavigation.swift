@@ -15,16 +15,19 @@ struct NativeLevelNavigation {
     let world: LevelWorld
     let excavated: Set<Position>
     let revealed: Set<Position>
+    let blockedBuildingTiles: Set<Position>
     let maximumTiles: Int
 
-    init(world: LevelWorld, excavated: Set<Position> = [], revealed: Set<Position> = [], maximumTiles: Int = 150_000) {
+    init(world: LevelWorld, excavated: Set<Position> = [], revealed: Set<Position> = [], blockedBuildingTiles: Set<Position> = [], maximumTiles: Int = 150_000) {
         self.world = world
         self.excavated = excavated
         self.revealed = revealed
+        self.blockedBuildingTiles = blockedBuildingTiles
         self.maximumTiles = maximumTiles
     }
 
     func canWalk(_ point: Position) -> Bool {
+        guard !blockedBuildingTiles.contains(point) else { return false }
         guard let tile = world.tile(x: point.x, y: point.y) else { return false }
         if excavated.contains(point) { return tile.terrain.isMineableWall }
         guard tile.excavation.isDiscoveredCavern || revealed.contains(point) else { return false }
