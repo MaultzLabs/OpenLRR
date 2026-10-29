@@ -63,7 +63,9 @@ import SceneKit
                      near(Double(camera.position.y), 7) &&
                      near(Double(camera.position.z), 3),
                      "Camera follows animated drill frame independent of player locomotion")
-        precondition(near(Double(camera.eulerAngles.y), 1.5 * .pi),
+        let yaw = Double(camera.eulerAngles.y)
+        precondition(near(cos(yaw), cos(1.5 * Double.pi)) &&
+                     near(sin(yaw), sin(1.5 * Double.pi)),
                      "Preserve existing controller yaw until original camera orientation is validated")
 
         Tracking.synchronize(camera: camera, animatedAnchor: nil,
