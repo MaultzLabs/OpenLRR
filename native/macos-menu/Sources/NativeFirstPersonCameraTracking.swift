@@ -28,7 +28,10 @@ extension NativeFirstPersonCameraTracking {
     static func synchronize(camera: SCNNode, animatedAnchor: SCNNode?,
                             fallback: SCNVector3, heading: Double) {
         let original = animatedAnchor.map {
-            let position = $0.presentation.worldPosition
+            // The controlled Raider's hierarchy is hidden in first-person.
+            // Hidden SceneKit nodes have no rendered presentation update;
+            // original LWS animation is applied directly to model transforms.
+            let position = $0.worldPosition
             return Position(x: Double(position.x), y: Double(position.y), z: Double(position.z))
         }
         let position = resolvedPosition(
