@@ -70,10 +70,16 @@ final class NativeNERPsGameState {
         return Int32((randomState >> 16) & 0x7fff)
     }
     private let messages: NativeNERPsMessageFile?
+    /// NERPsRuntime_UpdateTimers distinguishes tutorials with a Next button
+    /// from text-only timed messages. The native mission overlay supplies
+    /// a Next button, including a fallback when the original bitmap is absent.
+    private let hasNextButton: Bool
 
-    init(script: NERPsScript, messages: NativeNERPsMessageFile? = nil) {
+    init(script: NERPsScript, messages: NativeNERPsMessageFile? = nil,
+         hasNextButton: Bool = true) {
         self.script = script
         self.messages = messages
+        self.hasNextButton = hasNextButton
     }
 
     /// Objective_StopShowing signals the initial briefing-to-play transition
@@ -98,9 +104,16 @@ final class NativeNERPsGameState {
             throw StateError.invalidElapsedTime
         }
         for i in timers.indices { timers[i] += milliseconds }
-        // Retail also provides timerValues[2] for text without a sample.
+        // NERPsRuntime_UpdateTimers (NERPsFile.cpp): an enabled Next arrow
+        // holds the timer until the user advances the current message.
+        // Messages without Next, or with Next disabled by SetMessage's second
+        // argument, instead count down using the original millisecond timer.
         if messageTimer > 0 {
-            messageTimer = max(0, messageTimer - milliseconds)
+            if hasNextButton && messageText != nil && !nextArrowDisabled {
+                if !messageNeedsAdvance { messageTimer = 0 }
+            } else {
+                messageTimer = max(0, messageTimer - milliseconds)
+            }
         }
     }
 
