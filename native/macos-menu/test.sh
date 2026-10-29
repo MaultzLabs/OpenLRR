@@ -124,6 +124,14 @@ swiftc -O Sources/NativeDynamicCollision.swift Tests/NativeDynamicCollisionTests
   "$object_model_test"
 )
 
+# First-person camera selection must remain safe without SceneKit/retail assets.
+(
+  camera_test="$(mktemp /tmp/openlrr-camera-tracking-test.XXXXXXXX)"
+  trap 'rm -f "$camera_test"' EXIT
+  swiftc -O Sources/NativeFirstPersonCameraTracking.swift Tests/NativeFirstPersonCameraTrackingTests.swift -o "$camera_test"
+  "$camera_test"
+)
+
 # Original initial-objective text, geometry, input and pause/handoff lifecycle.
 (
   briefing_test="$(mktemp /tmp/openlrr-briefing-test.XXXXXXXX)"
