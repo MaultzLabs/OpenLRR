@@ -80,7 +80,10 @@ the drill animation played but the separate native camera remained frozen at
 its last pre-drill frame because the frame loop returned early. Following the
 original Creature_GetCameraNull path from PR #69, this fix tracks the active
 named null during Stand, Route and Drill; it also refreshes position after a
-successful player move. A missing or nonfinite camera null retains the explicit
+successful player move. Mac synthetic testing exposed a second issue: the
+original Raider hierarchy is hidden during first-person play, so SceneKit's
+presentation transform can be stale. The live original LWS model transform
+(worldPosition), which Clip.update changes each frame, is used instead. A missing or nonfinite camera null retains the explicit
 provisional eye height rather than creating a replacement model/camera offset.
 
 New portable pose-priority/invalid-transform tests and hosted SceneKit synthetic
