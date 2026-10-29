@@ -652,6 +652,16 @@ final class NativeLevel3DView: SCNView {
         camera.look(at: target)
     }
 
+    /// Update first-person framing separately from movement. Original drill
+    /// and idle ACT clips animate while direct controls are temporarily gated.
+    private func synchronizeFirstPersonCamera(for id: String, marker: SCNNode, heading: Double) {
+        NativeFirstPersonCameraTracking.synchronize(
+            camera: firstPersonCamera,
+            animatedAnchor: raiderModels[id]?.firstPersonCameraAnchor(),
+            fallback: OriginalObjectPresentation.eyePosition(above: marker.position),
+            heading: heading)
+    }
+
     private func advanceFrame() {
         let now = ProcessInfo.processInfo.systemUptime
         let elapsed = frameClock.advance(now: now, paused: missionTimePaused)
@@ -670,6 +680,12 @@ final class NativeLevel3DView: SCNView {
         }
         for model in raiderModels.values { model.update(time: now) }
         for model in objectModels.values { model.update(time: now) }
+        // The original camera null continues animating during Activity_Drill.
+        // Sync before the input/drilling early returns, not only after walking.
+        if let id = firstPersonRaider, let marker = raiderMarkers[id],
+           let controller = firstPersonController {
+            synchronizeFirstPersonCamera(for: id, marker: marker, heading: controller.heading)
+        }
         if firstPersonRaider == nil, window?.isKeyWindow == true {
             let horizontal = (heldKeys.contains(124) ? 1.0 : 0) - (heldKeys.contains(123) ? 1.0 : 0)
             let vertical = (heldKeys.contains(125) ? 1.0 : 0) - (heldKeys.contains(126) ? 1.0 : 0)
@@ -701,13 +717,8 @@ final class NativeLevel3DView: SCNView {
                 performDrill(id: id, order: .init(wall: target, approach: at, route: [at]))
             }
         }
-        // Creature_GetCameraNull uses the active original LWS named null.
-        // Follow its animated world-space position when the user-owned AE/LWS
-        // supplies it; retain the labeled provisional eye height otherwise.
-        firstPersonCamera.position = raiderModels[id]?.firstPersonCameraAnchor()?.presentation.worldPosition
-            ?? OriginalObjectPresentation.eyePosition(above: marker.position)
-        // SceneKit cameras look along -Z; the original OL Raider faces +Z.
-        firstPersonCamera.eulerAngles = SCNVector3(0, Float(controller.heading + .pi), 0)
+        // Also refresh after the controller moves the Raider this frame.
+        synchronizeFirstPersonCamera(for: id, marker: marker, heading: controller.heading)
     }
 
     private func worldPosition(x: Double, z: Double) -> SCNVector3 {
