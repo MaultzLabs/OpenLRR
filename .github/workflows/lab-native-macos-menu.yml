@@ -1,7 +1,7 @@
 name: Native Rock Raiders menu prototype verification
 on:
   push:
-    branches: [lab-native-macos-menu-v1, lab-native-nerps-state-v1, lab-native-tutorial-controls-integrated-v2, lab-native-texture-audio-fix-v1, lab-native-original-raider-model-v1, lab-native-model-textures-music-v1, lab-native-first-person-controls-v1, lab-native-mission-message-ui-v1, lab-native-raider-dynamic-collision-v1, lab-native-building-footprints-v1, lab-native-original-camera-null-v1]
+    branches: [lab-native-macos-menu-v1, lab-native-nerps-state-v1, lab-native-tutorial-controls-integrated-v2, lab-native-texture-audio-fix-v1, lab-native-original-raider-model-v1, lab-native-model-textures-music-v1, lab-native-first-person-controls-v1, lab-native-mission-message-ui-v1, lab-native-raider-dynamic-collision-v1, lab-native-building-footprints-v1, lab-native-original-camera-null-v1, lab-native-firstperson-drill-camera-tracking-v1]
     paths:
       - native/macos-menu/**
       - .github/workflows/lab-native-macos-menu.yml
@@ -75,6 +75,10 @@ jobs:
             Sources/OriginalLightWaveRenderer.swift Sources/OriginalMissionObjectModel.swift Sources/OriginalRaiderModel.swift \
             Tests/OriginalMissionObjectModelTests.swift -o /tmp/openlrr-object-model-test
           /tmp/openlrr-object-model-test
+          xcrun swiftc -Onone -g -framework SceneKit \
+            Sources/NativeFirstPersonCameraTracking.swift Tests/NativeFirstPersonCameraTrackingTests.swift \
+            -o /tmp/openlrr-camera-tracking-test
+          /tmp/openlrr-camera-tracking-test
           mkdir -p tools/gameplay-capture/.build
           xcrun swiftc -O -framework Cocoa -framework CoreGraphics \
             tools/gameplay-capture/window_probe.swift \
