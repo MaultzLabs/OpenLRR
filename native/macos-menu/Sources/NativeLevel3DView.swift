@@ -77,10 +77,12 @@ final class NativeLevel3DView: SCNView {
     private let fog: NativeFirstPersonFog?
     private var fogSeconds: Double = 0
     private let overheadMotion: NativeOverheadCamera
+    private let nativeBlockSize: Double
     private let firstPersonCamera = SCNNode()
     private let firstPersonLight = SCNNode()
     private var firstPersonRaider: String?
     private var firstPersonController: NativeFirstPersonController?
+    private var firstPersonCameraNeedsSnap = true
     private var heldKeys = Set<UInt16>()
     private var frameClock = OriginalMissionClock()
     private var pausedAt: TimeInterval?
@@ -125,6 +127,7 @@ final class NativeLevel3DView: SCNView {
          resources: GameResources, textureSet: String?, config: LegoConfig? = nil, blockSize: Double = 40) throws {
         self.fog = NativeFirstPersonFog(config: config, level: world.identifier)
         self.overheadMotion = NativeOverheadCamera(config: config, blockSize: blockSize)
+        self.nativeBlockSize = blockSize
         self.world = world
         self.terrainMesh = try NativeTerrainMesh(world: world)
         self.originalObjects = objects
@@ -583,6 +586,7 @@ final class NativeLevel3DView: SCNView {
         raiderModels[id]?.setMoving(false)
         firstPersonRaider = id
         firstPersonController = controller
+        firstPersonCameraNeedsSnap = true
         heldKeys.removeAll()
         marker.isHidden = true // Camera is a separate scene node, not hidden.
         allowsCameraControl = false
@@ -596,6 +600,7 @@ final class NativeLevel3DView: SCNView {
         guard let id = firstPersonRaider else { return }
         firstPersonRaider = nil
         firstPersonController = nil
+        firstPersonCameraNeedsSnap = true
         heldKeys.removeAll()
         raiderMarkers[id]?.isHidden = false
         raiderModels[id]?.setMoving(false)
@@ -654,18 +659,30 @@ final class NativeLevel3DView: SCNView {
 
     /// Update first-person framing separately from movement. Original drill
     /// and idle ACT clips animate while direct controls are temporarily gated.
-    private func synchronizeFirstPersonCamera(for id: String, marker: SCNNode, heading: Double) {
+    private func synchronizeFirstPersonCamera(for id: String, marker: SCNNode,
+                                              heading: Double, elapsedSeconds: Double) {
         NativeFirstPersonCameraTracking.synchronize(
             camera: firstPersonCamera,
             animatedAnchor: raiderModels[id]?.firstPersonCameraAnchor(),
             fallback: OriginalObjectPresentation.eyePosition(above: marker.position),
-            heading: heading)
+            heading: heading, elapsedSeconds: elapsedSeconds,
+            blockSize: nativeBlockSize, firstFrame: firstPersonCameraNeedsSnap)
+        firstPersonCameraNeedsSnap = false
     }
 
     private func advanceFrame() {
         let now = ProcessInfo.processInfo.systemUptime
         let elapsed = frameClock.advance(now: now, paused: missionTimePaused)
         guard !missionTimePaused else { return }
+        // Update the original LWS camera null once per unpaused frame, after
+        // player movement; defer also handles drilling and input early returns.
+        defer {
+            if let id = firstPersonRaider, let marker = raiderMarkers[id],
+               let controller = firstPersonController {
+                synchronizeFirstPersonCamera(for: id, marker: marker,
+                                             heading: controller.heading, elapsedSeconds: elapsed)
+            }
+        }
         firstPersonLight.isHidden = firstPersonRaider == nil
         if firstPersonRaider != nil, let fog {
             fogSeconds += min(elapsed, 0.1)
@@ -680,12 +697,6 @@ final class NativeLevel3DView: SCNView {
         }
         for model in raiderModels.values { model.update(time: now) }
         for model in objectModels.values { model.update(time: now) }
-        // The original camera null continues animating during Activity_Drill.
-        // Sync before the input/drilling early returns, not only after walking.
-        if let id = firstPersonRaider, let marker = raiderMarkers[id],
-           let controller = firstPersonController {
-            synchronizeFirstPersonCamera(for: id, marker: marker, heading: controller.heading)
-        }
         if firstPersonRaider == nil, window?.isKeyWindow == true {
             let horizontal = (heldKeys.contains(124) ? 1.0 : 0) - (heldKeys.contains(123) ? 1.0 : 0)
             let vertical = (heldKeys.contains(125) ? 1.0 : 0) - (heldKeys.contains(126) ? 1.0 : 0)
@@ -717,8 +728,6 @@ final class NativeLevel3DView: SCNView {
                 performDrill(id: id, order: .init(wall: target, approach: at, route: [at]))
             }
         }
-        // Also refresh after the controller moves the Raider this frame.
-        synchronizeFirstPersonCamera(for: id, marker: marker, heading: controller.heading)
     }
 
     private func worldPosition(x: Double, z: Double) -> SCNVector3 {

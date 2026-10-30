@@ -94,3 +94,25 @@ FPPoly/hands, first-person drill sound and gameplay timing remain unverified.
 Next: validate camera orientation, original FPPoly/hand assets and drill tool
 animation against actual user-owned models, then restore further task/economy
 behaviors under full first-tutorial script control.
+
+## First-person positional damping — 2026-10-30
+
+Original Camera_Update in src/openlrr/game/world/Camera.cpp applies a
+4/elapsedAbs first-person positional weight, teleports when over 100 original
+world units away, and ignores displacement at or below 0.01 world unit.
+Native previously snapped to the current original ACT/LWS camera null every
+frame. It now applies this source-grounded damping exactly once per unpaused
+frame after animation and input, including when drilling or tutorial input
+returns early. First entry and large displacement snap; thresholds compare
+the SceneKit tile coordinates using original configured BlockSize. Portable
+synthetic regressions cover weighting, invalid inputs, pauses, teleports and
+jitter; hosted SceneKit tests cover animated hidden-Raider camera nulls.
+
+The original 25-Hz elapsed-to-ticks mapping and visual movement still require
+on-device/retail comparison. Camera-null orientation, CameraFlipDir,
+first-person FPPoly hands/tool geometry and drill sound remain unverified.
+This is compiled-prototype progress, not real-asset gameplay acceptance.
+
+Next: implement source-grounded first-person camera direction/CameraFlipDir
+and original FPPoly tool geometry using authorized local assets, without
+fabricating substitute models.
