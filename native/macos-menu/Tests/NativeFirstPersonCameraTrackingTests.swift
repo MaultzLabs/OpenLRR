@@ -78,6 +78,10 @@ import SceneKit
                       elapsedSeconds: 0) == 0.4)
         precondition(Tracking.smoothedHeading(current: 0.4, target: 1.2,
                       elapsedSeconds: .nan) == 0.4)
+        let tinyFrameHeading = Tracking.smoothedHeading(current: 0, target: 1.2,
+                                                        elapsedSeconds: .leastNonzeroMagnitude)
+        precondition(tinyFrameHeading.isFinite && abs(tinyFrameHeading) < 1e-9,
+                     "Subnormal elapsed time must not generate a NaN direction")
         precondition(Tracking.smoothedHeading(current: 0.4, target: .nan,
                       elapsedSeconds: 0.04) == 0.4)
         precondition(near(Tracking.smoothedHeading(current: nil, target: 2 * .pi,

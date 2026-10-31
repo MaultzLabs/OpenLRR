@@ -53,9 +53,11 @@ enum NativeFirstPersonCameraTracking {
         if dot < 0 { return targetNormalized }
         if dot >= 0.99999 { return current }
         let ticks = min(elapsedSeconds, 1) * 25
-        let oldWeight = 4 / ticks
-        return atan2(sin(targetNormalized) + oldWeight * sin(current),
-                     cos(targetNormalized) + oldWeight * cos(current))
+        // Algebraically the original weighted vector, without 4/ticks
+        // overflowing for extremely small positive frame intervals.
+        let blend = ticks / (4 + ticks)
+        return atan2((1 - blend) * sin(current) + blend * sin(targetNormalized),
+                     (1 - blend) * cos(current) + blend * cos(targetNormalized))
     }
 
     static func requiresDirectionSnap(current: Double?, target: Double) -> Bool {
