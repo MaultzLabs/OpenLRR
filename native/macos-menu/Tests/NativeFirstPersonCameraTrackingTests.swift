@@ -20,10 +20,11 @@ import SceneKit
             precondition(Tracking.resolvedPosition(original: bad, fallback: fallback) == fallback)
         }
         smoothingRegression()
+        directionRegression()
         #if os(macOS)
         sceneKitFrameTracking()
         #endif
-        print("PASS: original camera-null fallback, Camera_Update positional damping, teleport snap, animated drill tracking")
+        print("PASS: original camera-null fallback, Camera_Update position and direction damping, turn snap, animated drill tracking")
     }
 
     static func smoothingRegression() {
@@ -52,6 +53,39 @@ import SceneKit
         let bad = Tracking.Position(x: .infinity, y: 0, z: 0)
         precondition(Tracking.smoothedPosition(current: origin, target: bad,
                     elapsedSeconds: 0.04, blockSize: 40) == origin)
+    }
+
+
+    static func directionRegression() {
+        let quarter = Double.pi / 2
+        let first = Tracking.smoothedHeading(current: nil, target: quarter,
+                                             elapsedSeconds: 0.04)
+        precondition(near(first, quarter), "Initial camera facing must snap")
+        let eased = Tracking.smoothedHeading(current: 0, target: quarter,
+                                             elapsedSeconds: 0.04)
+        precondition(near(eased, atan2(1, 4)), "Retail 4:1 direction-vector blend")
+        precondition(!Tracking.requiresDirectionSnap(current: 0, target: quarter))
+        precondition(Tracking.requiresDirectionSnap(current: 0, target: .pi))
+        precondition(near(Tracking.smoothedHeading(current: 0, target: .pi,
+                          elapsedSeconds: 0.04), .pi), "Reversed view direction snaps")
+        let crossing = Tracking.smoothedHeading(current: .pi - 0.1,
+                                               target: -.pi + 0.1, elapsedSeconds: 0.04)
+        precondition(abs(abs(crossing) - .pi) < 0.12,
+                     "A small turn across the +/-pi wrap must not spin around")
+        precondition(Tracking.smoothedHeading(current: 0.4, target: 0.40001,
+                      elapsedSeconds: 0.04) == 0.4, "Ignore subthreshold angular jitter")
+        precondition(Tracking.smoothedHeading(current: 0.4, target: 1.2,
+                      elapsedSeconds: 0) == 0.4)
+        precondition(Tracking.smoothedHeading(current: 0.4, target: 1.2,
+                      elapsedSeconds: .nan) == 0.4)
+        let tinyFrameHeading = Tracking.smoothedHeading(current: 0, target: 1.2,
+                                                        elapsedSeconds: .leastNonzeroMagnitude)
+        precondition(tinyFrameHeading.isFinite && abs(tinyFrameHeading) < 1e-9,
+                     "Subnormal elapsed time must not generate a NaN direction")
+        precondition(Tracking.smoothedHeading(current: 0.4, target: .nan,
+                      elapsedSeconds: 0.04) == 0.4)
+        precondition(near(Tracking.smoothedHeading(current: nil, target: 2 * .pi,
+                         elapsedSeconds: 0.04), 0), "Initial yaw normalizes")
     }
 
     #if os(macOS)
@@ -86,9 +120,15 @@ import SceneKit
                      near(Double(camera.position.y), 4.05),
                      "Hidden animated drill frame must follow with original damping")
         let yaw = Double(camera.eulerAngles.y)
-        precondition(near(cos(yaw), cos(1.5 * Double.pi)) &&
-                     near(sin(yaw), sin(1.5 * Double.pi)),
-                     "Preserve existing provisional yaw until retail orientation is verified")
+        precondition(near(cos(yaw), cos(.pi + atan2(1, 4))) &&
+                     near(sin(yaw), sin(.pi + atan2(1, 4))),
+                     "Camera direction uses original 4:1 vector smoothing")
+        cameraNull.position = SCNVector3(3.5, 3.5, 4)
+        Tracking.synchronize(camera: camera, animatedAnchor: cameraNull,
+                             fallback: fallback, heading: -.pi / 2,
+                             elapsedSeconds: 0.04, blockSize: 40, firstFrame: false)
+        precondition(near(Double(camera.position.x), 13.5),
+                     "Reversing facing by more than 90 degrees snaps position too")
         Tracking.synchronize(camera: camera, animatedAnchor: nil,
                              fallback: fallback, heading: 0, elapsedSeconds: 0.04,
                              blockSize: 40, firstFrame: true)

@@ -36,6 +36,34 @@ enum NativeFirstPersonCameraTracking {
                         y: current.y + (target.y - current.y) * blend,
                         z: current.z + (target.z - current.z) * blend)
     }
+
+    /// Camera_Update smooths first-person facing as a normalized direction,
+    /// not by averaging yaw angles. The source snaps on a reversed facing dot
+    /// (< 0), suppresses sub-0.00001 directional changes and blends with
+    /// previous direction * (4 / elapsedAbs). Heading is the native X/Z
+    /// horizontal-plane fallback until the original CameraFlipDir and
+    /// animated-null orientation are independently verified.
+    static func smoothedHeading(current: Double?, target: Double,
+                                elapsedSeconds: Double) -> Double {
+        guard target.isFinite else { return current?.isFinite == true ? current! : 0 }
+        let targetNormalized = atan2(sin(target), cos(target))
+        guard let current, current.isFinite else { return targetNormalized }
+        guard elapsedSeconds.isFinite, elapsedSeconds > 0 else { return current }
+        let dot = cos(targetNormalized - current)
+        if dot < 0 { return targetNormalized }
+        if dot >= 0.99999 { return current }
+        let ticks = min(elapsedSeconds, 1) * 25
+        // Algebraically the original weighted vector, without 4/ticks
+        // overflowing for extremely small positive frame intervals.
+        let blend = ticks / (4 + ticks)
+        return atan2((1 - blend) * sin(current) + blend * sin(targetNormalized),
+                     (1 - blend) * cos(current) + blend * cos(targetNormalized))
+    }
+
+    static func requiresDirectionSnap(current: Double?, target: Double) -> Bool {
+        guard let current, current.isFinite, target.isFinite else { return false }
+        return cos(target - current) < 0
+    }
 }
 
 #if os(macOS)
@@ -53,13 +81,16 @@ extension NativeFirstPersonCameraTracking {
         }
         let target = resolvedPosition(original: original,
             fallback: Position(x: Double(fallback.x), y: Double(fallback.y), z: Double(fallback.z)))
-        let previous = firstFrame ? nil : Position(
+        let oldHeading = firstFrame ? nil : Double(camera.eulerAngles.y) - Double.pi
+        let suddenReverse = requiresDirectionSnap(current: oldHeading, target: heading)
+        let previous = firstFrame || suddenReverse ? nil : Position(
             x: Double(camera.position.x), y: Double(camera.position.y), z: Double(camera.position.z))
         let position = smoothedPosition(current: previous, target: target,
                                         elapsedSeconds: elapsedSeconds, blockSize: blockSize)
         camera.position = SCNVector3(Float(position.x), Float(position.y), Float(position.z))
-        // Original camera orientation and CameraFlipDir remain unverified.
-        camera.eulerAngles = SCNVector3(0, Float(heading + .pi), 0)
+        let facing = smoothedHeading(current: oldHeading, target: heading,
+                                     elapsedSeconds: elapsedSeconds)
+        camera.eulerAngles = SCNVector3(0, Float(facing + .pi), 0)
     }
 }
 #endif
