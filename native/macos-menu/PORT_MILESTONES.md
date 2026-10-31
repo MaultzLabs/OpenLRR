@@ -116,3 +116,26 @@ This is compiled-prototype progress, not real-asset gameplay acceptance.
 Next: implement source-grounded first-person camera direction/CameraFlipDir
 and original FPPoly tool geometry using authorized local assets, without
 fabricating substitute models.
+
+## First-person horizontal direction damping — 2026-10-31
+
+Source: `Camera_Update` in `src/openlrr/game/world/Camera.cpp`
+normalizes and weights old and requested first-person direction by
+`4 / elapsedAbs` (25-Hz game ticks), skips changes at dot >= 0.99999,
+and snaps camera direction **and position** when the facing dot is negative.
+The native tracked camera now applies that source behavior to its current
+controller-derived X/Z heading, rather than snapping rotation every frame.
+Wraparound at +/-180 degrees, turn reversal, zero/invalid frame times and
+sudden-position snapping have portable Swift regressions. SceneKit
+animated-null tests also verify eased yaw and reversal position snap.
+
+This is directional damping of the existing provisional horizontal heading:
+`LegoObject_FP_GetPositionAndHeading` is still a binary-address declaration
+in OpenLRR, so original LWS camera-null forward/up vectors and AE
+`CameraFlipDir` interpretation are **not** asserted as implemented.
+Original models, on-device visuals, scripted turns and first-person
+FPPoly/drilling geometry/audio remain unverified.
+
+Next: read the authenticated LWS camera-frame transform and the retail
+`CameraFlipDir` setting without inventing a model-space convention, and
+compare camera pitch/yaw against locally owned original gameplay evidence.
