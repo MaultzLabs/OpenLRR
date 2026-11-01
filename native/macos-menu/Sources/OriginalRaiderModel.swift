@@ -36,6 +36,9 @@ final class OriginalRaiderModel {
         if let drilling { root.addChildNode(drilling.root); drilling.root.isHidden = true }
         let scale = Float(activities.scale / blockSize)
         root.scale = SCNVector3(scale, scale, scale)
+        // Retail LightWave space is -Z up; SceneKit cave space is +Y up.
+        // Apply once above every Stand/Route/Drill clip and camera-null frame.
+        root.eulerAngles.x = Float(OriginalModelCoordinateBasis.sceneKitRootPitchRadians)
         // All model roots are ground-based. Diagnostic capsule offsets belong
         // to the view's proxy child, not to the original asset hierarchy.
         update(time: epoch)

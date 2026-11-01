@@ -153,6 +153,7 @@ private enum MissionObjectFixture {
         try componentPriority()
         try diagnostics()
         visibility()
+        coordinateBasisRegression()
         #if os(macOS)
         try sceneKitIntegration()
         #endif
@@ -160,6 +161,18 @@ private enum MissionObjectFixture {
     }
 
     static func near(_ a: Double, _ b: Double) -> Bool { abs(a - b) < 0.00001 }
+
+    static func coordinateBasisRegression() {
+        let pitch = OriginalModelCoordinateBasis.sceneKitRootPitchRadians
+        // A retail model's horizontal +Y axis maps to the native +Z map axis.
+        precondition(near(cos(pitch), 0) && near(sin(pitch), 1),
+                     "Original horizontal +Y must point along native +Z")
+        // Retail camera world up is (0,0,-1), not (0,0,+1).
+        let upY = -(-1.0) * sin(pitch)
+        let upZ = -cos(pitch)
+        precondition(near(upY, 1) && near(upZ, 0),
+                     "Original -Z world up must become native +Y")
+    }
     static func expectFailure(_ fragments: [String], _ operation: () throws -> Void) {
         do {
             try operation()
@@ -364,6 +377,13 @@ private enum MissionObjectFixture {
         let building = try OriginalMissionObjectAsset.load(type: "Toolstation", config: config, resources: resources)
         let model = try OriginalMissionObjectModel(asset: building, resources: resources, blockSize: 40, sharedTextures: nil)
         precondition(near(Double(model.root.scale.x), 2.5 / 40))
+        precondition(near(Double(model.root.eulerAngles.x), Double.pi / 2),
+                     "Original LWS building root must use the native Y-up basis")
+        let buildingUp = model.root.convertVector(SCNVector3(0, 0, -1), to: nil)
+        let buildingForward = model.root.convertVector(SCNVector3(0, 1, 0), to: nil)
+        precondition(near(Double(buildingUp.y), 2.5 / 40) && near(Double(buildingUp.z), 0) &&
+                     near(Double(buildingForward.y), 0) && near(Double(buildingForward.z), 2.5 / 40),
+                     "Original vertical and map-horizontal axes must align with SceneKit")
         precondition(model.root.position.x == 0 && model.root.position.y == 0 && model.root.position.z == 0,
                      "Original origin must not inherit proxy capsule/sphere height")
         precondition(model.root.geometry == nil && model.root.childNodes.count == 1)
@@ -408,7 +428,8 @@ private enum MissionObjectFixture {
         anchor.name = "Original OL: Object17 / Pilot"
         anchor.position = SCNVector3(12, 3.25, -7)
         anchor.addChildNode(raider.root)
-        precondition(raider.root.position.y == 0 && near(Double(raider.root.scale.x), 2.5 / 40))
+        precondition(raider.root.position.y == 0 && near(Double(raider.root.scale.x), 2.5 / 40) &&
+                     near(Double(raider.root.eulerAngles.x), Double.pi / 2))
         let standRoot = raider.root.childNodes[0], routeRoot = raider.root.childNodes[1]
         let standMesh = standRoot.childNodes[0].childNodes[0]
         precondition(standMesh.geometry != nil && near(Double(standMesh.transform.m42), 3),
@@ -420,9 +441,9 @@ private enum MissionObjectFixture {
         }
         precondition(standCamera.name == "FixtureGroup_00")
         precondition(near(Double(standCamera.worldPosition.x), 12 + 7 * 2.5 / 40) &&
-                     near(Double(standCamera.worldPosition.y), 3.25 + 8 * 2.5 / 40) &&
-                     near(Double(standCamera.worldPosition.z), -7 + 9 * 2.5 / 40),
-                     "Animated frame must inherit original model scale and OL anchor")
+                     near(Double(standCamera.worldPosition.y), 3.25 - 9 * 2.5 / 40) &&
+                     near(Double(standCamera.worldPosition.z), -7 + 8 * 2.5 / 40),
+                     "Animated LWS camera null must inherit scale, Z-up conversion and OL anchor")
         let anchors = ["Object17": anchor]
         precondition(OriginalObjectPresentation.placementIdentifier(containing: standMesh, anchors: anchors) == "Object17")
         precondition(OriginalObjectPresentation.placementIdentifier(containing: SCNNode(), anchors: anchors) == nil)
@@ -445,7 +466,11 @@ private enum MissionObjectFixture {
 
         let crystal = try OriginalMissionObjectAsset.load(type: "PowerCrystal", config: config, resources: resources)
         let crystalModel = try OriginalMissionObjectModel(asset: crystal, resources: resources, blockSize: 40, sharedTextures: nil)
-        precondition(near(Double(crystalModel.root.scale.x), 1 / 40.0) && crystalModel.root.position.y == 0)
+        precondition(near(Double(crystalModel.root.scale.x), 1 / 40.0) && crystalModel.root.position.y == 0 &&
+                     near(Double(crystalModel.root.eulerAngles.x), Double.pi / 2))
+        let crystalUp = crystalModel.root.convertVector(SCNVector3(0, 0, -1), to: nil)
+        precondition(near(Double(crystalUp.y), 1 / 40.0) && near(Double(crystalUp.z), 0),
+                     "Standalone original LWOB resources use the same world-up conversion")
         guard let crystalGeometry = crystalModel.root.childNodes.first?.geometry else {
             preconditionFailure("Resource must have real LWOB geometry")
         }

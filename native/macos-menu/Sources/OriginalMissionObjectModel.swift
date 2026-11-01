@@ -140,6 +140,9 @@ final class OriginalMissionObjectModel {
         }
         let scale = Float(asset.scale / blockSize)
         root.scale = SCNVector3(scale, scale, scale)
+        // Same original -Z-up basis as Raiders; also applies to standalone LWOB
+        // crystals/ore and to complete parented building LWS hierarchies.
+        root.eulerAngles.x = Float(OriginalModelCoordinateBasis.sceneKitRootPitchRadians)
         // Ground origin is the original mesh/scene origin, never a debug sphere
         // or bounding-box recentering. OL placement belongs to the parent node.
     }

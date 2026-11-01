@@ -1,5 +1,15 @@
 import Foundation
 
+/// OpenLRR's gameplay world has horizontal X/Y and an up vector (0, 0, -1)
+/// (Camera.cpp::Camera_Update). Original LWOB/LWS nodes share this basis.
+/// Native SceneKit terrain has horizontal X/Z and up (0, 1, 0).
+/// Rotate original *model roots*, not individual LWS keys, about X by +90°:
+/// (original x, y, z) -> (native x, -z, y). The rotation preserves handedness,
+/// hierarchy, authored pivots and original camera-null animation.
+enum OriginalModelCoordinateBasis {
+    static let sceneKitRootPitchRadians = Double.pi / 2
+}
+
 /// Container_Load(ACT): <directory>/<basename>.ae, then an Activities entry
 /// names a section containing FILE/LWSFILE/LOOPING. Used by Raiders AND buildings.
 struct OriginalModelActivities {
