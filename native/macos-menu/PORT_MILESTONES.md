@@ -139,3 +139,26 @@ FPPoly/drilling geometry/audio remain unverified.
 Next: read the authenticated LWS camera-frame transform and the retail
 `CameraFlipDir` setting without inventing a model-space convention, and
 compare camera pitch/yaw against locally owned original gameplay evidence.
+
+## Original LightWave model coordinate basis — 2026-11-01
+
+OpenLRR's gameplay containers use the original map's X/Y horizontal plane and
+world up `(0, 0, -1)` (`Camera.cpp::Camera_Update`); native SceneKit terrain
+uses X/Z horizontal and `(0, 1, 0)` up. The native renderer was loading
+original LWOB vertices and LWS motion keys unchanged, then placing their roots
+into the SceneKit world with no coordinate-basis conversion. Stand/Route/Drill
+Raider meshes, camera nulls, building scenes and ore/crystal meshes could
+therefore be oriented incorrectly relative to the native terrain.
+
+Apply one +90-degree rotation around model-root X, consistently for Raiders
+and other original mission objects: `(x, y, z) -> (x, -z, y)`. Keep raw LWS
+child matrices, mesh vertices, pivots, texture coordinates and original AE
+scales unchanged. Synthetic portable axis-regression checks and hosted SceneKit
+model hierarchy/camera-null tests cover this path; the camera-null test now
+expects the converted original direction and height axes. This is a source-
+grounded coordinate-system correction, **not** proof of visual retail parity.
+Original meshes, pivot conventions, model faces, animated drill and player
+camera pitch/flip still need in-game user-owned-asset validation on Mac.
+
+Next: source-grounded animated camera-null forward/up extraction and AE
+CameraFlipDir handling, followed by real-asset first-person drilling tools.
