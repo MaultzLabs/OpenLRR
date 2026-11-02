@@ -94,6 +94,15 @@ struct OriginalModelActivities {
 
     func scenePath(activity: String) throws -> String { try self.activity(activity).path }
 
+    /// Creature_Load reads AE CameraFlipDir via Config_GetBoolValue;
+    /// Creature_IsCameraFlipDir recognizes only BOOL3_TRUE. The original
+    /// Util_GetBoolFromString accepts YES/TRUE/ON (case-insensitive).
+    var cameraFlipDirection: Bool {
+        guard cameraNullPartName(frame: 0) != nil,
+              let text = definition.valueUnderGame(["CameraFlipDir"]) else { return false }
+        return ["YES", "TRUE", "ON"].contains(text.uppercased())
+    }
+
     /// Creature_Load / Creature_GetCameraNull locate the original frame with
     /// Container_FormatPartName's LWS "name_%02d" convention. The executable
     /// stores at most CREATURE_MAXCAMERAS (4) entries; never guess a frame.
