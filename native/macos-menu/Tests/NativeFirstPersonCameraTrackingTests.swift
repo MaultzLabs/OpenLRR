@@ -21,10 +21,11 @@ import SceneKit
         }
         smoothingRegression()
         directionRegression()
+        fullDirectionRegression()
         #if os(macOS)
         sceneKitFrameTracking()
         #endif
-        print("PASS: original camera-null fallback, Camera_Update position and direction damping, turn snap, animated drill tracking")
+        print("PASS: original camera-null facing/flip/pitch, source 3-D damping, safe fallback, animated drill tracking")
     }
 
     static func smoothingRegression() {
@@ -88,6 +89,38 @@ import SceneKit
                          elapsedSeconds: 0.04), 0), "Initial yaw normalizes")
     }
 
+    static func fullDirectionRegression() {
+        let forward = Tracking.Direction(x: 0, y: 0, z: 1)
+        let tilted = Tracking.Direction(x: 0, y: 0.6, z: 0.8)
+        precondition(Tracking.resolvedDirection(original: tilted, fallbackHeading: 0) == tilted,
+                     "Authored camera-null pitch must be preserved")
+        let ease = Tracking.smoothedDirection(current: forward, target: tilted,
+                                              elapsedSeconds: 0.04)
+        precondition(near(ease.y, 0.12 / hypot(0.12, 0.96)) &&
+                     near(ease.z, 0.96 / hypot(0.12, 0.96)),
+                     "Original 4:1 damping must include animation pitch")
+        precondition(Tracking.smoothedDirection(current: nil, target: tilted,
+                      elapsedSeconds: 0.04) == tilted)
+        precondition(Tracking.smoothedDirection(current: forward, target: tilted,
+                      elapsedSeconds: 0) == forward)
+        precondition(Tracking.smoothedDirection(current: forward, target: tilted,
+                      elapsedSeconds: .leastNonzeroMagnitude).isFinite)
+        precondition(Tracking.requiresDirectionSnap(current: forward,
+                      target: Tracking.Direction(x: 0, y: 0, z: -1)))
+        precondition(Tracking.smoothedDirection(current: forward,
+                      target: Tracking.Direction(x: 0, y: 0, z: -1),
+                      elapsedSeconds: 0.04).z == -1)
+        for invalid in [Tracking.Direction(x: .nan, y: 0, z: 1),
+                        Tracking.Direction(x: 0, y: .infinity, z: 1),
+                        Tracking.Direction(x: 0, y: 0, z: 0),
+                        Tracking.Direction(x: 0, y: 1, z: 0)] {
+            let fallback = Tracking.resolvedDirection(original: invalid,
+                                                       fallbackHeading: .pi / 2)
+            precondition(near(fallback.x, 1) && near(fallback.y, 0) && near(fallback.z, 0),
+                         "Invalid or vertical null vector must not spoil first-person control")
+        }
+    }
+
     #if os(macOS)
     static func sceneKitFrameTracking() {
         let scene = SCNScene()
@@ -134,6 +167,36 @@ import SceneKit
                              blockSize: 40, firstFrame: true)
         precondition(near(Double(camera.position.y), 1.68),
                      "Absent retail null falls back to provisional eye height")
+
+        // Synthetic authored null rotates independently of the controller.
+        // CameraFlipDir reverses the original null's +Z facing.
+        cameraNull.eulerAngles = SCNVector3(0, Float(Double.pi / 2), 0)
+        Tracking.synchronize(camera: camera, animatedAnchor: cameraNull,
+                             fallback: fallback, heading: 0, elapsedSeconds: 0.04,
+                             blockSize: 40, firstFrame: true)
+        var facing = camera.convertVector(SCNVector3(0, 0, -1), to: nil)
+        precondition(near(Double(facing.x), 1) && near(Double(facing.y), 0),
+                     "First-person orientation must follow authored LWS null, not provisional controller yaw")
+        Tracking.synchronize(camera: camera, animatedAnchor: cameraNull,
+                             fallback: fallback, heading: 0, cameraFlipDir: true,
+                             elapsedSeconds: 0.04, blockSize: 40, firstFrame: true)
+        facing = camera.convertVector(SCNVector3(0, 0, -1), to: nil)
+        precondition(near(Double(facing.x), -1),
+                     "AE CameraFlipDir reverses authored facing")
+        cameraNull.eulerAngles = SCNVector3(Float(-Double.pi / 6), 0, 0)
+        Tracking.synchronize(camera: camera, animatedAnchor: cameraNull,
+                             fallback: fallback, heading: 0, elapsedSeconds: 0.04,
+                             blockSize: 40, firstFrame: true)
+        facing = camera.convertVector(SCNVector3(0, 0, -1), to: nil)
+        precondition(near(Double(facing.y), 0.5) && near(Double(facing.z), cos(Double.pi / 6)),
+                     "Native camera must follow original LWS pitch, not flatten to yaw")
+        cameraNull.scale = SCNVector3(0, 0, 0)
+        Tracking.synchronize(camera: camera, animatedAnchor: cameraNull,
+                             fallback: fallback, heading: .pi / 2, elapsedSeconds: 0.04,
+                             blockSize: 40, firstFrame: true)
+        facing = camera.convertVector(SCNVector3(0, 0, -1), to: nil)
+        precondition(near(Double(facing.x), 1) && near(Double(facing.y), 0),
+                     "Degenerate original camera transform must fall back to safe controller yaw")
     }
     #endif
 }
