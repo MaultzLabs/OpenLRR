@@ -63,10 +63,39 @@ private func fixtureWad(_ assets: [FixtureAsset]) -> Data {
                 preconditionFailure("Unsafe model path")
             } catch OriginalRaiderActivities.AssetError.invalid { }
         }
+        try testCameraFlipDirection()
         try testConfiguredSharedObjects()
         testOrderedCandidates()
         try testArchiveResolution()
-        print("PASS: original AE activities, ordered scene/mesh-local and configured shared lookup, archive overrides and safe basename-only paths")
+        print("PASS: original AE camera flip, scene activities, archive overrides, and safe resource paths")
+    }
+
+    static func testCameraFlipDirection() throws {
+        // Matches Creature_IsCameraFlipDir + Utils::Util_GetBoolFromString:
+        // only YES/TRUE/ON are true; absent/unrecognized is BoolTri error.
+        for (value, expected) in [("YES", true), ("true", true), ("On", true),
+                                  ("NO", false), ("FALSE", false), ("OFF", false),
+                                  ("1", false), ("unknown", false)] {
+            let definition = try LegoConfig(text: """
+            Lego* {
+              CameraNullName Camera
+              CameraNullFrames 1
+              CameraFlipDir \(value)
+            }
+            """)
+            let model = try OriginalRaiderActivities(directory: "MiniFigures/Pilot", definition: definition)
+            precondition(model.cameraFlipDirection == expected, "Original AE camera flip BoolTri must be preserved")
+        }
+        let missing = try LegoConfig(text: """
+        Lego* { CameraNullName Camera CameraNullFrames 1 }
+        """)
+        let noFlip = try OriginalRaiderActivities(directory: "MiniFigures/Pilot", definition: missing)
+        precondition(!noFlip.cameraFlipDirection)
+        let noCamera = try LegoConfig(text: """
+        Lego* { CameraFlipDir TRUE }
+        """)
+        let invalid = try OriginalRaiderActivities(directory: "MiniFigures/Pilot", definition: noCamera)
+        precondition(!invalid.cameraFlipDirection, "No camera null means no authored facing to flip")
     }
 
     static func testConfiguredSharedObjects() throws {

@@ -665,8 +665,9 @@ final class NativeLevel3DView: SCNView {
             camera: firstPersonCamera,
             animatedAnchor: raiderModels[id]?.firstPersonCameraAnchor(),
             fallback: OriginalObjectPresentation.eyePosition(above: marker.position),
-            heading: heading, elapsedSeconds: elapsedSeconds,
-            blockSize: nativeBlockSize, firstFrame: firstPersonCameraNeedsSnap)
+            heading: heading, cameraFlipDir: raiderModels[id]?.cameraFlipDirection ?? false,
+            elapsedSeconds: elapsedSeconds, blockSize: nativeBlockSize,
+            firstFrame: firstPersonCameraNeedsSnap)
         firstPersonCameraNeedsSnap = false
     }
 

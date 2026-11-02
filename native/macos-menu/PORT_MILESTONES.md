@@ -162,3 +162,30 @@ camera pitch/flip still need in-game user-owned-asset validation on Mac.
 
 Next: source-grounded animated camera-null forward/up extraction and AE
 CameraFlipDir handling, followed by real-asset first-person drilling tools.
+
+## Animated first-person camera-null facing — 2026-11-02
+
+Native first-person previously followed the named original LWS camera-null
+**position** but always ignored its animated orientation, instead using only
+controller yaw (with horizontal 4:1 damping). This branch samples each original
+Stand/Route/Drill null's live model world transform, converts its local +Z
+Container_GetOrientation forward vector to SceneKit, and applies the original
+Camera_Update 3-D normalized-vector blend (4/elapsedAbs, reversed-facing snap,
+0.99999 jitter threshold) with converted +Y world up. CameraFlipDir is read
+from AE using the original Config_GetBoolValue/Util_GetBoolFromString BoolTri
+YES/TRUE/ON rule; only explicit true reverses source facing. Missing,
+nonfinite, zero-length or near-vertical authored vectors continue to use the
+provisional input-controller heading. No replacement asset is generated.
+
+Portable tests cover original AE BoolTri and full 3-D damping, invalid poses,
+vertical fallbacks, reversals and pitch. Hosted synthetic SceneKit tests cover
+hidden animated camera-null heading, pitch and flip, and the original tests
+still cover camera positioning/drill tracking. This is compiled-prototype
+orientation work, **not** measured original-game visual parity: interpreting
+the original camera null local +Z forward and CameraFlipDir as vector inversion
+must be checked with legitimate original-game model frames. No user-owned
+retail asset, Windows runner, Wine installation or save was read or changed.
+
+Next: verify facing/pitch signs and first-person drill model and sound against
+authorized original assets in a local Mac session, then implement first-person
+FPPoly tool geometry and actual drill timing without substitute art.

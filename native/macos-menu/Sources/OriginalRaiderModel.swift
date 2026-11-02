@@ -12,6 +12,7 @@ final class OriginalRaiderModel {
     private let walking: OriginalLightWaveRenderer.Clip
     private let drilling: OriginalLightWaveRenderer.Clip?
     private let cameraPartName: String?
+    let cameraFlipDirection: Bool
     private var isDrilling = false
     private var moving = false
     private var epoch = ProcessInfo.processInfo.systemUptime
@@ -27,6 +28,7 @@ final class OriginalRaiderModel {
                 resources: resources, sharedTextures: sharedTextures)
         }
         cameraPartName = activities.cameraNullPartName(frame: 0)
+        cameraFlipDirection = activities.cameraFlipDirection
         standing = try clip("Activity_Stand")
         walking = try clip("Activity_Route")
         drilling = try? clip("Activity_Drill")
