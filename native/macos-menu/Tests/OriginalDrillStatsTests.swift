@@ -15,6 +15,10 @@ struct OriginalDrillStatsTests {
               DrillFadeSound SFX_MiniDrillFade
             }
           }
+          Samples {
+            SFX_MiniDrill Sounds/MiniDrill
+            SFX_MiniDrillFade Sounds/MiniDrillFade
+          }
         }
         """)
         let stats = OriginalDrillStats(config: config)
