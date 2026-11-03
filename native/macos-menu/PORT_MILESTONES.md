@@ -1,6 +1,6 @@
 # Native port acceptance ledger
 
-Updated 2026-10-28. The earlier 80% completion estimate is withdrawn: there was no complete denominator or full-game acceptance run. Do not assign a completion percentage from source volume, passing parser tests, or a successful compile.
+Updated 2026-11-03. The earlier 80% completion estimate is withdrawn: there was no complete denominator or full-game acceptance run. Do not assign a completion percentage from source volume, passing parser tests, or a successful compile.
 
 | Area | Evidence and status | Required acceptance |
 | --- | --- | --- |
@@ -189,3 +189,38 @@ retail asset, Windows runner, Wine installation or save was read or changed.
 Next: verify facing/pitch signs and first-person drill model and sound against
 authorized original assets in a local Mac session, then implement first-person
 FPPoly tool geometry and actual drill timing without substitute art.
+
+## Original Pilot drill time and original Drilling WAV playback — 2026-11-03
+
+The former native excavator used a **single LWS animation-cycle duration** (or
+an arbitrary 0.75 seconds if that clip was missing) to destroy every mineable
+wall. In the original engine, `Stats_Initialise` reads the level-zero Pilot
+`LooseDrillTime`, `MedDrillTime` and `SeamDrillTime` CFG seconds, multiplies
+them by `STANDARD_FRAMERATE`, and `Level_Block_Damage` accumulates game ticks.
+The native scene now uses those original **unscaled seconds** as its drill
+action duration for dirt (including original raw Soil remapped to Loose),
+medium rock and ore/crystal seams, with explicit clip-duration fallback when
+no supported valid stat exists. Hard rock remains intentionally non-drillable.
+
+During that same native drill action, configured original `SFX_Drill` looping
+and `SFX_DrillFade` completion/cancellation WAVs are resolved from the selected
+user-owned WAD or existing loose game audio folder. The Pilot stats overrides
+are supported when registered in original `Samples`. Volume is converted from
+the original DirectSound attenuation setting. Audio pauses with the mission,
+resumes, and is stopped on order replacement, cancellation or scene teardown.
+No original audio is copied into the repository or source-only Mac package;
+missing/unplayable samples remain silent, not substitute effects.
+
+Portable synthetic regressions check original terrain-code mapping,
+level-zero colon-delimited stats, invalid/missing durations, default and
+registered/custom SFX names, and unregistered-name fallback. The normal hosted
+ARM64 build checks AppKit/AVFoundation integration when available. This is
+not yet a retail-asset audible gameplay acceptance: per-unit spatialized
+3-D attenuation, original sample-group randomization, drill strength and
+accumulated wall damage, upgrade levels, true FPPoly hands/tools, exact drill
+animation pacing and real-original-file comparison remain unverified.
+
+Next: read `Creature_Load`/ `LegoObject_LoadMeshLOD` FPPoly entries from the
+owned original Pilot AE, attach real first-person meshes to each appropriate
+camera-null frame, then verify drilling look/sound against retail gameplay on
+Apple Silicon. No percentage of full-game completeness is asserted.
