@@ -138,10 +138,10 @@ extension NativeLevelNavigation {
     /// Preserve the precise clicked endpoint. The tile route supplies a
     /// corridor; swept-clearance shortcuts remove unnecessary grid turns.
     /// Reject wall-adjacent targets where the Raider's body cannot fit.
-    func continuousRoute(from start: Point, to goal: Point) -> [Point]? {
-        guard segmentIsClear(from: start, to: start),
-              segmentIsClear(from: goal, to: goal) else { return nil }
-        if segmentIsClear(from: start, to: goal) { return [start, goal] }
+    func continuousRoute(from start: Point, to goal: Point, clearance: Double = 0.23) -> [Point]? {
+        guard segmentIsClear(from: start, to: start, clearance: clearance),
+              segmentIsClear(from: goal, to: goal, clearance: clearance) else { return nil }
+        if segmentIsClear(from: start, to: goal, clearance: clearance) { return [start, goal] }
         guard let tiles = route(from: Position(x: Int(floor(start.x)), y: Int(floor(start.y))),
                                 to: Position(x: Int(floor(goal.x)), y: Int(floor(goal.y)))),
               tiles.count <= 512 else { return nil }
@@ -149,7 +149,7 @@ extension NativeLevelNavigation {
         var result = [start], cursor = 0
         while cursor < points.count - 1 {
             var next = points.count - 1
-            while next > cursor && !segmentIsClear(from: points[cursor], to: points[next]) { next -= 1 }
+            while next > cursor && !segmentIsClear(from: points[cursor], to: points[next], clearance: clearance) { next -= 1 }
             guard next > cursor else { return nil }
             result.append(points[next])
             cursor = next
