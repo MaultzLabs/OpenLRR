@@ -121,6 +121,7 @@ enum NativeFirstPersonCameraTracking {
 
 #if os(macOS)
 import SceneKit
+import simd
 
 extension NativeFirstPersonCameraTracking {
     /// SceneKit cameras face local -Z; original containers return +Z forward.
@@ -145,8 +146,11 @@ extension NativeFirstPersonCameraTracking {
                              z: Double(vector.z) * sign)
         }
         let direction = resolvedDirection(original: rawFacing, fallbackHeading: heading)
+        // Read the stored camera orientation directly. SceneKit look(at:)
+        // can fail when target and node line up exactly on a principal axis,
+        // making convertVector return the *previous* facing during drilling.
         let oldFacing: Direction? = firstFrame ? nil : {
-            let vector = camera.convertVector(SCNVector3(0, 0, -1), to: nil)
+            let vector = camera.simdWorldOrientation.act(SIMD3<Float>(0, 0, -1))
             return Direction(x: Double(vector.x), y: Double(vector.y), z: Double(vector.z))
         }()
         let reverse = requiresDirectionSnap(current: oldFacing, target: direction)
@@ -158,11 +162,15 @@ extension NativeFirstPersonCameraTracking {
         let facing = smoothedDirection(current: oldFacing, target: direction,
                                        elapsedSeconds: elapsedSeconds)
         // Camera_Update passes original up (0, 0, -1), converted to +Y.
-        // Keep the original null's pitch and controller's safe fallback.
-        camera.look(at: SCNVector3(Float(next.x + facing.x),
-                                   Float(next.y + facing.y),
-                                   Float(next.z + facing.z)),
-                    up: SCNVector3(0, 1, 0), localFront: SCNVector3(0, 0, -1))
+        // Assemble an orthonormal world frame explicitly: local -Z is forward,
+        // local +Y is up. SceneKit look(at:) fails for some exact cardinal
+        // directions (notably +Z), leaving the previous identity orientation
+        // and causing false >90-degree reversal snaps on the following frame.
+        // resolvedDirection already rejects vertical/degenerated directions.
+        let forward = simd_normalize(SIMD3<Float>(Float(facing.x), Float(facing.y), Float(facing.z)))
+        let right = simd_normalize(simd_cross(forward, SIMD3<Float>(0, 1, 0)))
+        let up = simd_normalize(simd_cross(right, forward))
+        camera.simdOrientation = simd_quatf(simd_float3x3(columns: (right, up, -forward)))
     }
 }
 #endif
