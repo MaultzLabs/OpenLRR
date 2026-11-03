@@ -35,6 +35,11 @@ struct OriginalDrillStats {
               !raw.isEmpty, raw.utf8.count <= 256,
               !raw.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) })
         else { return fallback }
+        // SFX_GetType can resolve custom names only after Samples registration;
+        // unregistered overrides fall back to the built-in Drill/DrillFade IDs.
+        guard config.valueUnderGame(["Samples", raw]) != nil ||
+              config.valueUnderGame(["Samples", "!" + raw]) != nil
+        else { return fallback }
         return raw
     }
 }
