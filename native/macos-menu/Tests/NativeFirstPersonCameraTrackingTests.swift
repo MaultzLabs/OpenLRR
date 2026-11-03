@@ -149,15 +149,15 @@ import SceneKit
         Tracking.synchronize(camera: camera, animatedAnchor: cameraNull,
                              fallback: fallback, heading: .pi / 2,
                              elapsedSeconds: 0.04, blockSize: 40, firstFrame: false)
-        FileHandle.standardError.write(Data(("CAMERA DEBUG original=\(cameraNull.worldPosition), current=\(camera.position), direction=\(camera.convertVector(SCNVector3(0, 0, -1), to: nil))\n").utf8))
         precondition(near(Double(camera.position.x), 12.2) &&
                      near(Double(camera.position.y), 4.05),
                      "Hidden animated drill frame must follow with original damping")
-        let yaw = Double(camera.eulerAngles.y)
-        precondition(near(cos(yaw), cos(.pi + atan2(1, 4))) &&
-                     near(sin(yaw), sin(.pi + atan2(1, 4))),
-                     "Camera direction uses original 4:1 vector smoothing")
+        let originalFacing = camera.convertVector(SCNVector3(0, 0, -1), to: nil)
+        precondition(near(Double(originalFacing.x), 0) &&
+                     near(Double(originalFacing.z), 1),
+                     "Camera-null facing takes precedence over provisional controller yaw")
         cameraNull.position = SCNVector3(3.5, 3.5, 4)
+        cameraNull.eulerAngles = SCNVector3(0, Float(Double.pi), 0)
         Tracking.synchronize(camera: camera, animatedAnchor: cameraNull,
                              fallback: fallback, heading: -.pi / 2,
                              elapsedSeconds: 0.04, blockSize: 40, firstFrame: false)
