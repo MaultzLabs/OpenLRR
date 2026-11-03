@@ -95,6 +95,15 @@ swiftc -O Sources/WadArchive.swift Sources/GameResources.swift Sources/LegoConfi
 # Pure Swift collision regression: synthetic moving OL Raider positions only.
 swiftc -O Sources/NativeDynamicCollision.swift Tests/NativeDynamicCollisionTests.swift -o "$tmp16"
 "$tmp16"
+# Original level-zero Pilot collision radius/box from retail Stats config.
+(
+  collision_stats_test="$(mktemp /tmp/openlrr-collision-stats-test.XXXXXXXX)"
+  trap 'rm -f "$collision_stats_test"' EXIT
+  swiftc -O Sources/LegoConfig.swift Sources/OriginalRaiderCollision.swift \
+    Tests/OriginalRaiderCollisionTests.swift -o "$collision_stats_test"
+  "$collision_stats_test"
+)
+
 # Original Pilot level-zero drill duration and SFX IDs from retail Stats config.
 (
   drill_test="$(mktemp /tmp/openlrr-drill-stats-test.XXXXXXXX)"

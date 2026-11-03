@@ -8,16 +8,19 @@ struct NativeFirstPersonController {
     var navigation: NativeLevelNavigation
     private(set) var position: NativeLevelNavigation.Point
     private(set) var heading: Double
+    private let clearance: Double
 
     static let provisionalSpeed = 2.5 // tiles/second, awaiting retail timing
     static let provisionalTurnRate = 2.4 // radians/second
 
-    init?(navigation: NativeLevelNavigation, position: NativeLevelNavigation.Point, heading: Double) {
-        guard heading.isFinite,
-              navigation.segmentIsClear(from: position, to: position) else { return nil }
+    init?(navigation: NativeLevelNavigation, position: NativeLevelNavigation.Point, heading: Double,
+          clearance: Double = NativeDynamicCollision.controlledRaiderRadius) {
+        guard heading.isFinite, clearance.isFinite, clearance > 0, clearance < 0.5,
+              navigation.segmentIsClear(from: position, to: position, clearance: clearance) else { return nil }
         self.navigation = navigation
         self.position = position
         self.heading = heading
+        self.clearance = clearance
     }
 
     /// Advance at most 100 ms after a pause; never teleport through a wall.
@@ -39,10 +42,10 @@ struct NativeFirstPersonController {
         // the same attempted segment against live OL Raider positions.
         func isClear(_ from: NativeLevelNavigation.Point,
                      _ to: NativeLevelNavigation.Point) -> Bool {
-            navigation.segmentIsClear(from: from, to: to) &&
+            navigation.segmentIsClear(from: from, to: to, clearance: clearance) &&
             NativeDynamicCollision.sweepIsClear(
                 from: .init(x: from.x, y: from.y),
-                to: .init(x: to.x, y: to.y), obstacles: obstacles)
+                to: .init(x: to.x, y: to.y), obstacles: obstacles, movingRadius: clearance)
         }
         let goal = NativeLevelNavigation.Point(
             x: start.x + sin(heading) * distance,

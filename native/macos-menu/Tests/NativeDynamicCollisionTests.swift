@@ -21,6 +21,14 @@ import Foundation
         precondition(clear(0, 0, 0.25, 0, [raider(-0.1, 0)])) // Escape overlap.
         precondition(!clear(0, 0, -0.1, 0, [raider(-0.1, 0)])) // Deeper overlap.
         precondition(!clear(0, 0, 0, 0, [raider(0, 0)])) // No stationary overlap.
+        // The original configured Pilot radius (converted to tiles) changes
+        // swept clearance; old provisional and new original radii must differ.
+        precondition(Collision.sweepIsClear(
+            from: point(0, 0.5), to: point(2, 0.5),
+            obstacles: [raider(1, 0)], movingRadius: 0.23))
+        precondition(!Collision.sweepIsClear(
+            from: point(0, 0.5), to: point(2, 0.5),
+            obstacles: [raider(1, 0)], movingRadius: 0.30))
         precondition(!clear(0, 0, 1, 0, [raider(0.8, 0), raider(10, 10)]))
         precondition(clear(0, 0, 1, 0, [raider(3, 0), raider(10, 10)]))
         precondition(!clear(.nan, 0, 1, 0, []))
