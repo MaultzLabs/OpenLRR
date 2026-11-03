@@ -32,6 +32,12 @@ struct OriginalDrillStatsTests {
         }
         precondition(stats.soundIdentifier(fade: false) == "SFX_MiniDrill")
         precondition(stats.soundIdentifier(fade: true) == "SFX_MiniDrillFade")
+        let unregistered = try LegoConfig(text: """
+        Lego* {
+          Stats { Pilot { DrillSound SFX_UnknownDrill } }
+        }
+        """)
+        precondition(OriginalDrillStats(config: unregistered).soundIdentifier(fade: false) == "SFX_Drill")
 
         let invalid = try LegoConfig(text: """
         Lego* {
