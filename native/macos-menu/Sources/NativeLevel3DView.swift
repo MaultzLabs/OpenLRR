@@ -49,7 +49,7 @@ final class NativeLevel3DView: SCNView {
             let position = marker.presentation.position
             motionGenerations[id] = UUID()
             marker.removeAllActions()
-            drillingRaiders.remove(id)
+            if drillingRaiders.remove(id) != nil { drillAudio?.stop(raiderID: id, playFade: true) }
             marker.position = position
             raiderModels[id]?.setMoving(false)
         }
@@ -68,6 +68,7 @@ final class NativeLevel3DView: SCNView {
     private var selectedRaider: String?
     private var selectedRaiders = Set<String>()
     private var drillingRaiders = Set<String>()
+    private var drillAudio: OriginalDrillAudio?
     var selectionCount: Int32 { Int32(selectedRaiders.count) }
     private var raiderModels: [String: OriginalRaiderModel] = [:]
     private var objectModels: [String: OriginalMissionObjectModel] = [:]
@@ -78,6 +79,7 @@ final class NativeLevel3DView: SCNView {
     private var fogSeconds: Double = 0
     private let overheadMotion: NativeOverheadCamera
     private let nativeBlockSize: Double
+    private let drillStats: OriginalDrillStats?
     private let firstPersonCamera = SCNNode()
     private let firstPersonLight = SCNNode()
     private var firstPersonRaider: String?
@@ -90,12 +92,13 @@ final class NativeLevel3DView: SCNView {
         didSet {
             guard missionTimePaused != oldValue else { return }
             let now = ProcessInfo.processInfo.systemUptime
-            if missionTimePaused { pausedAt = now; heldKeys.removeAll() }
+            if missionTimePaused { pausedAt = now; heldKeys.removeAll(); drillAudio?.pause() }
             else if let start = pausedAt {
                 let duration = max(0, now - start)
                 for model in raiderModels.values { model.rebaseTime(afterPausedFor: duration) }
                 for model in objectModels.values { model.rebaseTime(afterPausedFor: duration) }
                 pausedAt = nil
+                drillAudio?.resume()
             }
             frameClock.reset()
             scene?.isPaused = missionTimePaused
@@ -103,7 +106,7 @@ final class NativeLevel3DView: SCNView {
         }
     }
     private(set) var modelSummary = "Original Raider models unavailable; diagnostic proxies"
-    deinit { modelTimer?.invalidate() }
+    deinit { modelTimer?.invalidate(); drillAudio?.stopAll() }
     var tutorialInputPolicy = NativeTutorialInputPolicy.unrestricted {
         didSet {
             if !tutorialInputPolicy.canMoveCamera { leaveFirstPerson() }
@@ -124,10 +127,12 @@ final class NativeLevel3DView: SCNView {
     override var acceptsFirstResponder: Bool { true }
 
     init(frame: NSRect, world: LevelWorld, objects: OriginalObjectList?,
-         resources: GameResources, textureSet: String?, config: LegoConfig? = nil, blockSize: Double = 40) throws {
+         resources: GameResources, textureSet: String?, config: LegoConfig? = nil, blockSize: Double = 40,
+         wadURL: URL? = nil, extraAudioRoot: URL? = nil) throws {
         self.fog = NativeFirstPersonFog(config: config, level: world.identifier)
         self.overheadMotion = NativeOverheadCamera(config: config, blockSize: blockSize)
         self.nativeBlockSize = blockSize
+        self.drillStats = config.map { OriginalDrillStats(config: $0) }
         self.world = world
         self.terrainMesh = try NativeTerrainMesh(world: world)
         self.originalObjects = objects
@@ -154,6 +159,10 @@ final class NativeLevel3DView: SCNView {
             "Original \(textureCatalog?.family.rawValue ?? "world") BMP terrain textures"
 
         super.init(frame: frame, options: nil)
+        if let config {
+            drillAudio = OriginalDrillAudio(config: config, resources: resources,
+                                            wadURL: wadURL, extraRoot: extraAudioRoot)
+        }
         // The retail Building_Load shape is stored in each building's AE,
         // not the OL. Apply original solid cells to both clicked paths and
         // first-person sweeps; paired Shape points remain open entrances.
@@ -458,14 +467,21 @@ final class NativeLevel3DView: SCNView {
         guard !missionTimePaused else { return }
         guard let marker = raiderMarkers[id], drillingRaiders.insert(id).inserted else { return }
         let generation = motionGenerations[id]
-        let duration = raiderModels[id]?.beginDrilling() ?? 0.75
+        let animationDuration = raiderModels[id]?.beginDrilling()
+        // Stats_Initialise / Level_Block_Damage use seconds from the real Pilot
+        // terrain stats. Do not equate one Drill LWS animation cycle with the
+        // time required to break every wall type.
+        let terrainCode = world.tile(x: order.wall.x, y: order.wall.y)?.terrainCode ?? 0
+        let duration = drillStats?.seconds(forTerrainCode: terrainCode) ?? animationDuration ?? 0.75
         marker.eulerAngles = SCNVector3(0, Float(atan2(Double(order.wall.x - order.approach.x),
                                                      Double(order.wall.y - order.approach.y))), 0)
+        drillAudio?.start(raiderID: id)
         marker.runAction(.wait(duration: duration)) { [weak self, weak marker] in
             DispatchQueue.main.async {
                 guard let self, let marker, !self.missionTimePaused,
                       self.motionGenerations[id] == generation else { return }
                 self.drillingRaiders.remove(id)
+                self.drillAudio?.stop(raiderID: id, playFade: true)
                 self.raiderModels[id]?.setMoving(false)
                 let p = marker.presentation.position
                 let at = NativeLevelNavigation.Position(x: Int(floor(Double(p.x) + Double(self.world.width) / 2)),
@@ -791,7 +807,7 @@ final class NativeLevel3DView: SCNView {
         let generation = UUID()
         motionGenerations[id] = generation
         marker.removeAllActions()
-        drillingRaiders.remove(id)
+        if drillingRaiders.remove(id) != nil { drillAudio?.stop(raiderID: id, playFade: true) }
         marker.position = current // Retarget from the visible position without snapping.
         var previous = from
         let actions: [SCNAction] = route.dropFirst().map { target in
