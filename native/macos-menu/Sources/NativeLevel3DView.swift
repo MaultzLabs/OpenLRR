@@ -967,7 +967,8 @@ final class NativeMissionWorkspace: NSView {
         self.commands = OriginalMissionCommands(resources: resources, config: config)
         self.level3D = try NativeLevel3DView(
             frame: frame, world: world, objects: objects,
-            resources: resources, textureSet: textureSet, config: config, blockSize: blockSize)
+            resources: resources, textureSet: textureSet, config: config, blockSize: blockSize,
+            wadURL: wadURL, extraAudioRoot: extraAudioRoot)
         self.level2D = NativeLevelView(frame: frame, world: world)
         self.mode = NSSegmentedControl(labels: ["3D Terrain", "2D MAP"],
                                        trackingMode: .selectOne, target: nil, action: nil)
