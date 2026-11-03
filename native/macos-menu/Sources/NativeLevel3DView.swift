@@ -79,6 +79,7 @@ final class NativeLevel3DView: SCNView {
     private var fogSeconds: Double = 0
     private let overheadMotion: NativeOverheadCamera
     private let nativeBlockSize: Double
+    private let raiderClearance: Double
     private let drillStats: OriginalDrillStats?
     private let firstPersonCamera = SCNNode()
     private let firstPersonLight = SCNNode()
@@ -132,6 +133,7 @@ final class NativeLevel3DView: SCNView {
         self.fog = NativeFirstPersonFog(config: config, level: world.identifier)
         self.overheadMotion = NativeOverheadCamera(config: config, blockSize: blockSize)
         self.nativeBlockSize = blockSize
+        self.raiderClearance = OriginalRaiderCollision.tileRadius(config: config, blockSize: blockSize)
         self.drillStats = config.map { OriginalDrillStats(config: $0) }
         self.world = world
         self.terrainMesh = try NativeTerrainMesh(world: world)
@@ -592,7 +594,8 @@ final class NativeLevel3DView: SCNView {
             x: Double(current.x) + Double(world.width) / 2,
             y: Double(current.z) + Double(world.height) / 2)
         guard let controller = NativeFirstPersonController(
-            navigation: navigation, position: position, heading: Double(marker.eulerAngles.y)) else {
+            navigation: navigation, position: position, heading: Double(marker.eulerAngles.y),
+            clearance: raiderClearance) else {
             onInteractionMessage?("Raider is outside the discovered walkable area.")
             return
         }
@@ -635,7 +638,7 @@ final class NativeLevel3DView: SCNView {
             return NativeDynamicCollision.Disc(
                 center: .init(x: Double(position.x) + Double(world.width) / 2,
                               y: Double(position.z) + Double(world.height) / 2),
-                radius: NativeDynamicCollision.otherRaiderRadius)
+                radius: raiderClearance)
         }
     }
 
@@ -794,13 +797,14 @@ final class NativeLevel3DView: SCNView {
         let from = NativeLevelNavigation.Point(
             x: Double(current.x) + Double(world.width) / 2,
             y: Double(current.z) + Double(world.height) / 2)
-        guard let route = navigation.continuousRoute(from: from, to: destination) else {
+        guard let route = navigation.continuousRoute(from: from, to: destination, clearance: raiderClearance) else {
             onInteractionMessage?("No route with enough clearance for the Rock Raider.")
             return
         }
         let goal = NativeDynamicCollision.Point(x: destination.x, y: destination.y)
         guard NativeDynamicCollision.sweepIsClear(
-            from: goal, to: goal, obstacles: otherRaiderObstacles(excluding: id)) else {
+            from: goal, to: goal, obstacles: otherRaiderObstacles(excluding: id),
+            movingRadius: raiderClearance) else {
             onInteractionMessage?("Another Rock Raider occupies that destination.")
             return
         }
@@ -832,7 +836,7 @@ final class NativeLevel3DView: SCNView {
                     if hypot(next.x - previous.x, next.y - previous.y) > 1e-8 &&
                        !NativeDynamicCollision.sweepIsClear(
                             from: previous, to: next,
-                            obstacles: self.otherRaiderObstacles(excluding: id)) {
+                            obstacles: self.otherRaiderObstacles(excluding: id), movingRadius: self.raiderClearance) {
                         self.motionGenerations[id] = UUID()
                         node.removeAllActions()
                         self.raiderModels[id]?.setMoving(false)
