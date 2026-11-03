@@ -224,3 +224,31 @@ Next: read `Creature_Load`/ `LegoObject_LoadMeshLOD` FPPoly entries from the
 owned original Pilot AE, attach real first-person meshes to each appropriate
 camera-null frame, then verify drilling look/sound against retail gameplay on
 Apple Silicon. No percentage of full-game completeness is asserted.
+
+
+## Original Pilot physical collision radius — 2026-11-03
+
+The native first-person controller and click-to-move previously hard-coded a
+0.23-tile body radius and a 0.22-tile other-Raider radius irrespective of the
+original Pilot configuration. Original `Stats_Initialise` in
+`src/openlrr/game/object/Stats.cpp` reads `Stats::Pilot::CollRadius`
+in game-world units; when it is zero, it reads `CollBox` width,height and
+uses half the larger dimension. Original `BlockSize` converts that radius
+to the tile coordinates used by native swept navigation.
+
+The native scene now uses the converted original configured radius for its
+continuous route planning, first-person wall checks, and moving-Raider disc
+collision (both sides of the pair). Portable synthetic tests verify config
+precedence, radius/box scaling, missing/invalid stats fallback and that a
+larger body radius really changes swept obstruction detection.
+
+The existing navigation algorithm cannot safely represent a radius >= 0.5
+tile, so such values deliberately fall back to the old **provisional**
+0.23-tile clearance rather than silently clamping the retail radius. This
+does not prove original collision fidelity: original unit/object placement,
+collider shapes, slope/step handling and on-device gameplay remain unverified.
+No real game assets or saves are modified.
+
+Next: load original `FPPoly` mesh-LOD references from Pilot AE and attach
+the authorized original first-person hands/tools to the real camera activity,
+then verify first-person drilling and collisions visually on the user's Mac.
