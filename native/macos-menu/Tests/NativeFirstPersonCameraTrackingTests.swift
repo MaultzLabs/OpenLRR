@@ -149,6 +149,7 @@ import SceneKit
         Tracking.synchronize(camera: camera, animatedAnchor: cameraNull,
                              fallback: fallback, heading: .pi / 2,
                              elapsedSeconds: 0.04, blockSize: 40, firstFrame: false)
+        FileHandle.standardError.write(Data(("CAMERA DEBUG original=\\(cameraNull.worldPosition), current=\\(camera.position), direction=\\(camera.convertVector(SCNVector3(0, 0, -1), to: nil))\\n").utf8))
         precondition(near(Double(camera.position.x), 12.2) &&
                      near(Double(camera.position.y), 4.05),
                      "Hidden animated drill frame must follow with original damping")
