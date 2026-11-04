@@ -88,7 +88,7 @@ swiftc -O Sources/WadArchive.swift Sources/GameResources.swift \
 
 # Original Raider activity references and original mesh/scene parsers.
 swiftc -O Sources/WadArchive.swift Sources/GameResources.swift Sources/LegoConfig.swift \
-  Sources/LightWaveObject.swift Sources/LightWaveScene.swift Sources/OriginalModelAsset.swift Sources/OriginalLightWaveRenderer.swift Sources/OriginalMissionObjectModel.swift Sources/OriginalRaiderModel.swift \
+  Sources/LightWaveObject.swift Sources/LightWaveScene.swift Sources/OriginalModelAsset.swift Sources/OriginalFirstPersonMeshLOD.swift Sources/OriginalLightWaveRenderer.swift Sources/OriginalMissionObjectModel.swift Sources/OriginalRaiderModel.swift \
   Tests/OriginalRaiderModelTests.swift -o "$tmp15"
 "$tmp15"
 
