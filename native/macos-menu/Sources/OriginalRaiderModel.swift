@@ -17,6 +17,7 @@ final class OriginalRaiderModel {
         let clip: OriginalLightWaveRenderer.Clip
         let original: [SCNGeometry?]
         let firstPerson: [SCNGeometry?]
+        let targeted: [Bool]
     }
     private var geometrySets: [GeometrySet] = []
     private(set) var showingFirstPersonMeshes = false
@@ -56,19 +57,19 @@ final class OriginalRaiderModel {
             let lod = try OriginalFirstPersonMeshLOD.load(activities: activities, resources: resources)
             if let first = lod.frames.first, lod.hasFirstPersonMeshes {
                 for clip in [standing, walking] + (drilling.map { [$0] } ?? []) {
-                    let replacements: [SCNGeometry?] = clip.parts.map { part in
+                    let replacements: [(targeted: Bool, geometry: SCNGeometry?)] = clip.parts.map { part in
                         guard let name = part.name,
                               let replacement = first.first(where: {
                                   OriginalFirstPersonMeshLOD.matches(partName: $0.partName,
                                                                      lwsName: name)
-                              }) else { return nil }
-                        return replacement.mesh.map {
+                              }) else { return (false, nil) }
+                        return (true, replacement.mesh.map {
                             OriginalLightWaveRenderer.geometry(asset: $0, resources: resources,
                                                               sharedTextures: sharedTextures)
-                        }
+                        })
                     }
                     geometrySets.append(GeometrySet(clip: clip, original: clip.parts.map(\.geometry),
-                                                    firstPerson: replacements))
+                        firstPerson: replacements.map(\.geometry), targeted: replacements.map(\.targeted)))
                 }
                 if !geometrySets.contains(where: { $0.firstPerson.contains(where: { $0 != nil }) }) {
                     firstPersonMeshDiagnostic = "Original FPPoly parts did not match the Stand/Route/Drill LWS objects"
@@ -91,9 +92,14 @@ final class OriginalRaiderModel {
     func setFirstPerson(_ enabled: Bool) -> Bool {
         guard !enabled || !geometrySets.isEmpty else { return false }
         for set in geometrySets {
-            let geometries = enabled ? set.firstPerson : set.original
-            for (node, geometry) in zip(set.clip.parts, geometries) {
-                node.geometry = geometry
+            for index in set.clip.parts.indices {
+                if enabled {
+                    // MeshLOD_SwapTarget changes only explicitly configured
+                    // LWS parts; all other body geometry remains unmodified.
+                    if set.targeted[index] { set.clip.parts[index].geometry = set.firstPerson[index] }
+                } else {
+                    set.clip.parts[index].geometry = set.original[index]
+                }
             }
         }
         showingFirstPersonMeshes = enabled
