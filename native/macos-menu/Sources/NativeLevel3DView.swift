@@ -314,6 +314,9 @@ final class NativeLevel3DView: SCNView {
                                                            blockSize: blockSize, sharedTextures: sharedTextures)
                         marker.addChildNode(model.root)
                         raiderModels[placement.identifier] = model
+                        if let diagnostic = model.firstPersonMeshDiagnostic {
+                            modelDiagnostics.append("\(placement.identifier) FPPoly: \(diagnostic)")
+                        }
                     } else {
                         let key = placement.type.lowercased()
                         if objectAssets[key] == nil {
@@ -415,7 +418,8 @@ final class NativeLevel3DView: SCNView {
         node.isHidden = OriginalObjectVisibility.isHidden(discovered: discovered,
             isRockRaider: placement.isRockRaider,
             hasOriginalModel: raiderModels[placement.identifier] != nil || objectModels[placement.identifier] != nil,
-            showObjectMarkers: showObjectMarkers, isFirstPersonBody: placement.identifier == firstPersonRaider)
+            showObjectMarkers: showObjectMarkers, isFirstPersonBody: placement.identifier == firstPersonRaider &&
+                !(raiderModels[placement.identifier]?.showingFirstPersonMeshes ?? false))
         if discovered && placement.isRockRaider { raiderMarkers[placement.identifier] = node }
     }
 
@@ -607,7 +611,10 @@ final class NativeLevel3DView: SCNView {
         firstPersonController = controller
         firstPersonCameraNeedsSnap = true
         heldKeys.removeAll()
-        marker.isHidden = true // Camera is a separate scene node, not hidden.
+        // Hide the whole body only if the original Pilot has no supported
+        // FPPoly mesh replacement. The original animation/null hierarchy must
+        // stay visible when its authentic first-person hand/tool parts exist.
+        marker.isHidden = !(raiderModels[id]?.setFirstPerson(true) ?? false)
         allowsCameraControl = false
         pointOfView = firstPersonCamera
         onSelectionChanged?()
@@ -621,6 +628,7 @@ final class NativeLevel3DView: SCNView {
         firstPersonController = nil
         firstPersonCameraNeedsSnap = true
         heldKeys.removeAll()
+        raiderModels[id]?.setFirstPerson(false)
         raiderMarkers[id]?.isHidden = false
         raiderModels[id]?.setMoving(false)
         pointOfView = overheadCamera
