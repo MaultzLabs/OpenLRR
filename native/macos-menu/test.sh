@@ -136,7 +136,7 @@ swiftc -O Sources/NativeDynamicCollision.swift Tests/NativeDynamicCollisionTests
   object_model_test="$(mktemp /tmp/openlrr-object-model-test.XXXXXXXX)"
   trap 'rm -f "$object_model_test"' EXIT
   swiftc -O Sources/WadArchive.swift Sources/GameResources.swift Sources/LegoConfig.swift \
-    Sources/LightWaveObject.swift Sources/LightWaveScene.swift Sources/OriginalModelAsset.swift \
+    Sources/LightWaveObject.swift Sources/LightWaveScene.swift Sources/OriginalModelAsset.swift Sources/OriginalFirstPersonMeshLOD.swift \
     Sources/OriginalLightWaveRenderer.swift Sources/OriginalMissionObjectModel.swift Sources/OriginalRaiderModel.swift \
     Tests/OriginalMissionObjectModelTests.swift -o "$object_model_test"
   "$object_model_test"
