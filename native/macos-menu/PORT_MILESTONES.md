@@ -252,3 +252,31 @@ No real game assets or saves are modified.
 Next: load original `FPPoly` mesh-LOD references from Pilot AE and attach
 the authorized original first-person hands/tools to the real camera activity,
 then verify first-person drilling and collisions visually on the user's Mac.
+
+## Original Pilot FPPoly first-person mesh-LOD — 2026-11-04
+
+The original `Creature_Load` calls `LegoObject_LoadMeshLOD` for FPPoly with
+`CameraNullFrames` sets; `Creature_SwapPolyFP` invokes
+`MeshLOD_SwapTarget` for the requested camera set. The native Pilot loader
+now parses `FPPoly::CameraN` tables from the original AE config, resolves
+model-local genuine LWOB replacement parts read-only from owner files, and
+keeps camera sets distinct. The existing LightWave renderer preserves UVs,
+surface materials and original LWS animation transforms. During F-mode for
+an eligible Raider, the first camera-set geometries are swapped only into
+their configured matching LWS parts, including explicit `NULL_OBJECT` parts;
+leaving first person restores precisely the previous regular meshes. Missing,
+unsupported or mismatched assets keep the camera-only prototype and issue a
+diagnostic, never fabricate replacement art or modify files.
+
+Portable synthetic AE/LWOB/parser/unsafe-path tests and hosted SceneKit
+mesh swap/restoration tests are now wired into the normal free CI. **Actual
+retail asset behavior remains unverified**: the owned Pilot AE, precise
+FPPoly naming/part binding, tool visibility and clipping, selected camera-frame
+choice beyond Camera0, first-person hand/drill animation, and original in-game
+sound/timing need observed comparison on the user's Apple Silicon Mac.
+A successful compile cannot establish gameplay acceptance.
+
+Next: verify the original Pilot's FPPoly table and mesh part naming with
+authorized game assets, then implement multiple retail camera-frame selection,
+test correct drilling hands/tool geometry against the first-tutorial mission,
+and continue full-game campaign/economy acceptance. No completion percentage.
