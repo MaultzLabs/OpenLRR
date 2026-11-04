@@ -13,6 +13,15 @@ final class OriginalRaiderModel {
     private let drilling: OriginalLightWaveRenderer.Clip?
     private let cameraPartName: String?
     let cameraFlipDirection: Bool
+    private struct GeometrySet {
+        let clip: OriginalLightWaveRenderer.Clip
+        let original: [SCNGeometry?]
+        let firstPerson: [SCNGeometry?]
+        let targeted: [Bool]
+    }
+    private var geometrySets: [GeometrySet] = []
+    private(set) var showingFirstPersonMeshes = false
+    private(set) var firstPersonMeshDiagnostic: String?
     private var isDrilling = false
     private var moving = false
     private var epoch = ProcessInfo.processInfo.systemUptime
@@ -41,9 +50,60 @@ final class OriginalRaiderModel {
         // Retail LightWave space is -Z up; SceneKit cave space is +Y up.
         // Apply once above every Stand/Route/Drill clip and camera-null frame.
         root.eulerAngles.x = CGFloat(OriginalModelCoordinateBasis.sceneKitRootPitchRadians)
+        // MeshLOD_SwapTarget swaps rendered part geometry, not the animated
+        // transform hierarchy. Preserve the original LWS camera nulls and
+        // the normal Stand/Route/Drill meshes for immediate restoration.
+        do {
+            let lod = try OriginalFirstPersonMeshLOD.load(activities: activities, resources: resources)
+            if let first = lod.frames.first, lod.hasFirstPersonMeshes {
+                for clip in [standing, walking] + (drilling.map { [$0] } ?? []) {
+                    let replacements: [(targeted: Bool, geometry: SCNGeometry?)] = clip.parts.map { part in
+                        guard let name = part.name,
+                              let replacement = first.first(where: {
+                                  OriginalFirstPersonMeshLOD.matches(partName: $0.partName,
+                                                                     lwsName: name)
+                              }) else { return (false, nil) }
+                        return (true, replacement.mesh.map {
+                            OriginalLightWaveRenderer.geometry(asset: $0, resources: resources,
+                                                              sharedTextures: sharedTextures)
+                        })
+                    }
+                    geometrySets.append(GeometrySet(clip: clip, original: clip.parts.map(\.geometry),
+                        firstPerson: replacements.map { $0.geometry }, targeted: replacements.map { $0.targeted }))
+                }
+                if !geometrySets.contains(where: { $0.firstPerson.contains(where: { $0 != nil }) }) {
+                    firstPersonMeshDiagnostic = "Original FPPoly parts did not match the Stand/Route/Drill LWS objects"
+                    geometrySets.removeAll()
+                }
+            }
+        } catch {
+            // An unsupported/missing FPPoly never breaks the regular original
+            // Raider model. First person stays camera-only and diagnostic.
+            firstPersonMeshDiagnostic = String(describing: error)
+        }
         // All model roots are ground-based. Diagnostic capsule offsets belong
         // to the view's proxy child, not to the original asset hierarchy.
         update(time: epoch)
+    }
+
+    /// The first retail camera set is currently selected by native F mode.
+    /// Only genuine FPPoly geometry appears; no substitute tool or artwork.
+    @discardableResult
+    func setFirstPerson(_ enabled: Bool) -> Bool {
+        guard !enabled || !geometrySets.isEmpty else { return false }
+        for set in geometrySets {
+            for index in set.clip.parts.indices {
+                if enabled {
+                    // MeshLOD_SwapTarget changes only explicitly configured
+                    // LWS parts; all other body geometry remains unmodified.
+                    if set.targeted[index] { set.clip.parts[index].geometry = set.firstPerson[index] }
+                } else {
+                    set.clip.parts[index].geometry = set.original[index]
+                }
+            }
+        }
+        showingFirstPersonMeshes = enabled
+        return showingFirstPersonMeshes
     }
 
     func setMoving(_ value: Bool) {
