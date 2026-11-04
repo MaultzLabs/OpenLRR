@@ -63,6 +63,10 @@ private func fixtureWad(_ assets: [FixtureAsset]) -> Data {
                 preconditionFailure("Unsafe model path")
             } catch OriginalRaiderActivities.AssetError.invalid { }
         }
+        try testFirstPersonMeshLOD()
+        #if os(macOS)
+        try testFirstPersonSceneKitSwap()
+        #endif
         try testCameraFlipDirection()
         try testConfiguredSharedObjects()
         testOrderedCandidates()
@@ -224,4 +228,145 @@ private func fixtureWad(_ assets: [FixtureAsset]) -> Data {
             } catch WadArchive.WadError.unsupportedCompression { }
         }
     }
+
+    // In-memory genuine-format LWOB triangle; never uses redistributed retail art.
+    static func fpTestMesh(_ length: Float) -> Data {
+        func be16(_ n: UInt16) -> [UInt8] { [UInt8(truncatingIfNeeded: n >> 8), UInt8(truncatingIfNeeded: n)] }
+        func be32(_ n: UInt32) -> [UInt8] {
+            [UInt8(truncatingIfNeeded: n >> 24), UInt8(truncatingIfNeeded: n >> 16),
+             UInt8(truncatingIfNeeded: n >> 8), UInt8(truncatingIfNeeded: n)]
+        }
+        func point(_ x: Float, _ y: Float, _ z: Float) -> [UInt8] {
+            be32(x.bitPattern) + be32(y.bitPattern) + be32(z.bitPattern)
+        }
+        func chunk(_ key: String, _ bytes: [UInt8]) -> [UInt8] {
+            Array(key.utf8) + be32(UInt32(bytes.count)) + bytes + (bytes.count % 2 == 1 ? [0] : [])
+        }
+        let mesh = Array("LWOB".utf8) + [
+            chunk("PNTS", point(0, 0, 0) + point(length, 0, 0) + point(0, length, 0)),
+            chunk("SRFS", Array("Test".utf8) + [0, 0]),
+            chunk("POLS", be16(3) + be16(0) + be16(1) + be16(2) + be16(1))
+        ].flatMap { $0 }
+        return Data(Array("FORM".utf8) + be32(UInt32(mesh.count)) + mesh)
+    }
+
+    static func fpDefinition(_ partValue: String = "OriginalTool") throws -> OriginalRaiderActivities {
+        let config = try LegoConfig(text: """
+        Lego* {
+          CameraNullName Cam
+          CameraNullFrames 2
+          FPPoly {
+            Camera0 {
+              Arm \(partValue)
+              Body NULL_OBJECT
+            }
+            Camera1 {
+              Arm OtherTool.lwo
+            }
+          }
+          Activities {
+            Activity_Stand Stand
+            Activity_Route Walk
+          }
+          Stand {
+            FILE Stand
+            LWSFILE TRUE
+          }
+          Walk {
+            FILE Stand
+            LWSFILE TRUE
+          }
+        }
+        """)
+        return try OriginalRaiderActivities(directory: "Fixture/Pilot", definition: config)
+    }
+
+    static func testFirstPersonMeshLOD() throws {
+        let resources = try GameResources(archives: [(0, fixtureWad([
+            FixtureAsset(path: "Fixture/Pilot/OriginalTool.lwo", bytes: fpTestMesh(2)),
+            FixtureAsset(path: "Fixture/Pilot/OtherTool.lwo", bytes: fpTestMesh(3))
+        ]))])
+        let lod = try OriginalFirstPersonMeshLOD.load(activities: fpDefinition(), resources: resources)
+        precondition(lod.frames.count == 2 && lod.hasFirstPersonMeshes)
+        precondition(lod.frames[0].count == 2 && lod.frames[1].count == 1)
+        precondition(lod.frames[0][0].partName == "arm")
+        precondition(lod.frames[0][0].mesh?.path == "Fixture/Pilot/OriginalTool.lwo")
+        precondition(lod.frames[0][1].mesh == nil)
+        precondition(lod.frames[1][0].mesh?.path == "Fixture/Pilot/OtherTool.lwo")
+        precondition(OriginalFirstPersonMeshLOD.matches(partName: "ARM", lwsName: "C:\\Author\\Arm.lwo"))
+        precondition(!OriginalFirstPersonMeshLOD.matches(partName: "Arm", lwsName: "Forearm.lwo"))
+        for invalid in ["../Foreign", "/tmp/Tool", "A:/Tool", "Unrecognized.x", "."] {
+            do {
+                _ = try OriginalFirstPersonMeshLOD.load(activities: fpDefinition(invalid), resources: resources)
+                preconditionFailure("Unsafe/unsupported first-person original mesh accepted: \(invalid)")
+            } catch OriginalModelActivities.AssetError.invalid { }
+        }
+        do {
+            _ = try OriginalFirstPersonMeshLOD.load(activities: fpDefinition("MissingModel"), resources: resources)
+            preconditionFailure("Missing FPPoly geometry must not be silently replaced")
+        } catch { }
+        let empty = try OriginalRaiderActivities(directory: "Fixture/Pilot",
+            definition: LegoConfig(text: """
+            Lego* {
+              CameraNullName Cam
+              CameraNullFrames 1
+              FPPoly {
+                Camera0 {
+                  Arm NULL_OBJECT
+                }
+              }
+            }
+            """))
+        precondition(!(try OriginalFirstPersonMeshLOD.load(activities: empty, resources: resources)).hasFirstPersonMeshes)
+    }
+
+    #if os(macOS)
+    static func testFirstPersonSceneKitSwap() throws {
+        let scene = Data("""
+        LWSC
+        1
+        FirstFrame 0
+        LastFrame 25
+        FramesPerSecond 25
+        LoadObject Arm.lwo
+        ObjectMotion (unnamed)
+        9
+        1
+        0 0 0 0 0 0 1 1 1
+        0 0 0 0 0
+        LoadObject Body.lwo
+        ObjectMotion (unnamed)
+        9
+        1
+        0 0 0 0 0 0 1 1 1
+        0 0 0 0 0
+        AddNullObject Cam_00
+        ObjectMotion (unnamed)
+        9
+        1
+        0 0 0 0 0 0 1 1 1
+        0 0 0 0 0
+        """.utf8)
+        let resources = try GameResources(archives: [(0, fixtureWad([
+            FixtureAsset(path: "Fixture/Pilot/Stand.lws", bytes: scene),
+            FixtureAsset(path: "Fixture/Pilot/Arm.lwo", bytes: fpTestMesh(1)),
+            FixtureAsset(path: "Fixture/Pilot/Body.lwo", bytes: fpTestMesh(1)),
+            FixtureAsset(path: "Fixture/Pilot/OriginalTool.lwo", bytes: fpTestMesh(2)),
+            FixtureAsset(path: "Fixture/Pilot/OtherTool.lwo", bytes: fpTestMesh(3))
+        ]))])
+        let model = try OriginalRaiderModel(activities: fpDefinition(), resources: resources, blockSize: 40)
+        guard let arm = model.root.childNode(withName: "Arm.lwo", recursively: true),
+              let body = model.root.childNode(withName: "Body.lwo", recursively: true),
+              let originalArm = arm.geometry, let originalBody = body.geometry else {
+            preconditionFailure("Synthetic original body parts did not render")
+        }
+        precondition(model.firstPersonCameraAnchor() != nil)
+        precondition(model.setFirstPerson(true))
+        precondition(arm.geometry !== originalArm && arm.geometry != nil)
+        precondition(body.geometry == nil)
+        precondition(model.firstPersonCameraAnchor() != nil)
+        precondition(!model.setFirstPerson(false))
+        precondition(arm.geometry === originalArm && body.geometry === originalBody)
+    }
+    #endif
 }
