@@ -317,7 +317,8 @@ private func fixtureWad(_ assets: [FixtureAsset]) -> Data {
               }
             }
             """))
-        precondition(!(try OriginalFirstPersonMeshLOD.load(activities: empty, resources: resources)).hasFirstPersonMeshes)
+        let emptyLOD = try OriginalFirstPersonMeshLOD.load(activities: empty, resources: resources)
+        precondition(!emptyLOD.hasFirstPersonMeshes)
     }
 
     #if os(macOS)
