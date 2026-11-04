@@ -69,7 +69,7 @@ final class OriginalRaiderModel {
                         })
                     }
                     geometrySets.append(GeometrySet(clip: clip, original: clip.parts.map(\.geometry),
-                        firstPerson: replacements.map(\.geometry), targeted: replacements.map(\.targeted)))
+                        firstPerson: replacements.map { $0.geometry }, targeted: replacements.map { $0.targeted }))
                 }
                 if !geometrySets.contains(where: { $0.firstPerson.contains(where: { $0 != nil }) }) {
                     firstPersonMeshDiagnostic = "Original FPPoly parts did not match the Stand/Route/Drill LWS objects"
