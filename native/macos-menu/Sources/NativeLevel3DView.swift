@@ -559,6 +559,12 @@ final class NativeLevel3DView: SCNView {
             return
         }
         if firstPersonRaider != nil {
+            // Diagnostic-only original camera frame selection. Retail key
+            // mapping has not been confirmed; these keys do not change assets.
+            if !event.isARepeat && (event.keyCode == 33 || event.keyCode == 30) {
+                cycleFirstPersonCameraFrame(step: event.keyCode == 33 ? -1 : 1)
+                return
+            }
             if Self.movementKeys.contains(event.keyCode) { heldKeys.insert(event.keyCode) }
             return
         }
@@ -577,6 +583,24 @@ final class NativeLevel3DView: SCNView {
     override func resignFirstResponder() -> Bool {
         heldKeys.removeAll() // Never keep walking when the window loses focus.
         return super.resignFirstResponder()
+    }
+
+    /// Select the actual Pilot CameraN/null pair, not a fabricated camera
+    /// offset. The next animation tick will snap to the selected authored
+    /// frame (or the existing documented fallback if that null is absent).
+    private func cycleFirstPersonCameraFrame(step: Int) {
+        guard let id = firstPersonRaider, let model = raiderModels[id],
+              model.cameraFrameCount > 1 else { return }
+        let next = (model.selectedCameraFrame + step + model.cameraFrameCount) % model.cameraFrameCount
+        guard model.selectFirstPersonCameraFrame(next) else { return }
+        if let placement = originalObjects?.rockRaiders.first(where: { $0.identifier == id }) {
+            updatePlacementVisibility(placement)
+        }
+        firstPersonCameraNeedsSnap = true
+        let anchorStatus = model.firstPersonCameraAnchor() == nil
+            ? " (original null unavailable; provisional camera fallback)"
+            : ""
+        onInteractionMessage?("Original Pilot camera frame \(next + 1)/\(model.cameraFrameCount)\(anchorStatus). [/] selection is provisional.")
     }
 
     func enterFirstPerson() {
@@ -619,7 +643,7 @@ final class NativeLevel3DView: SCNView {
         pointOfView = firstPersonCamera
         onSelectionChanged?()
         advanceFrame()
-        onInteractionMessage?("First-person Raider \(id): W/S or ↑/↓ move, A/D or ←/→ turn; F/Esc return.")
+        onInteractionMessage?("First-person Raider \(id): W/S move, A/D turn, [/] change original camera frame, F/Esc return.")
     }
 
     func leaveFirstPerson() {

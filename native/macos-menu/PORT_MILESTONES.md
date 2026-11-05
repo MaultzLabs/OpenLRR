@@ -280,3 +280,38 @@ Next: verify the original Pilot's FPPoly table and mesh part naming with
 authorized game assets, then implement multiple retail camera-frame selection,
 test correct drilling hands/tool geometry against the first-tutorial mission,
 and continue full-game campaign/economy acceptance. No completion percentage.
+
+
+## Original FPPoly multiple-camera frame selection — 2026-11-05
+
+Original `Creature_Load` uses `CameraNullFrames` as the MeshLOD FPPoly
+set count, while `Creature_SwapPolyFP` passes the active `cameraNo` to
+`MeshLOD_SwapTarget`. The November 4 native prototype loaded several
+CameraN tables but always used Camera0 for every frame and always tracked
+the Camera_00 null. This could show one camera's hand/tool geometry from
+another viewpoint.
+
+The native Raider now keeps the author-supplied FPPoly replacements for
+each original camera frame, switches matching replacement geometry and the
+animated `CameraNullName_0N` anchor together, restores untargeted geometry
+when changing sets, rejects invalid frame indices, and restores all regular
+model geometry when exiting F mode. `[` and `]` cycle the available original
+camera frames while in F mode. This is a clearly provisional native
+diagnostic key mapping, **not** a claim about the original game's controls.
+An absent camera null retains the previously documented camera fallback;
+nothing is generated or modified in the user's game data.
+
+Synthetic portable fixtures now include Camera1-only original FPPoly and
+camera-set rejection checks, and hosted SceneKit fixtures exercise
+Camera0/Camera1 mesh, body restoration and animated-null selection.
+The previous PR #77 exact-head Linux portable suite passed, while the
+hosted Mac job on run 41837102942 ended **cancelled**: it is not a Mac
+compile success. New branch CI is required to verify this change.
+Original retail AE/WAD appearance, material placement, animation/tool
+clipping, authentic camera switching input and actual playable drills
+still require user-owned assets on an Apple Silicon Mac.
+
+Next: verify Mac source compilation and synthetic SceneKit frame switching,
+then confirm the retail Pilot's actual FPPoly camera sets and model bindings
+through legal local assets. After that, test first-person wall destruction,
+rubble, sound and tutorial objectives together. No full-game percentage.

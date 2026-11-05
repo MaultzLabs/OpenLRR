@@ -319,6 +319,23 @@ private func fixtureWad(_ assets: [FixtureAsset]) -> Data {
             """))
         let emptyLOD = try OriginalFirstPersonMeshLOD.load(activities: empty, resources: resources)
         precondition(!emptyLOD.hasFirstPersonMeshes)
+        // An original Pilot can define a hand/tool mesh only for Camera1.
+        let laterOnly = try OriginalRaiderActivities(directory: "Fixture/Pilot",
+            definition: LegoConfig(text: """
+            Lego* {
+              CameraNullName Cam
+              CameraNullFrames 2
+              FPPoly {
+                Camera0 { Body NULL_OBJECT }
+                Camera1 { Arm OtherTool.lwo }
+              }
+            }
+            """))
+        let laterOnlyLOD = try OriginalFirstPersonMeshLOD.load(
+            activities: laterOnly, resources: resources)
+        precondition(laterOnlyLOD.frames.count == 2)
+        precondition(laterOnlyLOD.hasFirstPersonMeshes,
+                     "Camera1-only genuine geometry must not be discarded")
     }
 
     #if os(macOS)
@@ -347,6 +364,12 @@ private func fixtureWad(_ assets: [FixtureAsset]) -> Data {
         1
         0 0 0 0 0 0 1 1 1
         0 0 0 0 0
+        AddNullObject Cam_01
+        ObjectMotion (unnamed)
+        9
+        1
+        0 1 0 0 0 0 1 1 1
+        0 0 0 0 0
         """.utf8)
         let resources = try GameResources(archives: [(0, fixtureWad([
             FixtureAsset(path: "Fixture/Pilot/Stand.lws", bytes: scene),
@@ -361,11 +384,26 @@ private func fixtureWad(_ assets: [FixtureAsset]) -> Data {
               let originalArm = arm.geometry, let originalBody = body.geometry else {
             preconditionFailure("Synthetic original body parts did not render")
         }
-        precondition(model.firstPersonCameraAnchor() != nil)
+        precondition(model.cameraFrameCount == 2 && model.selectedCameraFrame == 0)
+        precondition(model.firstPersonCameraAnchor()?.name == "Cam_00")
         precondition(model.setFirstPerson(true))
         precondition(arm.geometry !== originalArm && arm.geometry != nil)
         precondition(body.geometry == nil)
-        precondition(model.firstPersonCameraAnchor() != nil)
+        let firstArm = arm.geometry
+        precondition(model.selectFirstPersonCameraFrame(1))
+        precondition(model.selectedCameraFrame == 1)
+        precondition(model.firstPersonCameraAnchor()?.name == "Cam_01")
+        precondition(arm.geometry !== originalArm && arm.geometry !== firstArm)
+        precondition(body.geometry === originalBody,
+                     "Untargeted Camera1 body must restore original geometry")
+        precondition(!model.selectFirstPersonCameraFrame(2))
+        precondition(!model.selectFirstPersonCameraFrame(-1))
+        precondition(model.selectedCameraFrame == 1,
+                     "Invalid frame selection must retain current mesh and null")
+        precondition(model.selectFirstPersonCameraFrame(0))
+        precondition(model.firstPersonCameraAnchor()?.name == "Cam_00")
+        precondition(arm.geometry === firstArm && body.geometry == nil,
+                     "Camera0 must restore its own original tool and null swap")
         precondition(!model.setFirstPerson(false))
         precondition(arm.geometry === originalArm && body.geometry === originalBody)
     }
