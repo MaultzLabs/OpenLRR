@@ -600,7 +600,7 @@ final class NativeLevel3DView: SCNView {
         let anchorStatus = model.firstPersonCameraAnchor() == nil
             ? " (original null unavailable; provisional camera fallback)"
             : ""
-        onInteractionMessage?("Original Pilot camera frame \\(next + 1)/\\(model.cameraFrameCount)\\(anchorStatus). [/] selection is provisional.")
+        onInteractionMessage?("Original Pilot camera frame \(next + 1)/\(model.cameraFrameCount)\(anchorStatus). [/] selection is provisional.")
     }
 
     func enterFirstPerson() {
