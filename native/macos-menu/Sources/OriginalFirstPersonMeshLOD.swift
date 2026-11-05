@@ -13,7 +13,8 @@ struct OriginalFirstPersonMeshLOD {
 
     let frames: [[Replacement]]
     var hasFirstPersonMeshes: Bool {
-        frames.first?.contains(where: { $0.mesh != nil }) ?? false
+        // A real camera set may only supply geometry for a later frame.
+        frames.contains(where: { $0.contains(where: { $0.mesh != nil }) })
     }
 
     static func load(activities: OriginalModelActivities,
