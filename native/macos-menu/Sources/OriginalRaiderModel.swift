@@ -11,13 +11,19 @@ final class OriginalRaiderModel {
     private let standing: OriginalLightWaveRenderer.Clip
     private let walking: OriginalLightWaveRenderer.Clip
     private let drilling: OriginalLightWaveRenderer.Clip?
-    private let cameraPartName: String?
+    private let cameraPartNames: [String]
     let cameraFlipDirection: Bool
+    var cameraFrameCount: Int { cameraPartNames.count }
+    private(set) var selectedCameraFrame = 0
+    private var firstPersonEnabled = false
+
     private struct GeometrySet {
         let clip: OriginalLightWaveRenderer.Clip
         let original: [SCNGeometry?]
-        let firstPerson: [SCNGeometry?]
-        let targeted: [Bool]
+        // One MeshLOD set per authored CameraNullFrames entry; every set
+        // includes all parts so changing frames restores the previous set.
+        let firstPerson: [[SCNGeometry?]]
+        let targeted: [[Bool]]
     }
     private var geometrySets: [GeometrySet] = []
     private(set) var showingFirstPersonMeshes = false
@@ -36,7 +42,7 @@ final class OriginalRaiderModel {
                 activities: activities, activity: activity, resources: resources),
                 resources: resources, sharedTextures: sharedTextures)
         }
-        cameraPartName = activities.cameraNullPartName(frame: 0)
+        cameraPartNames = (0..<4).compactMap { activities.cameraNullPartName(frame: $0) }
         cameraFlipDirection = activities.cameraFlipDirection
         standing = try clip("Activity_Stand")
         walking = try clip("Activity_Route")
@@ -50,35 +56,40 @@ final class OriginalRaiderModel {
         // Retail LightWave space is -Z up; SceneKit cave space is +Y up.
         // Apply once above every Stand/Route/Drill clip and camera-null frame.
         root.eulerAngles.x = CGFloat(OriginalModelCoordinateBasis.sceneKitRootPitchRadians)
-        // MeshLOD_SwapTarget swaps rendered part geometry, not the animated
-        // transform hierarchy. Preserve the original LWS camera nulls and
-        // the normal Stand/Route/Drill meshes for immediate restoration.
+        // Match Creature_Load and MeshLOD_SwapTarget: each original CameraN
+        // has its own authored replacements; never reuse Camera0 for all
+        // camera nulls or generate replacement meshes.
         do {
             let lod = try OriginalFirstPersonMeshLOD.load(activities: activities, resources: resources)
-            if let first = lod.frames.first, lod.hasFirstPersonMeshes {
+            if lod.hasFirstPersonMeshes {
                 for clip in [standing, walking] + (drilling.map { [$0] } ?? []) {
-                    let replacements: [(targeted: Bool, geometry: SCNGeometry?)] = clip.parts.map { part in
-                        guard let name = part.name,
-                              let replacement = first.first(where: {
-                                  OriginalFirstPersonMeshLOD.matches(partName: $0.partName,
-                                                                     lwsName: name)
-                              }) else { return (false, nil) }
-                        return (true, replacement.mesh.map {
-                            OriginalLightWaveRenderer.geometry(asset: $0, resources: resources,
-                                                              sharedTextures: sharedTextures)
-                        })
+                    let replacements = lod.frames.map { cameraSet in
+                        clip.parts.map { part -> (Bool, SCNGeometry?) in
+                            guard let name = part.name,
+                                  let replacement = cameraSet.first(where: {
+                                      OriginalFirstPersonMeshLOD.matches(partName: $0.partName,
+                                                                         lwsName: name)
+                                  }) else { return (false, nil) }
+                            return (true, replacement.mesh.map {
+                                OriginalLightWaveRenderer.geometry(asset: $0, resources: resources,
+                                                                  sharedTextures: sharedTextures)
+                            })
+                        }
                     }
-                    geometrySets.append(GeometrySet(clip: clip, original: clip.parts.map(\.geometry),
-                        firstPerson: replacements.map { $0.geometry }, targeted: replacements.map { $0.targeted }))
+                    geometrySets.append(GeometrySet(
+                        clip: clip, original: clip.parts.map(\.geometry),
+                        firstPerson: replacements.map { $0.map { $0.1 } },
+                        targeted: replacements.map { $0.map { $0.0 } }))
                 }
-                if !geometrySets.contains(where: { $0.firstPerson.contains(where: { $0 != nil }) }) {
+                if !geometrySets.contains(where: {
+                    $0.firstPerson.contains(where: { $0.contains(where: { $0 != nil }) })
+                }) {
                     firstPersonMeshDiagnostic = "Original FPPoly parts did not match the Stand/Route/Drill LWS objects"
                     geometrySets.removeAll()
                 }
             }
         } catch {
-            // An unsupported/missing FPPoly never breaks the regular original
-            // Raider model. First person stays camera-only and diagnostic.
+            // Unsupported/missing retail FPPoly never breaks the regular Raider.
             firstPersonMeshDiagnostic = String(describing: error)
         }
         // All model roots are ground-based. Diagnostic capsule offsets belong
@@ -86,23 +97,50 @@ final class OriginalRaiderModel {
         update(time: epoch)
     }
 
-    /// The first retail camera set is currently selected by native F mode.
-    /// Only genuine FPPoly geometry appears; no substitute tool or artwork.
+    /// Change the original camera-null frame and its corresponding FPPoly
+    /// MeshLOD set together. The caller decides how to expose this control;
+    /// native diagnostic keys are not claimed to match retail input mappings.
     @discardableResult
-    func setFirstPerson(_ enabled: Bool) -> Bool {
-        guard !enabled || !geometrySets.isEmpty else { return false }
+    func selectFirstPersonCameraFrame(_ frame: Int) -> Bool {
+        guard cameraPartNames.indices.contains(frame) else { return false }
+        selectedCameraFrame = frame
+        if firstPersonEnabled { applyFirstPersonMeshes() }
+        return true
+    }
+
+    private func applyFirstPersonMeshes() {
+        var visibleReplacement = false
         for set in geometrySets {
             for index in set.clip.parts.indices {
-                if enabled {
-                    // MeshLOD_SwapTarget changes only explicitly configured
-                    // LWS parts; all other body geometry remains unmodified.
-                    if set.targeted[index] { set.clip.parts[index].geometry = set.firstPerson[index] }
+                if set.targeted[selectedCameraFrame][index] {
+                    let geometry = set.firstPerson[selectedCameraFrame][index]
+                    set.clip.parts[index].geometry = geometry
+                    if geometry != nil { visibleReplacement = true }
                 } else {
+                    // An untargeted part may have been replaced by the
+                    // previous camera set; always restore its original mesh.
                     set.clip.parts[index].geometry = set.original[index]
                 }
             }
         }
-        showingFirstPersonMeshes = enabled
+        showingFirstPersonMeshes = visibleReplacement
+    }
+
+    /// Retain true first-person mode even if the requested frame has no
+    /// matching FPPoly. Its normal body must then be hidden by the view.
+    @discardableResult
+    func setFirstPerson(_ enabled: Bool) -> Bool {
+        firstPersonEnabled = enabled
+        if enabled && !geometrySets.isEmpty {
+            applyFirstPersonMeshes()
+        } else {
+            for set in geometrySets {
+                for index in set.clip.parts.indices {
+                    set.clip.parts[index].geometry = set.original[index]
+                }
+            }
+            showingFirstPersonMeshes = false
+        }
         return showingFirstPersonMeshes
     }
 
@@ -120,7 +158,8 @@ final class OriginalRaiderModel {
     /// The view uses a provisional eye height only when that retail frame
     /// cannot be resolved. Camera heading/flip still need parity validation.
     func firstPersonCameraAnchor() -> SCNNode? {
-        guard let name = cameraPartName else { return nil }
+        guard cameraPartNames.indices.contains(selectedCameraFrame) else { return nil }
+        let name = cameraPartNames[selectedCameraFrame]
         let clip = isDrilling ? (drilling ?? standing) : moving ? walking : standing
         return clip.parts.first { $0.name?.caseInsensitiveCompare(name) == .orderedSame }
     }
