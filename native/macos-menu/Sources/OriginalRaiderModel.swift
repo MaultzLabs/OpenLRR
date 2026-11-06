@@ -26,11 +26,27 @@ final class OriginalRaiderModel {
         let targeted: [[Bool]]
     }
     private var geometrySets: [GeometrySet] = []
-    private(set) var showingFirstPersonMeshes = false
     private(set) var firstPersonMeshDiagnostic: String?
     private var isDrilling = false
     private var moving = false
     private var epoch = ProcessInfo.processInfo.systemUptime
+
+    /// Activity selection must agree with both the animated camera attachment
+    /// and which original LWS geometry is actually visible. Some original
+    /// Stand/Route/Drill clips do not contain the parts named by FPPoly.
+    private var activeClip: OriginalLightWaveRenderer.Clip {
+        isDrilling ? (drilling ?? standing) : (moving ? walking : standing)
+    }
+
+    /// True only if the CURRENT activity has an authentic first-person mesh
+    /// in the selected camera set. Checking every loaded clip previously kept
+    /// the full body visible when the active clip lacked its FPPoly parts.
+    var showingFirstPersonMeshes: Bool {
+        guard firstPersonEnabled,
+              let set = geometrySets.first(where: { $0.clip === activeClip }),
+              set.firstPerson.indices.contains(selectedCameraFrame) else { return false }
+        return set.firstPerson[selectedCameraFrame].contains { $0 != nil }
+    }
 
     init(activities: OriginalRaiderActivities, resources: GameResources, blockSize: Double,
          sharedTextures: String? = nil) throws {
@@ -109,13 +125,11 @@ final class OriginalRaiderModel {
     }
 
     private func applyFirstPersonMeshes() {
-        var visibleReplacement = false
         for set in geometrySets {
             for index in set.clip.parts.indices {
                 if set.targeted[selectedCameraFrame][index] {
                     let geometry = set.firstPerson[selectedCameraFrame][index]
                     set.clip.parts[index].geometry = geometry
-                    if geometry != nil { visibleReplacement = true }
                 } else {
                     // An untargeted part may have been replaced by the
                     // previous camera set; always restore its original mesh.
@@ -123,7 +137,6 @@ final class OriginalRaiderModel {
                 }
             }
         }
-        showingFirstPersonMeshes = visibleReplacement
     }
 
     /// Retain true first-person mode even if the requested frame has no
@@ -139,7 +152,6 @@ final class OriginalRaiderModel {
                     set.clip.parts[index].geometry = set.original[index]
                 }
             }
-            showingFirstPersonMeshes = false
         }
         return showingFirstPersonMeshes
     }
@@ -160,8 +172,7 @@ final class OriginalRaiderModel {
     func firstPersonCameraAnchor() -> SCNNode? {
         guard cameraPartNames.indices.contains(selectedCameraFrame) else { return nil }
         let name = cameraPartNames[selectedCameraFrame]
-        let clip = isDrilling ? (drilling ?? standing) : moving ? walking : standing
-        return clip.parts.first { $0.name?.caseInsensitiveCompare(name) == .orderedSame }
+        return activeClip.parts.first { $0.name?.caseInsensitiveCompare(name) == .orderedSame }
     }
 
     func beginDrilling() -> TimeInterval? {
@@ -180,8 +191,7 @@ final class OriginalRaiderModel {
     }
 
     func update(time: TimeInterval) {
-        let clip = isDrilling ? (drilling ?? standing) : moving ? walking : standing
-        clip.update(elapsed: max(0, time - epoch))
+        activeClip.update(elapsed: max(0, time - epoch))
     }
 }
 #endif

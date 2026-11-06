@@ -315,3 +315,39 @@ Next: verify Mac source compilation and synthetic SceneKit frame switching,
 then confirm the retail Pilot's actual FPPoly camera sets and model bindings
 through legal local assets. After that, test first-person wall destruction,
 rubble, sound and tutorial objectives together. No full-game percentage.
+
+
+## Original first-person mesh visibility across activities — 2026-11-06
+
+Original `Creature_SwapPolyFP` and `MeshLOD_SwapTarget` bind genuine
+FPPoly replacement parts by authored camera set, but each native ACT
+activity has its own LWS part hierarchy. The native camera-frame selection
+prototype applied genuine replacements to all available clips; its global
+"some replacement exists" flag could nonetheless keep the entire Raider
+body visible in first-person mode when the *active* Stand, Route, or Drill
+clip had no matching original FPPoly part. That unmodified full-size body
+can obscure the player's first-person view.
+
+The native model now determines visible first-person replacements from the
+current animated clip and selected CameraN set, not from other activities.
+On every unpaused animation/input frame the view re-evaluates first-person
+body visibility from the authenticated current activity while preserving
+the original LWS camera-null transform tracking even when that body is
+hidden. Exiting F mode still restores each original mesh. No temporary
+hands, tools, synthetic artwork or retail data are shipped.
+
+Hosted macOS SceneKit synthetic regression coverage now includes an original-
+format Stand clip with an FPPoly hand and separate Route/Drill clips which
+lack those target parts. It checks hiding on both transitions, restoration
+on returning to Stand, camera attachment selection, camera-set transitions,
+and original meshes restored upon F-mode exit.
+
+**Acceptance boundaries:** passing synthetic tests and an ARM64 compile
+would demonstrate implementation and buildability, not that the authentic
+Pilot's exact FPPoly names/parts, hand position, Drilling tool motion,
+original frame-switching input, live cave rendering, or tutorial objectives
+match the retail game. The user-owned files still need local visual and
+playable verification. The next gameplay milestone is authentic first-person
+drilling hand/tool, sound and real wall destruction synchronized on the
+first tutorial map, then rubble handling and objective completion. No
+overall game-completion percentage is asserted.

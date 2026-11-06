@@ -267,13 +267,18 @@ private func fixtureWad(_ assets: [FixtureAsset]) -> Data {
           Activities {
             Activity_Stand Stand
             Activity_Route Walk
+            Activity_Drill Drill
           }
           Stand {
             FILE Stand
             LWSFILE TRUE
           }
           Walk {
-            FILE Stand
+            FILE Bare
+            LWSFILE TRUE
+          }
+          Drill {
+            FILE Bare
             LWSFILE TRUE
           }
         }
@@ -371,8 +376,38 @@ private func fixtureWad(_ assets: [FixtureAsset]) -> Data {
         0 1 0 0 0 0 1 1 1
         0 0 0 0 0
         """.utf8)
+        // The authored Route/Drill animation lacks the Arm FPPoly target.
+        // Its unmodified Head mesh would obstruct the first-person view if
+        // visibility were incorrectly based on the Stand clip's FPPoly mesh.
+        let bareScene = Data("""
+        LWSC
+        1
+        FirstFrame 0
+        LastFrame 25
+        FramesPerSecond 25
+        LoadObject Head.lwo
+        ObjectMotion (unnamed)
+        9
+        1
+        0 0 0 0 0 0 1 1 1
+        0 0 0 0 0
+        AddNullObject Cam_00
+        ObjectMotion (unnamed)
+        9
+        1
+        0 0 0 0 0 0 1 1 1
+        0 0 0 0 0
+        AddNullObject Cam_01
+        ObjectMotion (unnamed)
+        9
+        1
+        0 0 0 0 0 0 1 1 1
+        0 0 0 0 0
+        """.utf8)
         let resources = try GameResources(archives: [(0, fixtureWad([
             FixtureAsset(path: "Fixture/Pilot/Stand.lws", bytes: scene),
+            FixtureAsset(path: "Fixture/Pilot/Bare.lws", bytes: bareScene),
+            FixtureAsset(path: "Fixture/Pilot/Head.lwo", bytes: fpTestMesh(1)),
             FixtureAsset(path: "Fixture/Pilot/Arm.lwo", bytes: fpTestMesh(1)),
             FixtureAsset(path: "Fixture/Pilot/Body.lwo", bytes: fpTestMesh(1)),
             FixtureAsset(path: "Fixture/Pilot/OriginalTool.lwo", bytes: fpTestMesh(2)),
@@ -387,12 +422,32 @@ private func fixtureWad(_ assets: [FixtureAsset]) -> Data {
         precondition(model.cameraFrameCount == 2 && model.selectedCameraFrame == 0)
         precondition(model.firstPersonCameraAnchor()?.name == "Cam_00")
         precondition(model.setFirstPerson(true))
+        precondition(model.showingFirstPersonMeshes)
         precondition(arm.geometry !== originalArm && arm.geometry != nil)
         precondition(body.geometry == nil)
+        // Switching to genuine animations without a matching FPPoly part
+        // must hide the full-size body, even though Stand has hand geometry.
+        model.setMoving(true)
+        precondition(!model.showingFirstPersonMeshes,
+                     "Walking with no authored FPPoly part must hide the body")
+        precondition(model.firstPersonCameraAnchor()?.name == "Cam_00")
+        precondition(model.beginDrilling() != nil)
+        precondition(!model.showingFirstPersonMeshes,
+                     "Drilling with no authored FPPoly part must hide the body")
+        precondition(model.firstPersonCameraAnchor()?.name == "Cam_00")
+        model.setMoving(false)
+        precondition(model.showingFirstPersonMeshes,
+                     "Resuming standing must show its original FPPoly hand")
         let firstArm = arm.geometry
         precondition(model.selectFirstPersonCameraFrame(1))
         precondition(model.selectedCameraFrame == 1)
         precondition(model.firstPersonCameraAnchor()?.name == "Cam_01")
+        precondition(model.showingFirstPersonMeshes)
+        model.setMoving(true)
+        precondition(!model.showingFirstPersonMeshes,
+                     "Camera1 cannot borrow a standing mesh during Route")
+        model.setMoving(false)
+        precondition(model.showingFirstPersonMeshes)
         precondition(arm.geometry !== originalArm && arm.geometry !== firstArm)
         precondition(body.geometry === originalBody,
                      "Untargeted Camera1 body must restore original geometry")
@@ -405,6 +460,7 @@ private func fixtureWad(_ assets: [FixtureAsset]) -> Data {
         precondition(arm.geometry === firstArm && body.geometry == nil,
                      "Camera0 must restore its own original tool and null swap")
         precondition(!model.setFirstPerson(false))
+        precondition(!model.showingFirstPersonMeshes)
         precondition(arm.geometry === originalArm && body.geometry === originalBody)
     }
     #endif

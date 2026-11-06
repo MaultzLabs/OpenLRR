@@ -731,6 +731,14 @@ final class NativeLevel3DView: SCNView {
         defer {
             if let id = firstPersonRaider, let marker = raiderMarkers[id],
                let controller = firstPersonController {
+                // First-person hand/tool LOD is activity-specific. A route or
+                // drill clip without the authored FPPoly parts must hide its
+                // full-size Raider body; restore the authentic first-person
+                // geometry as soon as a matching activity resumes. Never hide
+                // the model's camera-null transform hierarchy itself.
+                if let placement = originalObjects?.rockRaiders.first(where: { $0.identifier == id }) {
+                    updatePlacementVisibility(placement)
+                }
                 synchronizeFirstPersonCamera(for: id, marker: marker,
                                              heading: controller.heading, elapsedSeconds: elapsed)
             }
