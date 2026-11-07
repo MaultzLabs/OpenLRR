@@ -351,3 +351,38 @@ playable verification. The next gameplay milestone is authentic first-person
 drilling hand/tool, sound and real wall destruction synchronized on the
 first tutorial map, then rubble handling and objective completion. No
 overall game-completion percentage is asserted.
+
+
+## Accumulated original wall damage during interrupted drilling — 2026-11-07
+
+OpenLRR's `Level_Block_Damage` accumulates damage on the wall rather than
+treating every fresh drilling animation as a full undamaged wall. The native
+prototype previously used a one-shot `SCNAction.wait` and erased all progress
+on retarget/cancel. The native mission now credits normalized drill work per
+**unpaused simulation frame** using original level-zero Pilot
+`LooseDrillTime` / `MedDrillTime` / `SeamDrillTime` seconds where available.
+Damage remains on that original mission-local wall across cancels, pauses,
+view changes and later Raider orders, without editing the retail MAP/WAD.
+
+Before charging any frame, the code revalidates cardinal adjacency, the
+original non-hard mineable wall, the current exposed approach tile, the Raider
+motion generation and finite positive duration. Unobserved frame stalls are
+bounded to 0.25s. On threshold the existing original-map overlay adds floor
+and rubble, reveals eligible connected hidden cavern, refreshes the real
+terrain navigation, and exposes the new floor through `tutorialGroundValue`
+for the original NERPs script. Timed sound and active Drill LWS activity stop
+when the order completes or is cancelled; no wall can be finished by a stale
+SceneKit action completion. Portable synthetic tests exercise partial damage,
+interruption, illegal/remote/paused frames, threshold completion and unchanged
+original map bytes.
+
+**Acceptance boundary:** incremental damage and script-visible floor are
+implemented in native code, not equivalent to visual retail gameplay on a Mac.
+Full source-accurate `Level_Block_Damage` coefficients, upgraded tools,
+multiple-object digging rates, crystals/ore drops, rubble *clearing*, sound
+position/variant, input parity and actual owner-asset FPPoly drilling require
+further implementation and comparison. No completion percent is claimed.
+
+**Next playable milestone:** clear drilling rubble with the original Spade
+task, validate NERPs tutorial handoffs and actual source-asset first-person
+wall destruction, then integrate ore/crystal resource collection.
