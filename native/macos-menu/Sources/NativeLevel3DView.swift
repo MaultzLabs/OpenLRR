@@ -49,7 +49,7 @@ final class NativeLevel3DView: SCNView {
             let position = marker.presentation.position
             motionGenerations[id] = UUID()
             marker.removeAllActions()
-            if drillingRaiders.remove(id) != nil { drillAudio?.stop(raiderID: id, playFade: true) }
+            stopDrilling(id: id)
             marker.position = position
             raiderModels[id]?.setMoving(false)
         }
@@ -68,6 +68,12 @@ final class NativeLevel3DView: SCNView {
     private var selectedRaider: String?
     private var selectedRaiders = Set<String>()
     private var drillingRaiders = Set<String>()
+    private struct ActiveDrill {
+        let order: NativeExcavationState.DrillOrder
+        let duration: Double
+        let generation: UUID
+    }
+    private var activeDrills: [String: ActiveDrill] = [:]
     private var drillAudio: OriginalDrillAudio?
     var selectionCount: Int32 { Int32(selectedRaiders.count) }
     private var raiderModels: [String: OriginalRaiderModel] = [:]
@@ -376,7 +382,8 @@ final class NativeLevel3DView: SCNView {
             motionGenerations[id] = UUID()
             marker.removeAllActions()
         }
-        drillingRaiders.removeAll()
+        for id in Array(drillingRaiders) { stopDrilling(id: id, fade: false) }
+        drillAudio?.stopAll()
     }
 
     private func makeGeometry(_ surface: NativeTerrainMesh.Surface) -> SCNGeometry? {
@@ -469,33 +476,67 @@ final class NativeLevel3DView: SCNView {
         }
     }
 
+    private func stopDrilling(id: String, fade: Bool = true) {
+        activeDrills.removeValue(forKey: id)
+        if drillingRaiders.remove(id) != nil {
+            drillAudio?.stop(raiderID: id, playFade: fade)
+            raiderModels[id]?.setMoving(false)
+        }
+    }
+
     private func performDrill(id: String, order: NativeExcavationState.DrillOrder) {
-        guard !missionTimePaused else { return }
-        guard let marker = raiderMarkers[id], drillingRaiders.insert(id).inserted else { return }
-        let generation = motionGenerations[id]
+        guard !missionTimePaused, !drillingRaiders.contains(id),
+              let marker = raiderMarkers[id] else { return }
+        let position = marker.presentation.position
+        let raiderTile = NativeLevelNavigation.Position(
+            x: Int(floor(Double(position.x) + Double(world.width) / 2)),
+            y: Int(floor(Double(position.z) + Double(world.height) / 2)))
+        guard excavation.validDrillFace(order, raiderAt: raiderTile) else { return }
+        // Stats_Initialise / Level_Block_Damage specify total wall work in
+        // seconds. One ACT animation cycle is NOT necessarily one whole wall.
         let animationDuration = raiderModels[id]?.beginDrilling()
-        // Stats_Initialise / Level_Block_Damage use seconds from the real Pilot
-        // terrain stats. Do not equate one Drill LWS animation cycle with the
-        // time required to break every wall type.
         let terrainCode = world.tile(x: order.wall.x, y: order.wall.y)?.terrainCode ?? 0
-        let duration = drillStats?.seconds(forTerrainCode: terrainCode) ?? animationDuration ?? 0.75
-        marker.eulerAngles = SCNVector3(0, Float(atan2(Double(order.wall.x - order.approach.x),
-                                                     Double(order.wall.y - order.approach.y))), 0)
+        let proposed = drillStats?.seconds(forTerrainCode: terrainCode) ?? animationDuration ?? 0.75
+        let duration = proposed.isFinite && proposed > 0 ? proposed : 0.75
+        let generation = motionGenerations[id] ?? UUID()
+        motionGenerations[id] = generation
+        drillingRaiders.insert(id)
+        activeDrills[id] = ActiveDrill(order: order, duration: duration, generation: generation)
+        marker.eulerAngles = SCNVector3(
+            0, Float(atan2(Double(order.wall.x - order.approach.x),
+                           Double(order.wall.y - order.approach.y))), 0)
         drillAudio?.start(raiderID: id)
-        marker.runAction(.wait(duration: duration)) { [weak self, weak marker] in
-            DispatchQueue.main.async {
-                guard let self, let marker, !self.missionTimePaused,
-                      self.motionGenerations[id] == generation else { return }
-                self.drillingRaiders.remove(id)
-                self.drillAudio?.stop(raiderID: id, playFade: true)
-                self.raiderModels[id]?.setMoving(false)
-                let p = marker.presentation.position
-                let at = NativeLevelNavigation.Position(x: Int(floor(Double(p.x) + Double(self.world.width) / 2)),
-                                                       y: Int(floor(Double(p.z) + Double(self.world.height) / 2)))
-                guard self.excavation.finish(order, raiderAt: at) else { return }
-                self.selectedWall = nil
-                self.refreshExcavatedTerrain()
-                self.onInteractionMessage?("Wall excavated; rubble remains and connected caverns are revealed.")
+    }
+
+    /// Advance wall damage from the same unpaused frame clock as player motion
+    /// and animated LWS models. No SCNAction completion callback can excavate
+    /// a stale wall after retargeting or after a tutorial pause. Damage remains
+    /// attached to the wall when a Raider cancels and resumes drilling.
+    private func advanceDrilling(elapsed: Double) {
+        guard elapsed.isFinite, elapsed > 0 else { return }
+        for (id, action) in Array(activeDrills) {
+            guard let marker = raiderMarkers[id],
+                  motionGenerations[id] == action.generation else {
+                stopDrilling(id: id)
+                continue
+            }
+            let position = marker.presentation.position
+            let at = NativeLevelNavigation.Position(
+                x: Int(floor(Double(position.x) + Double(world.width) / 2)),
+                y: Int(floor(Double(position.z) + Double(world.height) / 2)))
+            guard excavation.validDrillFace(action.order, raiderAt: at) else {
+                stopDrilling(id: id)
+                continue
+            }
+            // Bound unobserved frame stalls; a sleeping window must not finish
+            // several seconds of excavation in one synthetic catch-up tick.
+            if excavation.applyDrill(action.order, raiderAt: at,
+                                     elapsedSeconds: min(elapsed, 0.25),
+                                     requiredSeconds: action.duration) {
+                stopDrilling(id: id)
+                selectedWall = nil
+                refreshExcavatedTerrain()
+                onInteractionMessage?("Wall excavated; rubble remains and connected caverns are revealed.")
             }
         }
     }
@@ -629,6 +670,7 @@ final class NativeLevel3DView: SCNView {
         }
         motionGenerations[id] = UUID()
         marker.removeAllActions() // Cancel click routing before direct control.
+        stopDrilling(id: id)
         marker.position = current
         raiderModels[id]?.setMoving(false)
         firstPersonRaider = id
@@ -652,6 +694,7 @@ final class NativeLevel3DView: SCNView {
         firstPersonController = nil
         firstPersonCameraNeedsSnap = true
         heldKeys.removeAll()
+        stopDrilling(id: id)
         raiderModels[id]?.setFirstPerson(false)
         raiderMarkers[id]?.isHidden = false
         raiderModels[id]?.setMoving(false)
@@ -757,6 +800,7 @@ final class NativeLevel3DView: SCNView {
         }
         for model in raiderModels.values { model.update(time: now) }
         for model in objectModels.values { model.update(time: now) }
+        advanceDrilling(elapsed: elapsed)
         if firstPersonRaider == nil, window?.isKeyWindow == true {
             let horizontal = (heldKeys.contains(124) ? 1.0 : 0) - (heldKeys.contains(123) ? 1.0 : 0)
             let vertical = (heldKeys.contains(125) ? 1.0 : 0) - (heldKeys.contains(126) ? 1.0 : 0)
@@ -851,7 +895,7 @@ final class NativeLevel3DView: SCNView {
         let generation = UUID()
         motionGenerations[id] = generation
         marker.removeAllActions()
-        if drillingRaiders.remove(id) != nil { drillAudio?.stop(raiderID: id, playFade: true) }
+        stopDrilling(id: id)
         marker.position = current // Retarget from the visible position without snapping.
         var previous = from
         let actions: [SCNAction] = route.dropFirst().map { target in

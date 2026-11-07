@@ -407,6 +407,41 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         // Native mining orders must reach a real cardinally adjacent cavern
         // before a mineable wall becomes floor. WAD and MAP bytes stay intact.
         do {
+        // Original Level_Block_Damage persists partial wall work when a
+        // Raider cancels or retargets. Invalid, remote and paused-time
+        // updates cannot charge progress. Only enough real drill time breaks
+        // the wall, creates rubble and opens new script-visible floor.
+        let incremental = NativeExcavationState(world: corridorWorld)
+        let testWall = NativeLevelNavigation.Position(x: 1, y: 1)
+        let testOrder = incremental.plan(from: origin, wall: testWall)!
+        precondition(!incremental.applyDrill(testOrder, raiderAt: origin,
+                                              elapsedSeconds: 1, requiredSeconds: 4))
+        precondition(!incremental.applyDrill(testOrder, raiderAt: testOrder.approach,
+                                              elapsedSeconds: 0, requiredSeconds: 4))
+        precondition(!incremental.applyDrill(testOrder, raiderAt: testOrder.approach,
+                                              elapsedSeconds: .nan, requiredSeconds: 4))
+        precondition(!incremental.applyDrill(testOrder, raiderAt: testOrder.approach,
+                                              elapsedSeconds: 1, requiredSeconds: 0))
+        precondition(incremental.drillDamage.isEmpty)
+        precondition(!incremental.applyDrill(testOrder, raiderAt: testOrder.approach,
+                                              elapsedSeconds: 1, requiredSeconds: 4))
+        precondition(abs((incremental.drillDamage[testWall] ?? 0) - 0.25) < 0.00001)
+        // No per-action reset: the first 25% remains after a cancelled order.
+        precondition(!incremental.applyDrill(testOrder, raiderAt: testOrder.approach,
+                                              elapsedSeconds: 1.5, requiredSeconds: 4))
+        precondition(abs((incremental.drillDamage[testWall] ?? 0) - 0.625) < 0.00001)
+        precondition(!incremental.canDrill(.init(x: -1, y: 1)))
+        precondition(incremental.applyDrill(testOrder, raiderAt: testOrder.approach,
+                                             elapsedSeconds: 1.5, requiredSeconds: 4))
+        precondition(incremental.drillDamage[testWall] == nil)
+        precondition(incremental.excavated.contains(testWall))
+        precondition(incremental.rubble.contains(testWall))
+        precondition(incremental.tutorialGroundValue(1) == 16)
+        precondition(!incremental.applyDrill(testOrder, raiderAt: testOrder.approach,
+                                              elapsedSeconds: 1, requiredSeconds: 4))
+        precondition(corridorWorld.tile(x: testWall.x, y: testWall.y)?.excavation == .wall)
+        print("PASS: cumulative original wall damage, interrupt, invalid/remote frames and excavation")
+
         let mining = NativeExcavationState(world: corridorWorld)
         precondition(mining.tutorialGroundValue(1) == 8)
         precondition(mining.tutorialGroundValue(2) == 0)
