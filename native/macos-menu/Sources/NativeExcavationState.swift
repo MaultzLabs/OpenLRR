@@ -100,7 +100,7 @@ final class NativeExcavationState {
         return finish(order, raiderAt: raiderAt)
     }
 
-    private func validDrillFace(_ order: DrillOrder, raiderAt: Position) -> Bool {
+    func validDrillFace(_ order: DrillOrder, raiderAt: Position) -> Bool {
         raiderAt == order.approach &&
         abs(order.wall.x - raiderAt.x) + abs(order.wall.y - raiderAt.y) == 1 &&
         canDrill(order.wall) &&
