@@ -18,6 +18,11 @@ final class NativeExcavationState {
     private(set) var excavated: Set<Position> = []
     private(set) var revealed: Set<Position> = []
     private(set) var rubble: Set<Position> = []
+    // Original Level_Block_Damage accumulates work on the wall, not on the
+    // current Raider action. Cancelling or retargeting must not heal the rock.
+    // This normalized level-zero progress is mission-local; upgrades and
+    // damage from other tools still require retail parity testing.
+    private(set) var drillDamage: [Position: Double] = [:]
 
     init(world: LevelWorld) {
         self.world = world
@@ -74,15 +79,40 @@ final class NativeExcavationState {
         return best
     }
 
-    /// Called once a unit finishes its approach. Revalidate against the
-    /// current world to reject stale orders and impossible remote excavation.
+    /// Like Level_Block_Damage, partial digging is attached to the original
+    /// wall position and survives interrupted orders. One second contributes
+    /// 1 / configured drill-seconds, rather than resetting each ACT cycle.
+    /// Never charge damage from a remote or stale order, a paused frame, or
+    /// nonfinite/zero time. Call once per actual unpaused simulation frame.
+    @discardableResult
+    func applyDrill(_ order: DrillOrder, raiderAt: Position,
+                    elapsedSeconds: Double, requiredSeconds: Double) -> Bool {
+        guard validDrillFace(order, raiderAt: raiderAt),
+              elapsedSeconds.isFinite, elapsedSeconds > 0,
+              requiredSeconds.isFinite, requiredSeconds > 0 else { return false }
+        let contribution = min(1.0, elapsedSeconds / requiredSeconds)
+        guard contribution.isFinite, contribution > 0 else { return false }
+        let completed = min(1.0, (drillDamage[order.wall] ?? 0) + contribution)
+        if completed < 1.0 {
+            drillDamage[order.wall] = completed
+            return false
+        }
+        return finish(order, raiderAt: raiderAt)
+    }
+
+    private func validDrillFace(_ order: DrillOrder, raiderAt: Position) -> Bool {
+        raiderAt == order.approach &&
+        abs(order.wall.x - raiderAt.x) + abs(order.wall.y - raiderAt.y) == 1 &&
+        canDrill(order.wall) &&
+        NativeLevelNavigation(world: world, excavated: excavated, revealed: revealed).canWalk(raiderAt)
+    }
+
+    /// Revalidate against the current map before revealing the wall. Retain
+    /// this completion entry point for existing excavation/test callers.
     @discardableResult
     func finish(_ order: DrillOrder, raiderAt: Position) -> Bool {
-        guard raiderAt == order.approach,
-              abs(order.wall.x - raiderAt.x) + abs(order.wall.y - raiderAt.y) == 1,
-              canDrill(order.wall),
-              NativeLevelNavigation(world: world, excavated: excavated, revealed: revealed).canWalk(raiderAt)
-        else { return false }
+        guard validDrillFace(order, raiderAt: raiderAt) else { return false }
+        drillDamage.removeValue(forKey: order.wall)
         excavated.insert(order.wall)
         rubble.insert(order.wall)
         // Level_DestroyWall / Level_UncoverHiddenCavern traverse all eight
