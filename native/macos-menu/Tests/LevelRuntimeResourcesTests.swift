@@ -470,10 +470,46 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
                                               elapsedSeconds: 2, secondsPerLayer: 2))
         precondition(incremental.tile(x: testWall.x, y: testWall.y)?.terrain == .tunnel)
         precondition(incremental.tutorialGroundValue(1) == 16)
+        // Each stage must choose an original Rock atlas ID, not a generated
+        // colour or permanent full-rubble texture after clearing a layer.
+        for (layers, material) in [(4, NativeTerrainMesh.Material.rubble),
+                                   (3, .rubbleHigh), (2, .rubbleMedium), (1, .rubbleLow)] {
+            let stage = try NativeTerrainMesh(world: corridorWorld, excavatedTiles: [testWall],
+                rubbleTiles: [testWall], rubbleLayers: [testWall: layers])
+            precondition(stage.surfaces.contains { $0.material == material })
+        }
+        let clearMesh = try NativeTerrainMesh(world: corridorWorld,
+            excavatedTiles: incremental.excavated, rubbleTiles: incremental.rubble,
+            rubbleLayers: incremental.rubbleLayers)
+        precondition(!clearMesh.surfaces.contains { $0.material == .rubble })
+        precondition(!clearMesh.surfaces.contains { $0.material == .rubbleLow })
         precondition(!incremental.applyDrill(testOrder, raiderAt: testOrder.approach,
                                               elapsedSeconds: 1, requiredSeconds: 4))
         precondition(corridorWorld.tile(x: testWall.x, y: testWall.y)?.excavation == .wall)
-        print("PASS: cumulative drill damage, four-layer Spade clearance, remote/invalid frames and original MAP safety")
+        // Already-authored exposed rubble must be loaded as four layers and
+        // clear back to floor without changing its original retail MAP byte.
+        var originalRubbleSurf = surfaces
+        originalRubbleSurf[7] = 12 // original LevelWorld.Terrain.rubble at (2,1)
+        let originalRubbleWad = syntheticWad([
+            ("Tuto.map", syntheticMap(pointerCells, width: 5, height: 5)),
+            ("Levels/GameLevels/Level01/Surf.map", syntheticMap(originalRubbleSurf, width: 5, height: 5)),
+            ("Levels/GameLevels/Level01/Dugg.map", predugData),
+            ("Levels/GameLevels/Level01/High.map", highData)
+        ])
+        let originalRubbleWorld = try LevelWorld(manifest: pointerManifest,
+            resources: GameResources(archives: [(0, originalRubbleWad)]))
+        let originalRubbleState = NativeExcavationState(world: originalRubbleWorld)
+        let originalPile = NativeLevelNavigation.Position(x: 2, y: 1)
+        precondition(originalRubbleState.rubbleLayers[originalPile] == 4)
+        let originalClear = originalRubbleState.planClear(from: origin, tile: originalPile)!
+        for index in 1...4 {
+            let complete = originalRubbleState.applyClear(originalClear, raiderAt: originalPile,
+                elapsedSeconds: 1, secondsPerLayer: 1)
+            precondition(complete == (index == 4))
+        }
+        precondition(originalRubbleState.tile(x: 2, y: 1)?.terrain == .tunnel)
+        precondition(originalRubbleWorld.tile(x: 2, y: 1)?.terrain == .rubble)
+        print("PASS: original and newly drilled four-layer Spade clearance, atlas stages, remote/invalid frames and MAP safety")
 
         let mining = NativeExcavationState(world: corridorWorld)
         precondition(mining.tutorialGroundValue(1) == 8)
