@@ -268,6 +268,7 @@ private func fixtureWad(_ assets: [FixtureAsset]) -> Data {
             Activity_Stand Stand
             Activity_Route Walk
             Activity_Drill Drill
+            Activity_Clear Clear
           }
           Stand {
             FILE Stand
@@ -278,6 +279,10 @@ private func fixtureWad(_ assets: [FixtureAsset]) -> Data {
             LWSFILE TRUE
           }
           Drill {
+            FILE Bare
+            LWSFILE TRUE
+          }
+          Clear {
             FILE Bare
             LWSFILE TRUE
           }
@@ -434,6 +439,11 @@ private func fixtureWad(_ assets: [FixtureAsset]) -> Data {
         precondition(model.beginDrilling() != nil)
         precondition(!model.showingFirstPersonMeshes,
                      "Drilling with no authored FPPoly part must hide the body")
+        precondition(model.firstPersonCameraAnchor()?.name == "Cam_00")
+        precondition(model.beginClearing() != nil,
+                     "The authentic Clear activity must load from Pilot AE")
+        precondition(!model.showingFirstPersonMeshes,
+                     "Clear animation without authored FPPoly must hide the full Raider body")
         precondition(model.firstPersonCameraAnchor()?.name == "Cam_00")
         model.setMoving(false)
         precondition(model.showingFirstPersonMeshes,
