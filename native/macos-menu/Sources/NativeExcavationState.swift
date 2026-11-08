@@ -3,8 +3,9 @@ import Foundation
 /// A mission-local overlay for the first real terrain-changing gameplay
 /// operation. Original WWAD/MAP bytes are never changed or saved.
 /// Drilling removes an already-visible, mineable wall only after a Raider has
-/// reached a cardinally adjacent walkable tile. Resource drops, rubble,
-/// stamina and drill speed are not yet simulated; this is a bounded prototype.
+/// reached a cardinally adjacent walkable tile. Four-layer rubble/spade
+/// clearance now follows; resource drops, tool possession and exact stamina
+/// are not yet simulated. This remains a bounded gameplay prototype.
 final class NativeExcavationState {
     typealias Position = NativeLevelNavigation.Position
 
