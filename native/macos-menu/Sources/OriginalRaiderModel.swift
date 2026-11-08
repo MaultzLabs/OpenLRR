@@ -11,6 +11,7 @@ final class OriginalRaiderModel {
     private let standing: OriginalLightWaveRenderer.Clip
     private let walking: OriginalLightWaveRenderer.Clip
     private let drilling: OriginalLightWaveRenderer.Clip?
+    private let clearing: OriginalLightWaveRenderer.Clip?
     private let cameraPartNames: [String]
     let cameraFlipDirection: Bool
     var cameraFrameCount: Int { cameraPartNames.count }
@@ -28,6 +29,7 @@ final class OriginalRaiderModel {
     private var geometrySets: [GeometrySet] = []
     private(set) var firstPersonMeshDiagnostic: String?
     private var isDrilling = false
+    private var isClearing = false
     private var moving = false
     private var epoch = ProcessInfo.processInfo.systemUptime
 
@@ -35,7 +37,8 @@ final class OriginalRaiderModel {
     /// and which original LWS geometry is actually visible. Some original
     /// Stand/Route/Drill clips do not contain the parts named by FPPoly.
     private var activeClip: OriginalLightWaveRenderer.Clip {
-        isDrilling ? (drilling ?? standing) : (moving ? walking : standing)
+        isDrilling ? (drilling ?? standing) :
+            (isClearing ? (clearing ?? standing) : (moving ? walking : standing))
     }
 
     /// True only if the CURRENT activity has an authentic first-person mesh
@@ -63,10 +66,12 @@ final class OriginalRaiderModel {
         standing = try clip("Activity_Stand")
         walking = try clip("Activity_Route")
         drilling = try? clip("Activity_Drill")
+        clearing = try? clip("Activity_Clear")
         root.addChildNode(standing.root)
         root.addChildNode(walking.root)
         walking.root.isHidden = true
         if let drilling { root.addChildNode(drilling.root); drilling.root.isHidden = true }
+        if let clearing { root.addChildNode(clearing.root); clearing.root.isHidden = true }
         let scale = Float(activities.scale / blockSize)
         root.scale = SCNVector3(scale, scale, scale)
         // Retail LightWave space is -Z up; SceneKit cave space is +Y up.
@@ -78,7 +83,7 @@ final class OriginalRaiderModel {
         do {
             let lod = try OriginalFirstPersonMeshLOD.load(activities: activities, resources: resources)
             if lod.hasFirstPersonMeshes {
-                for clip in [standing, walking] + (drilling.map { [$0] } ?? []) {
+                for clip in [standing, walking] + (drilling.map { [$0] } ?? []) + (clearing.map { [$0] } ?? []) {
                     let replacements = lod.frames.map { cameraSet in
                         clip.parts.map { part -> (Bool, SCNGeometry?) in
                             guard let name = part.name,
@@ -100,7 +105,7 @@ final class OriginalRaiderModel {
                 if !geometrySets.contains(where: {
                     $0.firstPerson.contains(where: { $0.contains(where: { $0 != nil }) })
                 }) {
-                    firstPersonMeshDiagnostic = "Original FPPoly parts did not match the Stand/Route/Drill LWS objects"
+                    firstPersonMeshDiagnostic = "Original FPPoly parts did not match the Stand/Route/Drill/Clear LWS objects"
                     geometrySets.removeAll()
                 }
             }
@@ -157,9 +162,11 @@ final class OriginalRaiderModel {
     }
 
     func setMoving(_ value: Bool) {
-        guard moving != value || isDrilling else { return }
+        guard moving != value || isDrilling || isClearing else { return }
         isDrilling = false
+        isClearing = false
         drilling?.root.isHidden = true
+        clearing?.root.isHidden = true
         moving = value
         epoch = ProcessInfo.processInfo.systemUptime
         standing.root.isHidden = moving
@@ -177,11 +184,25 @@ final class OriginalRaiderModel {
 
     func beginDrilling() -> TimeInterval? {
         guard let drilling else { return nil }
-        isDrilling = true; moving = false
+        isDrilling = true; isClearing = false; moving = false
+        clearing?.root.isHidden = true
         epoch = ProcessInfo.processInfo.systemUptime
         standing.root.isHidden = true; walking.root.isHidden = true
         drilling.root.isHidden = false
         return drilling.asset.duration
+    }
+
+    /// Use the actual original Clear LWS cycle when a Spade order is issued.
+    /// A missing retail clip leaves model geometry unchanged; the caller
+    /// explicitly reports provisional timing instead of inventing art.
+    func beginClearing() -> TimeInterval? {
+        guard let clearing else { return nil }
+        isClearing = true; isDrilling = false; moving = false
+        epoch = ProcessInfo.processInfo.systemUptime
+        standing.root.isHidden = true; walking.root.isHidden = true
+        drilling?.root.isHidden = true
+        clearing.root.isHidden = false
+        return clearing.asset.duration
     }
 
     /// Preserve the current animation frame across an initial objective pause.
