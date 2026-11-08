@@ -386,3 +386,47 @@ further implementation and comparison. No completion percent is claimed.
 **Next playable milestone:** clear drilling rubble with the original Spade
 task, validate NERPs tutorial handoffs and actual source-asset first-person
 wall destruction, then integrate ore/crystal resource collection.
+
+
+## Four-stage rubble removal using original Clear/Spade task — 2026-11-08
+
+OpenLRR `GameCommon.h` defines `AITask_Type_Clear`, `Activity_Clear`,
+`Interface_MenuItem_ClearRubble`, `LegoObject_ToolType_Spade` and
+`LEGO_RUBBLELAYERCOUNT = 4`. The native mission overlay now recognizes
+both pre-authored exposed rubble from the user's retail terrain MAP and
+fresh rubble resulting from breaking a mineable wall. Its four layers
+decrement only while a selected Raider is standing on the reachable rubble
+tile and receiving positive, finite, **unpaused** simulation time. Invalid
+remote attempts cannot advance the task; partial work on an individual
+layer remains across stop/move/reissue, without altering original MAP data.
+
+Clicking rubble exposes the original CFG `ClearRubble` icon in a dedicated
+command panel. The selected Raider uses existing swept wall-clearance,
+dynamic-Raider destination checking and command-generation cancellation to
+reach that tile before starting. When an authentic Pilot `Activity_Clear`
+LWS clip exists, the native model plays it and uses its animation-cycle
+duration per layer. Missing or malformed animation duration has a
+**provisional** 0.75-second fallback, not generated art or retail timing
+parity. SceneKit terrain recomposes original Rock atlas textures
+`TEXTURE_RUBBLE_FULL/HIGH/MEDIUM/LOW` (0x10–0x13) for successive
+layers, then restores the original floor material; the exact 3-D rubble
+pile shape is not yet reproduced.
+
+Synthetic portable tests cover four layers, partial/cancelled work,
+remote/invalid times, authored rubble, original MAP immutability and
+stage-specific material selection. Hosted SceneKit tests exercise an
+original-format Clear LWS activity and first-person body visibility.
+No tests use or redistribute retail game files.
+
+**Not yet retail-playably verified:** original level visual appearance,
+correct per-Raider Spade possession and eligibility, exact clearing rate /
+RubbleCoef and upgrades, physical rubble pile geometry, original tool
+effects and sounds, multiple simultaneous clearing units, NERPs-driven
+task completion, real first-tutorial objective completion, resource
+collection/economy and full campaign. Build/test results are reported
+separately from playable acceptance.
+
+**Next milestone:** authorize clearing only for Raiders with the original
+Spade and CanClearRubble stats, then wire resource drops and collection to
+the wall → four-stage rubble → tutorial objective loop and test with the
+owner's original assets on Apple Silicon. No completion percentage.
