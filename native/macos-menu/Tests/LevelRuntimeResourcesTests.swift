@@ -436,11 +436,44 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         precondition(incremental.drillDamage[testWall] == nil)
         precondition(incremental.excavated.contains(testWall))
         precondition(incremental.rubble.contains(testWall))
+        precondition(incremental.rubbleLayers[testWall] == 4)
+        let clear = incremental.planClear(from: origin, tile: testWall)!
+        precondition(clear.route.first == origin && clear.route.last == testWall)
+        precondition(!incremental.validClear(clear, raiderAt: origin))
+        precondition(!incremental.applyClear(clear, raiderAt: origin,
+                                              elapsedSeconds: 2, secondsPerLayer: 2))
+        precondition(!incremental.applyClear(clear, raiderAt: testWall,
+                                              elapsedSeconds: .nan, secondsPerLayer: 2))
+        precondition(!incremental.applyClear(clear, raiderAt: testWall,
+                                              elapsedSeconds: 2, secondsPerLayer: 0))
+        precondition(incremental.rubbleLayers[testWall] == 4)
+        precondition(incremental.clearWork.isEmpty)
+        precondition(!incremental.applyClear(clear, raiderAt: testWall,
+                                              elapsedSeconds: 0.5, secondsPerLayer: 2))
+        precondition(abs((incremental.clearWork[testWall] ?? 0) - 0.25) < 0.00001)
+        // A new frame/order continues the same layer, not a reset.
+        precondition(!incremental.applyClear(clear, raiderAt: testWall,
+                                              elapsedSeconds: 1.5, secondsPerLayer: 2))
+        precondition(incremental.rubbleLayers[testWall] == 3)
+        precondition(incremental.clearWork[testWall] == nil)
+        for expected in [2, 1] {
+            precondition(!incremental.applyClear(clear, raiderAt: testWall,
+                                                  elapsedSeconds: 2, secondsPerLayer: 2))
+            precondition(incremental.rubbleLayers[testWall] == expected)
+        }
+        precondition(incremental.applyClear(clear, raiderAt: testWall,
+                                             elapsedSeconds: 2, secondsPerLayer: 2))
+        precondition(incremental.rubbleLayers[testWall] == nil)
+        precondition(!incremental.rubble.contains(testWall))
+        precondition(incremental.planClear(from: origin, tile: testWall) == nil)
+        precondition(!incremental.applyClear(clear, raiderAt: testWall,
+                                              elapsedSeconds: 2, secondsPerLayer: 2))
+        precondition(incremental.tile(x: testWall.x, y: testWall.y)?.terrain == .tunnel)
         precondition(incremental.tutorialGroundValue(1) == 16)
         precondition(!incremental.applyDrill(testOrder, raiderAt: testOrder.approach,
                                               elapsedSeconds: 1, requiredSeconds: 4))
         precondition(corridorWorld.tile(x: testWall.x, y: testWall.y)?.excavation == .wall)
-        print("PASS: cumulative original wall damage, interrupt, invalid/remote frames and excavation")
+        print("PASS: cumulative drill damage, four-layer Spade clearance, remote/invalid frames and original MAP safety")
 
         let mining = NativeExcavationState(world: corridorWorld)
         precondition(mining.tutorialGroundValue(1) == 8)
