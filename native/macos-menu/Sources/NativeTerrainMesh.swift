@@ -25,6 +25,9 @@ struct NativeTerrainMesh {
 
     enum Material: String, CaseIterable {
         case rubble
+        case rubbleHigh
+        case rubbleMedium
+        case rubbleLow
         case cavernFloor
         case hardRock
         case mediumRock
@@ -76,7 +79,7 @@ struct NativeTerrainMesh {
         return cornerDifference < oppositeDifference
     }
 
-    init(world: LevelWorld, excavatedTiles: Set<NativeLevelNavigation.Position> = [], revealedTiles: Set<NativeLevelNavigation.Position> = [], rubbleTiles: Set<NativeLevelNavigation.Position> = [], maxTiles: Int = 150_000) throws {
+    init(world: LevelWorld, excavatedTiles: Set<NativeLevelNavigation.Position> = [], revealedTiles: Set<NativeLevelNavigation.Position> = [], rubbleTiles: Set<NativeLevelNavigation.Position> = [], rubbleLayers: [NativeLevelNavigation.Position: Int] = [:], maxTiles: Int = 150_000) throws {
         func wasExcavated(_ x: Int, _ y: Int) -> Bool {
             excavatedTiles.contains(.init(x: x, y: y)) &&
             world.tile(x: x, y: y)?.terrain.isMineableWall == true
@@ -181,7 +184,19 @@ struct NativeTerrainMesh {
                 let h01 = world.surfaceMap.value(x: x, y: z + 1) ?? 0
                 let h11 = world.surfaceMap.value(x: x + 1, y: z + 1) ?? 0
                 // Exposed rock is floor, not a rock/seam wall texture.
-                let tileMaterial: Material = rubbleTiles.contains(.init(x: x, y: z)) ? .rubble : !wall && ![LevelWorld.Terrain.water, .lake, .lava].contains(tile.terrain) ? .cavernFloor : material(for: tile)
+                let position = NativeLevelNavigation.Position(x: x, y: z)
+                let layers = rubbleLayers[position] ?? (rubbleTiles.contains(position) ? 4 : 0)
+                let rubbleMaterial: Material?
+                switch layers {
+                case 4: rubbleMaterial = .rubble
+                case 3: rubbleMaterial = .rubbleHigh
+                case 2: rubbleMaterial = .rubbleMedium
+                case 1: rubbleMaterial = .rubbleLow
+                default: rubbleMaterial = nil
+                }
+                let tileMaterial: Material = rubbleMaterial ??
+                    (!wall && ![LevelWorld.Terrain.water, .lake, .lava].contains(tile.terrain) ?
+                        .cavernFloor : material(for: tile))
                 if Self.usesUpperLeftDiagonal(topLeft: h00,
                                              topRight: h10,
                                              bottomLeft: h01,

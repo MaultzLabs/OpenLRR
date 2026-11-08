@@ -436,11 +436,80 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         precondition(incremental.drillDamage[testWall] == nil)
         precondition(incremental.excavated.contains(testWall))
         precondition(incremental.rubble.contains(testWall))
+        precondition(incremental.rubbleLayers[testWall] == 4)
+        let clear = incremental.planClear(from: origin, tile: testWall)!
+        precondition(clear.route.first == origin && clear.route.last == testWall)
+        precondition(!incremental.validClear(clear, raiderAt: origin))
+        precondition(!incremental.applyClear(clear, raiderAt: origin,
+                                              elapsedSeconds: 2, secondsPerLayer: 2))
+        precondition(!incremental.applyClear(clear, raiderAt: testWall,
+                                              elapsedSeconds: .nan, secondsPerLayer: 2))
+        precondition(!incremental.applyClear(clear, raiderAt: testWall,
+                                              elapsedSeconds: 2, secondsPerLayer: 0))
+        precondition(incremental.rubbleLayers[testWall] == 4)
+        precondition(incremental.clearWork.isEmpty)
+        precondition(!incremental.applyClear(clear, raiderAt: testWall,
+                                              elapsedSeconds: 0.5, secondsPerLayer: 2))
+        precondition(abs((incremental.clearWork[testWall] ?? 0) - 0.25) < 0.00001)
+        // A new frame/order continues the same layer, not a reset.
+        precondition(!incremental.applyClear(clear, raiderAt: testWall,
+                                              elapsedSeconds: 1.5, secondsPerLayer: 2))
+        precondition(incremental.rubbleLayers[testWall] == 3)
+        precondition(incremental.clearWork[testWall] == nil)
+        for expected in [2, 1] {
+            precondition(!incremental.applyClear(clear, raiderAt: testWall,
+                                                  elapsedSeconds: 2, secondsPerLayer: 2))
+            precondition(incremental.rubbleLayers[testWall] == expected)
+        }
+        precondition(incremental.applyClear(clear, raiderAt: testWall,
+                                             elapsedSeconds: 2, secondsPerLayer: 2))
+        precondition(incremental.rubbleLayers[testWall] == nil)
+        precondition(!incremental.rubble.contains(testWall))
+        precondition(incremental.planClear(from: origin, tile: testWall) == nil)
+        precondition(!incremental.applyClear(clear, raiderAt: testWall,
+                                              elapsedSeconds: 2, secondsPerLayer: 2))
+        precondition(incremental.tile(x: testWall.x, y: testWall.y)?.terrain == .tunnel)
         precondition(incremental.tutorialGroundValue(1) == 16)
+        // Each stage must choose an original Rock atlas ID, not a generated
+        // colour or permanent full-rubble texture after clearing a layer.
+        for (layers, material) in [(4, NativeTerrainMesh.Material.rubble),
+                                   (3, .rubbleHigh), (2, .rubbleMedium), (1, .rubbleLow)] {
+            let stage = try NativeTerrainMesh(world: corridorWorld, excavatedTiles: [testWall],
+                rubbleTiles: [testWall], rubbleLayers: [testWall: layers])
+            precondition(stage.surfaces.contains { $0.material == material })
+        }
+        let clearMesh = try NativeTerrainMesh(world: corridorWorld,
+            excavatedTiles: incremental.excavated, rubbleTiles: incremental.rubble,
+            rubbleLayers: incremental.rubbleLayers)
+        precondition(!clearMesh.surfaces.contains { $0.material == .rubble })
+        precondition(!clearMesh.surfaces.contains { $0.material == .rubbleLow })
         precondition(!incremental.applyDrill(testOrder, raiderAt: testOrder.approach,
                                               elapsedSeconds: 1, requiredSeconds: 4))
         precondition(corridorWorld.tile(x: testWall.x, y: testWall.y)?.excavation == .wall)
-        print("PASS: cumulative original wall damage, interrupt, invalid/remote frames and excavation")
+        // Already-authored exposed rubble must be loaded as four layers and
+        // clear back to floor without changing its original retail MAP byte.
+        var originalRubbleSurf = surfaces
+        originalRubbleSurf[7] = 12 // original LevelWorld.Terrain.rubble at (2,1)
+        let originalRubbleWad = syntheticWad([
+            ("Tuto.map", syntheticMap(pointerCells, width: 5, height: 5)),
+            ("Levels/GameLevels/Level01/Surf.map", syntheticMap(originalRubbleSurf, width: 5, height: 5)),
+            ("Levels/GameLevels/Level01/Dugg.map", predugData),
+            ("Levels/GameLevels/Level01/High.map", highData)
+        ])
+        let originalRubbleWorld = try LevelWorld(manifest: pointerManifest,
+            resources: GameResources(archives: [(0, originalRubbleWad)]))
+        let originalRubbleState = NativeExcavationState(world: originalRubbleWorld)
+        let originalPile = NativeLevelNavigation.Position(x: 2, y: 1)
+        precondition(originalRubbleState.rubbleLayers[originalPile] == 4)
+        let originalClear = originalRubbleState.planClear(from: origin, tile: originalPile)!
+        for index in 1...4 {
+            let complete = originalRubbleState.applyClear(originalClear, raiderAt: originalPile,
+                elapsedSeconds: 1, secondsPerLayer: 1)
+            precondition(complete == (index == 4))
+        }
+        precondition(originalRubbleState.tile(x: 2, y: 1)?.terrain == .tunnel)
+        precondition(originalRubbleWorld.tile(x: 2, y: 1)?.terrain == .rubble)
+        print("PASS: original and newly drilled four-layer Spade clearance, atlas stages, remote/invalid frames and MAP safety")
 
         let mining = NativeExcavationState(world: corridorWorld)
         precondition(mining.tutorialGroundValue(1) == 8)
