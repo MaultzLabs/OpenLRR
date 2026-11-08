@@ -24,7 +24,9 @@ final class NativeLevel3DView: SCNView {
     private var terrainMaterials: [NativeTerrainMesh.Material: SCNMaterial] = [:]
     var onTerrainChanged: (() -> Void)?
     private var selectedWall: NativeLevelNavigation.Position?
+    private var selectedRubble: NativeLevelNavigation.Position?
     var hasSelectedWall: Bool { selectedWall != nil }
+    var hasSelectedRubble: Bool { selectedRubble != nil }
     var hasSelectedRaider: Bool { selectedRaider != nil }
     var isInFirstPerson: Bool { firstPersonRaider != nil }
     var onSelectionChanged: (() -> Void)?
@@ -32,6 +34,7 @@ final class NativeLevel3DView: SCNView {
     func clearSelection() {
         leaveFirstPerson()
         selectedWall = nil
+        selectedRubble = nil
         selectedRaider = nil
         selectedRaiders.removeAll()
         for marker in raiderMarkers.values {
@@ -50,6 +53,7 @@ final class NativeLevel3DView: SCNView {
             motionGenerations[id] = UUID()
             marker.removeAllActions()
             stopDrilling(id: id)
+            stopClearing(id: id)
             marker.position = position
             raiderModels[id]?.setMoving(false)
         }
@@ -74,6 +78,13 @@ final class NativeLevel3DView: SCNView {
         let generation: UUID
     }
     private var activeDrills: [String: ActiveDrill] = [:]
+    private struct ActiveClear {
+        let order: NativeExcavationState.ClearOrder
+        let secondsPerLayer: Double
+        let generation: UUID
+    }
+    private var activeClears: [String: ActiveClear] = [:]
+    private var clearingRaiders = Set<String>()
     private var drillAudio: OriginalDrillAudio?
     var selectionCount: Int32 { Int32(selectedRaiders.count) }
     private var raiderModels: [String: OriginalRaiderModel] = [:]
@@ -383,6 +394,7 @@ final class NativeLevel3DView: SCNView {
             marker.removeAllActions()
         }
         for id in Array(drillingRaiders) { stopDrilling(id: id, fade: false) }
+        for id in Array(clearingRaiders) { stopClearing(id: id) }
         drillAudio?.stopAll()
     }
 
@@ -473,6 +485,86 @@ final class NativeLevel3DView: SCNView {
             guard let self, marker != nil else { return }
             self.performDrill(id: id, order: order)
 
+        }
+    }
+
+    func clearSelectedRubble() {
+        guard !missionTimePaused, firstPersonRaider == nil,
+              tutorialInputPolicy.canClickIcons,
+              let tile = selectedRubble, let id = selectedRaider,
+              let marker = raiderMarkers[id],
+              originalObjects?.rockRaiders.first(where: { $0.identifier == id })?.drivingIdentifier == nil
+        else {
+            onInteractionMessage?("Select a Rock Raider and a rubble tile to clear.")
+            return
+        }
+        let point = marker.presentation.position
+        let from = NativeLevelNavigation.Position(
+            x: Int(floor(Double(point.x) + Double(world.width) / 2)),
+            y: Int(floor(Double(point.z) + Double(world.height) / 2)))
+        guard let order = excavation.planClear(from: from, tile: tile) else {
+            onInteractionMessage?("No reachable rubble tile.")
+            return
+        }
+        commandMove(to: .init(x: Double(tile.x) + 0.5, y: Double(tile.y) + 0.5)) { [weak self] in
+            self?.performClear(id: id, order: order)
+        }
+    }
+
+    private func stopClearing(id: String) {
+        activeClears.removeValue(forKey: id)
+        if clearingRaiders.remove(id) != nil {
+            raiderModels[id]?.setMoving(false)
+        }
+    }
+
+    private func performClear(id: String, order: NativeExcavationState.ClearOrder) {
+        guard !missionTimePaused, !clearingRaiders.contains(id),
+              let marker = raiderMarkers[id] else { return }
+        let position = marker.presentation.position
+        let at = NativeLevelNavigation.Position(
+            x: Int(floor(Double(position.x) + Double(world.width) / 2)),
+            y: Int(floor(Double(position.z) + Double(world.height) / 2)))
+        guard excavation.validClear(order, raiderAt: at) else { return }
+        // Source: AITask_Type_Clear / Activity_Clear / LEGO_RUBBLELAYERCOUNT.
+        // Genuine LWS cycle time is preferred; fallback remains provisional.
+        let cycle = raiderModels[id]?.beginClearing() ?? 0.75
+        let seconds = cycle.isFinite && cycle > 0 ? cycle : 0.75
+        let generation = motionGenerations[id] ?? UUID()
+        motionGenerations[id] = generation
+        clearingRaiders.insert(id)
+        activeClears[id] = ActiveClear(order: order, secondsPerLayer: seconds,
+                                        generation: generation)
+    }
+
+    private func advanceClearing(elapsed: Double) {
+        guard elapsed.isFinite, elapsed > 0 else { return }
+        for (id, action) in Array(activeClears) {
+            guard let marker = raiderMarkers[id],
+                  motionGenerations[id] == action.generation else {
+                stopClearing(id: id)
+                continue
+            }
+            let position = marker.presentation.position
+            let at = NativeLevelNavigation.Position(
+                x: Int(floor(Double(position.x) + Double(world.width) / 2)),
+                y: Int(floor(Double(position.z) + Double(world.height) / 2)))
+            guard excavation.validClear(action.order, raiderAt: at) else {
+                stopClearing(id: id)
+                continue
+            }
+            let before = excavation.rubbleLayers[action.order.tile]
+            let completed = excavation.applyClear(action.order, raiderAt: at,
+                elapsedSeconds: min(elapsed, 0.25), secondsPerLayer: action.secondsPerLayer)
+            if excavation.rubbleLayers[action.order.tile] != before {
+                refreshExcavatedTerrain()
+            }
+            if completed {
+                stopClearing(id: id)
+                selectedRubble = nil
+                onSelectionChanged?()
+                onInteractionMessage?("Rubble cleared; original cavern floor exposed.")
+            }
         }
     }
 
@@ -801,6 +893,7 @@ final class NativeLevel3DView: SCNView {
         for model in raiderModels.values { model.update(time: now) }
         for model in objectModels.values { model.update(time: now) }
         advanceDrilling(elapsed: elapsed)
+        advanceClearing(elapsed: elapsed)
         if firstPersonRaider == nil, window?.isKeyWindow == true {
             let horizontal = (heldKeys.contains(124) ? 1.0 : 0) - (heldKeys.contains(123) ? 1.0 : 0)
             let vertical = (heldKeys.contains(125) ? 1.0 : 0) - (heldKeys.contains(126) ? 1.0 : 0)
@@ -815,7 +908,7 @@ final class NativeLevel3DView: SCNView {
                       (heldKeys.contains(1) || heldKeys.contains(125) ? 1.0 : 0.0)
         let turn = (heldKeys.contains(2) || heldKeys.contains(124) ? 1.0 : 0.0) -
                    (heldKeys.contains(0) || heldKeys.contains(123) ? 1.0 : 0.0)
-        if drillingRaiders.contains(id) { return }
+        if drillingRaiders.contains(id) || clearingRaiders.contains(id) { return }
         let moved = controller.advance(
             forward: forward, turn: turn, elapsed: elapsed,
             obstacles: otherRaiderObstacles(excluding: id))
@@ -847,6 +940,7 @@ final class NativeLevel3DView: SCNView {
         } else { selectedRaiders = [id] }
         selectedRaider = selectedRaiders.contains(id) ? id : selectedRaiders.sorted().first
         selectedWall = nil
+        selectedRubble = nil
         onSelectionChanged?()
         onRockRaiderSelected?(id)
         for (identifier, marker) in raiderMarkers {
@@ -896,6 +990,7 @@ final class NativeLevel3DView: SCNView {
         motionGenerations[id] = generation
         marker.removeAllActions()
         stopDrilling(id: id)
+        stopClearing(id: id)
         marker.position = current // Retarget from the visible position without snapping.
         var previous = from
         let actions: [SCNAction] = route.dropFirst().map { target in
@@ -963,10 +1058,12 @@ final class NativeLevel3DView: SCNView {
             let normal = terrainHit.worldNormal
             let x = Int(floor(Double(point.x - normal.x * 0.01) + Double(world.width) / 2))
             let z = Int(floor(Double(point.z - normal.z * 0.01) + Double(world.height) / 2))
-            selectedWall = excavation.canDrill(.init(x: x, y: z)) ? .init(x: x, y: z) : nil
+            let tilePosition = NativeLevelNavigation.Position(x: x, y: z)
+            selectedWall = excavation.canDrill(tilePosition) ? tilePosition : nil
+            selectedRubble = selectedWall == nil && excavation.canClearRubble(tilePosition) ? tilePosition : nil
             if let tile = excavation.tile(x: x, y: z) {
                 onTileSelected?(tile)
-                if selectedRaider != nil && selectedWall == nil {
+                if selectedRaider != nil && selectedWall == nil && selectedRubble == nil {
                     let ids = selectedRaiders.sorted()
                     for (index, id) in ids.enumerated() {
                         let angle = Double(index) * 2 * .pi / Double(max(1, ids.count))
@@ -1152,7 +1249,9 @@ final class NativeMissionWorkspace: NSView {
         setDiagnosticsVisible(false)
         level3D.onTileSelected = { [weak self] tile in
             if let self {
-                self.commandPage = self.level3D.hasSelectedWall ? .wall : self.level3D.hasSelectedRaider ? .raider : .main
+                self.commandPage = self.level3D.hasSelectedWall ? .wall :
+                    (self.level3D.hasSelectedRubble ? .rubble :
+                     (self.level3D.hasSelectedRaider ? .raider : .main))
                 self.refreshWallControls()
             }
             self?.status.stringValue =
@@ -1289,7 +1388,8 @@ final class NativeMissionWorkspace: NSView {
     }
 
     private func refreshWallControls() {
-        if commandPage == .wall && !level3D.hasSelectedWall {
+        if (commandPage == .wall && !level3D.hasSelectedWall) ||
+           (commandPage == .rubble && !level3D.hasSelectedRubble) {
             commandPage = level3D.hasSelectedRaider ? .raider : .main
         }
         commands.isHidden = mode.selectedSegment != 0
@@ -1306,6 +1406,7 @@ final class NativeMissionWorkspace: NSView {
             nerpsState?.reportDigIconClick()
             level3D.drillSelectedWall()
         case "DeselectDig": level3D.cancelSelectedOrder()
+        case "ClearRubble": level3D.clearSelectedRubble()
         case "BuildBuilding":
             nerpsState?.reportBuildIconClick()
             commandPage = .buildings
