@@ -12,7 +12,7 @@ struct OriginalMissionCommand {
 struct OriginalMissionCommandCatalog {
     let config: LegoConfig?
     enum Page: Equatable {
-        case main, buildings, raider, wall, firstPerson
+        case main, buildings, raider, wall, rubble, firstPerson
         // Interface_NotMainOrFirstPersonMenu excludes both of these pages.
         var showsBack: Bool { self != .main && self != .firstPerson }
     }
@@ -49,6 +49,11 @@ struct OriginalMissionCommandCatalog {
                     item("DeselectDig", "Cancel drilling", hasRaider, "Cancel the selected Raider's current order."),
                     item("Reinforce", "Reinforce wall", false, "Wall reinforcement is not available in this build."),
                     item("Dynamite", "Dynamite", false, "Explosives are not available in this build.")]
+        case .rubble:
+            return [item("ClearRubble", "Clear rubble", hasRaider,
+                         hasRaider ? "Use the original Spade/Clear task to remove four rubble layers." :
+                                     "Select a Rock Raider before clearing rubble."),
+                    item("DeselectDig", "Cancel order", hasRaider, "Stop the selected Rock Raider's current task.")]
         case .raider:
             return [item("GotoFirstPerson", "First-person view", true, "Control this Rock Raider directly. F also switches view."),
                     item("GetTool", "Get tools", false, "Tool collection is not available in this build."),
