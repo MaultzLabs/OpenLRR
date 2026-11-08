@@ -153,9 +153,11 @@ final class NativeLevel3DView: SCNView {
         self.raiderClearance = OriginalRaiderCollision.tileRadius(config: config, blockSize: blockSize)
         self.drillStats = config.map { OriginalDrillStats(config: $0) }
         self.world = world
-        self.terrainMesh = try NativeTerrainMesh(world: world)
+        let excavationState = NativeExcavationState(world: world)
+        self.terrainMesh = try NativeTerrainMesh(world: world,
+            rubbleTiles: excavationState.rubble, rubbleLayers: excavationState.rubbleLayers)
         self.originalObjects = objects
-        self.excavation = NativeExcavationState(world: world)
+        self.excavation = excavationState
 
         let textureCatalog = OriginalTerrainTextureCatalog(
             textureSetSetting: textureSet, resources: resources)
@@ -445,7 +447,9 @@ final class NativeLevel3DView: SCNView {
     private func refreshExcavatedTerrain() {
         guard let scene else { return }
         do {
-            let updated = try NativeTerrainMesh(world: world, excavatedTiles: excavation.excavated, revealedTiles: excavation.revealed, rubbleTiles: excavation.rubble)
+            let updated = try NativeTerrainMesh(world: world, excavatedTiles: excavation.excavated,
+                revealedTiles: excavation.revealed, rubbleTiles: excavation.rubble,
+                rubbleLayers: excavation.rubbleLayers)
             let replacements = updated.surfaces.compactMap { surface -> SCNNode? in
                 guard let geometry = makeGeometry(surface) else { return nil }
                 // The opened floor reuses the existing original floor bitmap.
@@ -641,6 +645,9 @@ final class NativeLevel3DView: SCNView {
     private static func textureID(for material: NativeTerrainMesh.Material) -> UInt8? {
         switch material {
         case .rubble: return 0x10
+        case .rubbleHigh: return 0x11
+        case .rubbleMedium: return 0x12
+        case .rubbleLow: return 0x13
         case .cavernFloor: return 0x00
         case .dirt, .wallFace: return 0x02
         case .mediumRock: return 0x03
@@ -656,7 +663,7 @@ final class NativeLevel3DView: SCNView {
 
     private static func color(_ material: NativeTerrainMesh.Material) -> NSColor {
         switch material {
-        case .rubble: return NSColor.darkGray
+        case .rubble, .rubbleHigh, .rubbleMedium, .rubbleLow: return NSColor.darkGray
         case .cavernFloor: return NSColor(calibratedRed: 0.30, green: 0.39, blue: 0.35, alpha: 1)
         case .hardRock: return NSColor(calibratedRed: 0.46, green: 0.48, blue: 0.53, alpha: 1)
         case .mediumRock: return NSColor(calibratedRed: 0.60, green: 0.47, blue: 0.31, alpha: 1)
