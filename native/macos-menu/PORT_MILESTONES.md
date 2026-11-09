@@ -430,3 +430,38 @@ separately from playable acceptance.
 Spade and CanClearRubble stats, then wire resource drops and collection to
 the wall → four-stage rubble → tutorial objective loop and test with the
 owner's original assets on Apple Silicon. No completion percentage.
+
+## Pilot CanClearRubble capability gate — 2026-11-09
+
+OpenLRR `Stats.cpp::Stats_Initialise` sets
+`STATS1_CANCLEARRUBBLE` only when the original
+`Stats::Pilot::CanClearRubble` value is explicitly TRUE/YES/ON.
+The November 8 native Clear prototype enabled the command for every
+selected Raider, even if the original stat was false or missing.
+The November 9 isolated branch now reads that original BoolTri setting
+and disables the ClearRubble HUD command for incapable/missing Pilot
+stats. Direct commands, asynchronous arrival callbacks and in-progress
+simulation updates all independently re-check the capability; no
+unqualified order can advance rubble work. Synthetic portable tests
+cover true/false/missing/invalid stats and command availability.
+
+**This does not yet enforce possession of an original Spade.** Original
+`Stats_AddToolTaskType(Spade, Clear)` maps the task to the tool, but the
+native app does not yet simulate tool-store acquisition, per-unit tool
+inventories or upgrades. Do not claim Spade possession or full retail
+task assignment. Existing clear timing is based on authored
+`Activity_Clear` clip duration when available, otherwise an explicitly
+provisional fallback; source-defined `RubbleCoef` and effects require
+verification before retail speed parity can be claimed.
+
+**Acceptance:** Source implementation and synthetic tests are separate
+from hosted ARM64 compilation and actual owner-asset gameplay. Verify
+the exact final commit's CI before claiming a pass. The first tutorial
+still needs ore/crystal drops and collection, actual Spade acquisition,
+NERPs completion, original sound/mesh visual comparison, building/economy,
+vehicles, save/load, and an end-to-end campaign run.
+
+**Next chosen gameplay milestone:** original resource drops from CryOreMap
+after a wall is drilled, with distinct collectible ore/crystal items and
+NERPs counters. Validate against original C++ and locally owned assets,
+without adding substitute artwork.
