@@ -442,8 +442,12 @@ The November 9 isolated branch now reads that original BoolTri setting
 and disables the ClearRubble HUD command for incapable/missing Pilot
 stats. Direct commands, asynchronous arrival callbacks and in-progress
 simulation updates all independently re-check the capability; no
-unqualified order can advance rubble work. Synthetic portable tests
-cover true/false/missing/invalid stats and command availability.
+unqualified order can advance rubble work. Fractional clear-cycle time
+is now carried across four-layer rubble texture transitions instead of
+being discarded at each boundary, avoiding frame-alignment-dependent
+clear times (while retaining the existing bounded per-frame work cap).
+Synthetic portable tests cover true/false/missing/invalid stats,
+command availability and sub-layer work carryover.
 
 **This does not yet enforce possession of an original Spade.** Original
 `Stats_AddToolTaskType(Spade, Clear)` maps the task to the tool, but the
