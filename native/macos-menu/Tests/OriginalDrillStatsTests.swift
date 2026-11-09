@@ -62,12 +62,12 @@ struct OriginalDrillStatsTests {
         precondition(!missing.pilotCanClearRubble())
         for value in ["TRUE", "YES", "ON", "true", "YeS"] {
             let enabled = try LegoConfig(text:
-                "Lego* { Stats { Pilot { CanClearRubble \(value) } } }")
+                "Lego* { Main { SoundOn TRUE } Stats { Pilot { CanClearRubble \(value) } } }")
             precondition(enabled.pilotCanClearRubble())
         }
         for value in ["FALSE", "NO", "OFF", "0", "1", "maybe", ""] {
             let disabled = try LegoConfig(text:
-                "Lego* { Stats { Pilot { CanClearRubble \(value) } } }")
+                "Lego* { Main { SoundOn TRUE } Stats { Pilot { CanClearRubble \(value) } } }")
             precondition(!disabled.pilotCanClearRubble())
         }
         print("OriginalDrillStatsTests passed: terrain, level-zero stats, sound IDs, CanClearRubble BoolTri")
