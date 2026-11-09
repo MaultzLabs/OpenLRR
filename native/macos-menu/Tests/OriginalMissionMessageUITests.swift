@@ -88,6 +88,17 @@ import Foundation
         precondition(!OriginalMissionCommandCatalog(config: nil).commands(on: .main, hasRaider: false)[1].enabled)
         precondition(!catalog.commands(on: .wall, hasRaider: false)[0].enabled)
         precondition(catalog.commands(on: .wall, hasRaider: true)[0].enabled)
+        // UI must reflect the original Pilot STATS1_CANCLEARRUBBLE bit
+        // instead of offering an enabled command that runtime will reject.
+        precondition(!catalog.commands(on: .rubble, hasRaider: true)[0].enabled)
+        precondition(!OriginalMissionCommandCatalog(config: nil)
+            .commands(on: .rubble, hasRaider: true)[0].enabled)
+        let clearConfig = try LegoConfig(text:
+            "Lego* { Stats { Pilot { CanClearRubble YES } } }")
+        let clearCatalog = OriginalMissionCommandCatalog(config: clearConfig)
+        precondition(clearCatalog.commands(on: .rubble, hasRaider: true)[0].enabled)
+        precondition(!clearCatalog.commands(on: .rubble, hasRaider: false)[0].enabled)
+        precondition(clearCatalog.commands(on: .rubble, hasRaider: true)[0].id == "ClearRubble")
         precondition(catalog.commands(on: .firstPerson, hasRaider: true)[0].id == "GotoTopView")
         let backSurround = catalog.surround(count: 4, hasBack: true)!
         let mainSurround = catalog.surround(count: 4, hasBack: false)!
