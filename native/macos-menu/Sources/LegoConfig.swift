@@ -149,5 +149,15 @@ struct LegoConfig {
         return result
     }
 
+    /// Stats_Initialise sets STATS1_CANCLEARRUBBLE only when the original
+    /// Pilot CanClearRubble property is explicitly BOOL3_TRUE. Missing,
+    /// malformed and false settings leave the capability disabled.
+    func pilotCanClearRubble() -> Bool {
+        guard let setting = valueUnderGame(["Stats", "Pilot", "CanClearRubble"])?
+                .trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        else { return false }
+        return ["TRUE", "YES", "ON"].contains(setting)
+    }
+
     var settingCount: Int { properties.count }
 }
