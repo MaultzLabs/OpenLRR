@@ -109,12 +109,20 @@ final class NativeExcavationState {
             clearWork[order.tile] = total
             return false
         }
-        clearWork.removeValue(forKey: order.tile)
+        // A frame can finish a layer with a fractional cycle left over.
+        // Preserve that carried work on the NEXT layer rather than losing it
+        // every time a visual rubble texture changes, making clear speed
+        // sensitive to the app's frame rate. The per-frame contribution is
+        // capped to at most one layer by the guard above.
+        let remainder = max(0, total - 1.0)
         let remaining = (rubbleLayers[order.tile] ?? 0) - 1
         if remaining > 0 {
             rubbleLayers[order.tile] = remaining
+            if remainder > 0 { clearWork[order.tile] = remainder }
+            else { clearWork.removeValue(forKey: order.tile) }
             return false
         }
+        clearWork.removeValue(forKey: order.tile)
         rubbleLayers.removeValue(forKey: order.tile)
         if world.tile(x: order.tile.x, y: order.tile.y)?.terrain == .rubble {
             clearedOriginalRubble.insert(order.tile)
