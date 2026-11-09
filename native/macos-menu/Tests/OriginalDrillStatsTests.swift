@@ -57,6 +57,19 @@ struct OriginalDrillStatsTests {
 
         let missing = try LegoConfig(text: "Lego* { Main { SoundOn TRUE } }")
         precondition(OriginalDrillStats(config: missing).seconds(forTerrainCode: 4) == nil)
-        print("OriginalDrillStatsTests passed: terrain, level-zero stats, invalid times, source sound IDs")
+        // Stats_Initialise::STATS1_CANCLEARRUBBLE is enabled only by
+        // BoolTri TRUE. Missing and malformed settings are NOT permission.
+        precondition(!missing.pilotCanClearRubble())
+        for value in ["TRUE", "YES", "ON", "true", "YeS"] {
+            let enabled = try LegoConfig(text:
+                "Lego* { Main { SoundOn TRUE } Stats { Pilot { CanClearRubble \(value) } } }")
+            precondition(enabled.pilotCanClearRubble())
+        }
+        for value in ["FALSE", "NO", "OFF", "0", "1", "maybe", ""] {
+            let disabled = try LegoConfig(text:
+                "Lego* { Main { SoundOn TRUE } Stats { Pilot { CanClearRubble \(value) } } }")
+            precondition(!disabled.pilotCanClearRubble())
+        }
+        print("OriginalDrillStatsTests passed: terrain, level-zero stats, sound IDs, CanClearRubble BoolTri")
     }
 }

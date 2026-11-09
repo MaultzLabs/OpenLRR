@@ -502,6 +502,21 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         let originalPile = NativeLevelNavigation.Position(x: 2, y: 1)
         precondition(originalRubbleState.rubbleLayers[originalPile] == 4)
         let originalClear = originalRubbleState.planClear(from: origin, tile: originalPile)!
+        // A clear frame crossing a layer boundary must apply its extra work
+        // to the next layer. Previously each such remainder was discarded,
+        // making total clear time depend on frame alignment.
+        let carriedState = NativeExcavationState(world: originalRubbleWorld)
+        let carriedOrder = carriedState.planClear(from: origin, tile: originalPile)!
+        precondition(!carriedState.applyClear(carriedOrder, raiderAt: originalPile,
+                                              elapsedSeconds: 0.75, secondsPerLayer: 1))
+        precondition(!carriedState.applyClear(carriedOrder, raiderAt: originalPile,
+                                              elapsedSeconds: 0.75, secondsPerLayer: 1))
+        precondition(carriedState.rubbleLayers[originalPile] == 3)
+        precondition(abs((carriedState.clearWork[originalPile] ?? 0) - 0.5) < 0.00001)
+        precondition(!carriedState.applyClear(carriedOrder, raiderAt: originalPile,
+                                              elapsedSeconds: 0.5, secondsPerLayer: 1))
+        precondition(carriedState.rubbleLayers[originalPile] == 2)
+        precondition(carriedState.clearWork[originalPile] == nil)
         for index in 1...4 {
             let complete = originalRubbleState.applyClear(originalClear, raiderAt: originalPile,
                 elapsedSeconds: 1, secondsPerLayer: 1)

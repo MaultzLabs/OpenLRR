@@ -493,6 +493,13 @@ final class NativeLevel3DView: SCNView {
     }
 
     func clearSelectedRubble() {
+        // Original Stats_Initialise must grant STATS1_CANCLEARRUBBLE.
+        // The HUD is gated as well, but runtime validates independently
+        // against stale command events and direct method calls.
+        guard drillStats?.config.pilotCanClearRubble() == true else {
+            onInteractionMessage?("Original Pilot CanClearRubble ability is unavailable.")
+            return
+        }
         guard !missionTimePaused, firstPersonRaider == nil,
               tutorialInputPolicy.canClickIcons,
               let tile = selectedRubble, let id = selectedRaider,
@@ -523,7 +530,8 @@ final class NativeLevel3DView: SCNView {
     }
 
     private func performClear(id: String, order: NativeExcavationState.ClearOrder) {
-        guard !missionTimePaused, !clearingRaiders.contains(id),
+        guard drillStats?.config.pilotCanClearRubble() == true,
+              !missionTimePaused, !clearingRaiders.contains(id),
               let marker = raiderMarkers[id] else { return }
         let position = marker.presentation.position
         let at = NativeLevelNavigation.Position(
@@ -542,6 +550,10 @@ final class NativeLevel3DView: SCNView {
     }
 
     private func advanceClearing(elapsed: Double) {
+        guard drillStats?.config.pilotCanClearRubble() == true else {
+            for id in Array(activeClears.keys) { stopClearing(id: id) }
+            return
+        }
         guard elapsed.isFinite, elapsed > 0 else { return }
         for (id, action) in Array(activeClears) {
             guard let marker = raiderMarkers[id],
