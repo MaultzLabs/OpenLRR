@@ -50,9 +50,14 @@ struct OriginalMissionCommandCatalog {
                     item("Reinforce", "Reinforce wall", false, "Wall reinforcement is not available in this build."),
                     item("Dynamite", "Dynamite", false, "Explosives are not available in this build.")]
         case .rubble:
-            return [item("ClearRubble", "Clear rubble", hasRaider,
-                         hasRaider ? "Use the original Spade/Clear task to remove four rubble layers." :
-                                     "Select a Rock Raider before clearing rubble."),
+            // Stats_Initialise (Stats.cpp) sets STATS1_CANCLEARRUBBLE only
+            // for an explicitly true Pilot CanClearRubble value. A missing
+            // capability must not leave a clickable no-op Clear command.
+            let capable = config?.pilotCanClearRubble() == true
+            return [item("ClearRubble", "Clear rubble", hasRaider && capable,
+                         !hasRaider ? "Select a Rock Raider before clearing rubble." :
+                         !capable ? "Original Pilot CanClearRubble is disabled or missing." :
+                         "Clear four rubble layers. Spade inventory/tool-store pickup still requires native porting."),
                     item("DeselectDig", "Cancel order", hasRaider, "Stop the selected Rock Raider's current task.")]
         case .raider:
             return [item("GotoFirstPerson", "First-person view", true, "Control this Rock Raider directly. F also switches view."),
