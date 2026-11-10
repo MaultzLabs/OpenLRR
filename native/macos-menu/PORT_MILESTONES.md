@@ -469,3 +469,40 @@ vehicles, save/load, and an end-to-end campaign run.
 after a wall is drilled, with distinct collectible ore/crystal items and
 NERPs counters. Validate against original C++ and locally owned assets,
 without adding substitute artwork.
+
+
+## Typed original CryOreMap drops after wall destruction — 2026-11-10
+
+OpenLRR `GameCommon.h::Lego_CryOreType` maps retail CryOre codes 1–20 to
+crystal/ore, level 0/1 and quantities 1, 3, 5, 10 or 25. A configured
+`CryOreMap` is now loaded read-only beside the terrain MAP, with
+the same dimensions required. Missing maps remain optional; code zero,
+unsupported values and out-of-bounds cells do not invent resources.
+A successful cardinal-adjacent mining completion creates exactly one
+mission-local typed drop group at that source wall; invalid attempts and
+repeated completion cannot manufacture extra drops. The original MAP/WAD
+bytes never change, and no drop automatically increments picked-up or
+stored ore/crystal counts.
+
+The existing original-model loader is reused to render **only authentic**
+owner-supplied `MiscObjects::Crystal` and `MiscObjects::Ore` LWOB geometry,
+using the authored resource materials and color; if unavailable no stand-in
+geometry is generated. Individual mesh instances reflect the decoded count.
+Temporary regularized drop placement is **not original PTL tumble timing**,
+and level-one resource visuals, carrying and task assignment are not
+retail-verified.
+
+Portable synthetic regressions cover all 20 supported codes, malformed
+and absent CryOre maps, strict dimension checks, attempted remote/repeated
+mining, drop persistence, and unchanged source map bytes. Hosted ARM64
+compilation status must be established from CI for the final commit.
+These are original-map-driven gameplay objects, **not** confirmed retail
+appearance or a playable collection/economy loop.
+
+**Next selected milestone:** Collect a dropped resource with the correct
+original Raider task/animation, carry it to a valid Tool Store, and only
+then update the relevant original counters/NERPs callbacks. Resolve the
+source PTL resource generation timing and inspect real-asset placement on
+the owner's Mac before claiming parity. Building, upgrades, vehicles,
+script completion, native save/load and full campaign acceptance remain
+incomplete. No completion percentage.
