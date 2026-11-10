@@ -358,7 +358,7 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         precondition(!dropState.finish(dropOrder, raiderAt: dropOrder.approach))
         precondition(dropState.resourceDrops.count == 1)
         precondition(cryOreWorld.tile(x: 1, y: 1)?.excavation == .wall)
-        precondition(cryOreResources.data(at: "Ore.map", maximumBytes: 10000) ==
+        precondition(try cryOreResources.data(at: "Ore.map", maximumBytes: 10000) ==
                      Data(syntheticMap(cryOreCells, width: 5, height: 5)))
         let malformedCryOreWad = syntheticWad([
             ("Ore.map", syntheticMap([1, 2, 3, 4], width: 2, height: 2)),
