@@ -6,6 +6,23 @@ import Foundation
 /// The first row/column boundary is carried in the MAP vertex dimensions;
 /// playable tiles occupy (map.width - 1) × (map.height - 1).
 struct LevelWorld {
+    /// GameCommon.h::Lego_CryOreType (0...20). Every nonzero retail
+    /// CryOreMap cell encodes one resource type, upgrade level and quantity.
+    /// Generation is separate from pickup/storage; this is only map content.
+    struct CryOreDeposit: Equatable {
+        enum Kind: String { case crystal, ore }
+        let kind: Kind
+        let level: Int
+        let count: Int
+
+        init?(rawCode: UInt16) {
+            guard (1...20).contains(rawCode) else { return nil }
+            let index = Int(rawCode) - 1
+            kind = index.isMultiple(of: 2) ? .crystal : .ore
+            level = (index % 4) / 2
+            count = [1, 3, 5, 10, 25][index / 4]
+        }
+    }
     enum WorldError: Error, CustomStringConvertible {
         case missingRequiredMap(String)
         case invalidDimensions(String)
@@ -127,6 +144,7 @@ struct LevelWorld {
     let predugMap: RockRaidersMap
     let surfaceMap: RockRaidersMap
     let blockPointersMap: RockRaidersMap?
+    let cryOreMap: RockRaidersMap?
 
     init(manifest: LevelRuntimeResources, resources: GameResources) throws {
         func required(_ key: String) throws -> RockRaidersMap {
@@ -161,6 +179,22 @@ struct LevelWorld {
             }
             self.blockPointersMap = pointers
         } else { self.blockPointersMap = nil }
+        if manifest.mapPaths["CryOreMap"] != nil {
+            let cryOre = try required("CryOreMap")
+            guard cryOre.width == terrain.width, cryOre.height == terrain.height else {
+                throw WorldError.invalidDimensions("CryOreMap and terrain dimensions differ")
+            }
+            self.cryOreMap = cryOre
+        } else { self.cryOreMap = nil }
+    }
+
+    /// Original CryOreMap values are present on rock cells, but they must
+    /// never be treated as collected or stored resources before an actual
+    /// drop and pickup task. Unsupported/empty codes yield no deposit.
+    func cryOreDeposit(x: Int, y: Int) -> CryOreDeposit? {
+        guard (0..<width).contains(x), (0..<height).contains(y),
+              let raw = cryOreMap?.value(x: x, y: y) else { return nil }
+        return CryOreDeposit(rawCode: raw)
     }
 
     /// Zero is unmarked; repeated IDs designate every matching playable tile.

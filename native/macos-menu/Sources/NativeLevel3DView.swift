@@ -89,6 +89,12 @@ final class NativeLevel3DView: SCNView {
     var selectionCount: Int32 { Int32(selectedRaiders.count) }
     private var raiderModels: [String: OriginalRaiderModel] = [:]
     private var objectModels: [String: OriginalMissionObjectModel] = [:]
+    // No diagnostic/procedural resource stand-ins: spawned CryOreMap drops
+    // use the owner's original MiscObjects LWOB meshes or remain invisible.
+    private var cryOreAssets: [LevelWorld.CryOreDeposit.Kind: OriginalMissionObjectAsset] = [:]
+    private var resourceDropNodes: [NativeLevelNavigation.Position: [SCNNode]] = [:]
+    private let originalResources: GameResources
+    private let originalSharedTextures: String?
     private(set) var modelDiagnostics: [String] = []
     private var modelTimer: Timer?
     private let overheadCamera = SCNNode()
@@ -152,6 +158,8 @@ final class NativeLevel3DView: SCNView {
         self.nativeBlockSize = blockSize
         self.raiderClearance = OriginalRaiderCollision.tileRadius(config: config, blockSize: blockSize)
         self.drillStats = config.map { OriginalDrillStats(config: $0) }
+        self.originalResources = resources
+        self.originalSharedTextures = config?.valueUnderGame(["Main", "SharedTextures"])
         self.world = world
         let excavationState = NativeExcavationState(world: world)
         self.terrainMesh = try NativeTerrainMesh(world: world,
@@ -180,6 +188,17 @@ final class NativeLevel3DView: SCNView {
             "Original \(textureCatalog?.family.rawValue ?? "world") BMP terrain textures"
 
         super.init(frame: frame, options: nil)
+        if let config {
+            for (kind, type) in [(LevelWorld.CryOreDeposit.Kind.crystal, "PowerCrystal"),
+                                 (.ore, "Ore")] {
+                do {
+                    cryOreAssets[kind] = try OriginalMissionObjectAsset.load(
+                        type: type, config: config, resources: resources)
+                } catch {
+                    modelDiagnostics.append("CryOreMap \(type) original mesh unavailable: \(error)")
+                }
+            }
+        }
         if let config {
             drillAudio = OriginalDrillAudio(config: config, resources: resources,
                                             wadURL: wadURL, extraRoot: extraAudioRoot)
@@ -463,9 +482,45 @@ final class NativeLevel3DView: SCNView {
             terrainNodes = replacements
             terrainMesh = updated
             for placement in originalObjects?.placements ?? [] { updatePlacementVisibility(placement) }
+            renderOriginalCryOreDrops(in: scene)
             firstPersonController?.navigation = navigation
             onTerrainChanged?()
         } catch { onInteractionMessage?("Cave rebuild failed: \(error)") }
+    }
+
+    /// Spawn one owner-owned original LWOB model for each newly exposed
+    /// CryOreMap item. Drop positions are deliberately provisional until
+    /// original PTL tumble/distribution events are ported; no substitute
+    /// mesh, generated texture, or stored-resource credit is introduced.
+    private func renderOriginalCryOreDrops(in scene: SCNScene) {
+        for (tile, deposit) in excavation.resourceDrops where resourceDropNodes[tile] == nil {
+            guard let asset = cryOreAssets[deposit.kind] else { continue }
+            do {
+                let model = try OriginalMissionObjectModel(
+                    asset: asset, resources: originalResources, blockSize: nativeBlockSize,
+                    sharedTextures: originalSharedTextures)
+                let columns = min(5, max(1, Int(ceil(sqrt(Double(deposit.count))))))
+                let rows = Int(ceil(Double(deposit.count) / Double(columns)))
+                var nodes: [SCNNode] = []
+                for index in 0..<deposit.count {
+                    let column = index % columns
+                    let row = index / columns
+                    let x = Double(tile.x) + 0.5 +
+                            (Double(column) - Double(columns - 1) / 2) * 0.12
+                    let z = Double(tile.y) + 0.5 +
+                            (Double(row) - Double(rows - 1) / 2) * 0.12
+                    let anchor = SCNNode()
+                    anchor.name = "Original CryOreMap \(deposit.kind.rawValue) L\(deposit.level)"
+                    anchor.position = worldPosition(x: x, z: z)
+                    anchor.addChildNode(model.root.clone())
+                    scene.rootNode.addChildNode(anchor)
+                    nodes.append(anchor)
+                }
+                resourceDropNodes[tile] = nodes
+            } catch {
+                modelDiagnostics.append("CryOreMap drop at \(tile.x),\(tile.y): \(error)")
+            }
+        }
     }
 
     func dismissWallSelection() { selectedWall = nil }
@@ -644,7 +699,11 @@ final class NativeLevel3DView: SCNView {
                 stopDrilling(id: id)
                 selectedWall = nil
                 refreshExcavatedTerrain()
-                onInteractionMessage?("Wall excavated; rubble remains and connected caverns are revealed.")
+                if let drop = excavation.resourceDrops[action.order.wall] {
+                    onInteractionMessage?("Wall opened: \(drop.count) original \(drop.kind.rawValue) drop(s), level \(drop.level). Collection remains unported.")
+                } else {
+                    onInteractionMessage?("Wall excavated; rubble remains and connected caverns are revealed.")
+                }
             }
         }
     }
