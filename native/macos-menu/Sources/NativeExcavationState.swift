@@ -4,8 +4,8 @@ import Foundation
 /// operation. Original WWAD/MAP bytes are never changed or saved.
 /// Drilling removes an already-visible, mineable wall only after a Raider has
 /// reached a cardinally adjacent walkable tile. Four-layer rubble/spade
-/// clearance now follows; resource drops, tool possession and exact stamina
-/// are not yet simulated. This remains a bounded gameplay prototype.
+/// clearance now follows; CryOreMap-derived dropped resources are tracked
+/// separately from unported collection/storage, tools and stamina.
 final class NativeExcavationState {
     typealias Position = NativeLevelNavigation.Position
 
@@ -30,6 +30,10 @@ final class NativeExcavationState {
     // This normalized level-zero progress is mission-local; upgrades and
     // damage from other tools still require retail parity testing.
     private(set) var drillDamage: [Position: Double] = [:]
+    /// Wall destruction creates a mission-only resource drop. Keep the
+    /// original count and upgrade level; never credit NERPs picked-up/stored
+    /// counters merely because a wall was opened.
+    private(set) var resourceDrops: [Position: LevelWorld.CryOreDeposit] = [:]
 
     init(world: LevelWorld) {
         self.world = world
@@ -196,6 +200,9 @@ final class NativeExcavationState {
         drillDamage.removeValue(forKey: order.wall)
         excavated.insert(order.wall)
         rubbleLayers[order.wall] = 4
+        if let deposit = world.cryOreDeposit(x: order.wall.x, y: order.wall.y) {
+            resourceDrops[order.wall] = deposit
+        }
         // Level_DestroyWall / Level_UncoverHiddenCavern traverse all eight
         // neighbours. Only original hidden cavern cells propagate discovery.
         var queue = [order.wall]
