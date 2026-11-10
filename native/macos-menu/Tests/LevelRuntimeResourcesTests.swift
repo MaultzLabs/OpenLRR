@@ -303,6 +303,75 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         let routing = NativeLevelNavigation(world: corridorWorld)
         let origin = NativeLevelNavigation.Position(x: 2, y: 0)
         let destination = NativeLevelNavigation.Position(x: 0, y: 2)
+        // GameCommon.h Lego_CryOreType: 0 = none; five quantity groups
+        // (1, 3, 5, 10, 25), each in crystal/ore level-zero/one order.
+        for (group, quantity) in [1, 3, 5, 10, 25].enumerated() {
+            for variant in 0..<4 {
+                let code = UInt16(1 + group * 4 + variant)
+                let deposit = LevelWorld.CryOreDeposit(rawCode: code)!
+                precondition(deposit.kind == (variant.isMultiple(of: 2) ? .crystal : .ore))
+                precondition(deposit.level == variant / 2)
+                precondition(deposit.count == quantity)
+            }
+        }
+        precondition(LevelWorld.CryOreDeposit(rawCode: 0) == nil)
+        precondition(LevelWorld.CryOreDeposit(rawCode: 21) == nil)
+        precondition(LevelWorld.CryOreDeposit(rawCode: UInt16.max) == nil)
+        precondition(corridorWorld.cryOreDeposit(x: 1, y: 1) == nil)
+        var cryOreCells = [UInt16](repeating: 0, count: 25)
+        cryOreCells[6] = 17 // 25 original level-zero crystals at (1,1)
+        cryOreCells[7] = 20 // 25 level-one ore at (2,1)
+        cryOreCells[12] = 21 // unsupported map value
+        let cryOreConfig = try LegoConfig(text: """
+        Lego* { Levels { Level01 {
+          TerrainMap Levels/GameLevels/Level01/Surf.map
+          PredugMap Levels/GameLevels/Level01/Dugg.map
+          SurfaceMap Levels/GameLevels/Level01/High.map
+          CryOreMap Ore.map
+        } } }
+        """)
+        let cryOreManifest = try LevelRuntimeResources(
+            config: cryOreConfig, identifier: "Levels::Level01")
+        let cryOreWad = syntheticWad([
+            ("Ore.map", syntheticMap(cryOreCells, width: 5, height: 5)),
+            ("Levels/GameLevels/Level01/Surf.map", terrainData),
+            ("Levels/GameLevels/Level01/Dugg.map", predugData),
+            ("Levels/GameLevels/Level01/High.map", highData)
+        ])
+        let cryOreResources = try GameResources(archives: [(0, cryOreWad)])
+        let cryOreWorld = try LevelWorld(manifest: cryOreManifest, resources: cryOreResources)
+        let crystalTile = NativeLevelNavigation.Position(x: 1, y: 1)
+        precondition(cryOreWorld.cryOreDeposit(x: 1, y: 1)?.count == 25)
+        precondition(cryOreWorld.cryOreDeposit(x: 1, y: 1)?.kind == .crystal)
+        precondition(cryOreWorld.cryOreDeposit(x: 2, y: 1)?.level == 1)
+        precondition(cryOreWorld.cryOreDeposit(x: 2, y: 1)?.kind == .ore)
+        precondition(cryOreWorld.cryOreDeposit(x: 2, y: 2) == nil)
+        precondition(cryOreWorld.cryOreDeposit(x: 4, y: 4) == nil)
+        let dropState = NativeExcavationState(world: cryOreWorld)
+        let dropOrder = dropState.plan(from: origin, wall: crystalTile)!
+        precondition(dropState.resourceDrops.isEmpty)
+        precondition(!dropState.finish(dropOrder, raiderAt: origin))
+        precondition(dropState.resourceDrops.isEmpty)
+        precondition(dropState.finish(dropOrder, raiderAt: dropOrder.approach))
+        precondition(dropState.resourceDrops[crystalTile]?.count == 25)
+        precondition(dropState.resourceDrops[crystalTile]?.kind == .crystal)
+        precondition(!dropState.finish(dropOrder, raiderAt: dropOrder.approach))
+        precondition(dropState.resourceDrops.count == 1)
+        precondition(cryOreWorld.tile(x: 1, y: 1)?.excavation == .wall)
+        precondition(cryOreResources.data(at: "Ore.map", maximumBytes: 10000) ==
+                     Data(syntheticMap(cryOreCells, width: 5, height: 5)))
+        let malformedCryOreWad = syntheticWad([
+            ("Ore.map", syntheticMap([1, 2, 3, 4], width: 2, height: 2)),
+            ("Levels/GameLevels/Level01/Surf.map", terrainData),
+            ("Levels/GameLevels/Level01/Dugg.map", predugData),
+            ("Levels/GameLevels/Level01/High.map", highData)
+        ])
+        do {
+            _ = try LevelWorld(manifest: cryOreManifest, resources:
+                GameResources(archives: [(0, malformedCryOreWad)]))
+            preconditionFailure("CryOreMap with mismatched dimensions accepted")
+        } catch LevelWorld.WorldError.invalidDimensions { }
+        print("PASS: original CryOreMap counts/levels, pending drops, map immutability and dimension guards")
         precondition(routing.route(from: origin, to: destination) == [
             origin,
             NativeLevelNavigation.Position(x: 2, y: 1),
