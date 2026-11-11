@@ -12,6 +12,9 @@ final class OriginalRaiderModel {
     private let walking: OriginalLightWaveRenderer.Clip
     private let drilling: OriginalLightWaveRenderer.Clip?
     private let clearing: OriginalLightWaveRenderer.Clip?
+    // Original GameCommon.h Activity_Carry and Activity_CarryStand scenes.
+    private let carryingWalk: OriginalLightWaveRenderer.Clip?
+    private let carryingStand: OriginalLightWaveRenderer.Clip?
     private let cameraPartNames: [String]
     let cameraFlipDirection: Bool
     var cameraFrameCount: Int { cameraPartNames.count }
@@ -30,6 +33,7 @@ final class OriginalRaiderModel {
     private(set) var firstPersonMeshDiagnostic: String?
     private var isDrilling = false
     private var isClearing = false
+    private var hasCarriedResource = false
     private var moving = false
     private var epoch = ProcessInfo.processInfo.systemUptime
 
@@ -37,8 +41,12 @@ final class OriginalRaiderModel {
     /// and which original LWS geometry is actually visible. Some original
     /// Stand/Route/Drill clips do not contain the parts named by FPPoly.
     private var activeClip: OriginalLightWaveRenderer.Clip {
-        isDrilling ? (drilling ?? standing) :
-            (isClearing ? (clearing ?? standing) : (moving ? walking : standing))
+        if isDrilling { return drilling ?? standing }
+        if isClearing { return clearing ?? standing }
+        if hasCarriedResource {
+            return moving ? (carryingWalk ?? walking) : (carryingStand ?? standing)
+        }
+        return moving ? walking : standing
     }
 
     /// True only if the CURRENT activity has an authentic first-person mesh
@@ -67,11 +75,15 @@ final class OriginalRaiderModel {
         walking = try clip("Activity_Route")
         drilling = try? clip("Activity_Drill")
         clearing = try? clip("Activity_Clear")
+        carryingWalk = try? clip("Activity_Carry")
+        carryingStand = try? clip("Activity_CarryStand")
         root.addChildNode(standing.root)
         root.addChildNode(walking.root)
         walking.root.isHidden = true
         if let drilling { root.addChildNode(drilling.root); drilling.root.isHidden = true }
         if let clearing { root.addChildNode(clearing.root); clearing.root.isHidden = true }
+        if let carryingWalk { root.addChildNode(carryingWalk.root); carryingWalk.root.isHidden = true }
+        if let carryingStand { root.addChildNode(carryingStand.root); carryingStand.root.isHidden = true }
         let scale = Float(activities.scale / blockSize)
         root.scale = SCNVector3(scale, scale, scale)
         // Retail LightWave space is -Z up; SceneKit cave space is +Y up.
@@ -83,7 +95,9 @@ final class OriginalRaiderModel {
         do {
             let lod = try OriginalFirstPersonMeshLOD.load(activities: activities, resources: resources)
             if lod.hasFirstPersonMeshes {
-                for clip in [standing, walking] + (drilling.map { [$0] } ?? []) + (clearing.map { [$0] } ?? []) {
+                for clip in [standing, walking] + (drilling.map { [$0] } ?? []) +
+                    (clearing.map { [$0] } ?? []) + (carryingWalk.map { [$0] } ?? []) +
+                    (carryingStand.map { [$0] } ?? []) {
                     let replacements = lod.frames.map { cameraSet in
                         clip.parts.map { part -> (Bool, SCNGeometry?) in
                             guard let name = part.name,
@@ -105,7 +119,7 @@ final class OriginalRaiderModel {
                 if !geometrySets.contains(where: {
                     $0.firstPerson.contains(where: { $0.contains(where: { $0 != nil }) })
                 }) {
-                    firstPersonMeshDiagnostic = "Original FPPoly parts did not match the Stand/Route/Drill/Clear LWS objects"
+                    firstPersonMeshDiagnostic = "Original FPPoly parts did not match the Stand/Route/Drill/Clear/Carry LWS objects"
                     geometrySets.removeAll()
                 }
             }
@@ -161,16 +175,32 @@ final class OriginalRaiderModel {
         return showingFirstPersonMeshes
     }
 
+    private func showActiveActivity() {
+        let active = activeClip
+        for clip in [standing, walking] + (drilling.map { [$0] } ?? []) +
+            (clearing.map { [$0] } ?? []) + (carryingWalk.map { [$0] } ?? []) +
+            (carryingStand.map { [$0] } ?? []) {
+            clip.root.isHidden = clip !== active
+        }
+    }
+
+    /// Switch to genuine retail carry activity scenes, if present. Unsupported
+    /// clips retain authentic Route/Stand rather than creating placeholder art.
+    /// The actual resource is kept in mission state, not credited as stored.
+    func setCarryingResource(_ carrying: Bool) {
+        guard hasCarriedResource != carrying else { return }
+        hasCarriedResource = carrying
+        epoch = ProcessInfo.processInfo.systemUptime
+        showActiveActivity()
+    }
+
     func setMoving(_ value: Bool) {
         guard moving != value || isDrilling || isClearing else { return }
         isDrilling = false
         isClearing = false
-        drilling?.root.isHidden = true
-        clearing?.root.isHidden = true
         moving = value
         epoch = ProcessInfo.processInfo.systemUptime
-        standing.root.isHidden = moving
-        walking.root.isHidden = !moving
+        showActiveActivity()
     }
 
     /// Return the actual named, animated LWS camera null for this activity.
@@ -185,10 +215,8 @@ final class OriginalRaiderModel {
     func beginDrilling() -> TimeInterval? {
         guard let drilling else { return nil }
         isDrilling = true; isClearing = false; moving = false
-        clearing?.root.isHidden = true
         epoch = ProcessInfo.processInfo.systemUptime
-        standing.root.isHidden = true; walking.root.isHidden = true
-        drilling.root.isHidden = false
+        showActiveActivity()
         return drilling.asset.duration
     }
 
@@ -199,9 +227,7 @@ final class OriginalRaiderModel {
         guard let clearing else { return nil }
         isClearing = true; isDrilling = false; moving = false
         epoch = ProcessInfo.processInfo.systemUptime
-        standing.root.isHidden = true; walking.root.isHidden = true
-        drilling?.root.isHidden = true
-        clearing.root.isHidden = false
+        showActiveActivity()
         return clearing.asset.duration
     }
 
