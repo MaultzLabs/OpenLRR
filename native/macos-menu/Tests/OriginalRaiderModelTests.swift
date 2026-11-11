@@ -269,6 +269,16 @@ private func fixtureWad(_ assets: [FixtureAsset]) -> Data {
             Activity_Route Walk
             Activity_Drill Drill
             Activity_Clear Clear
+            Activity_Carry Carry
+            Activity_CarryStand CarryStand
+          }
+          Carry {
+            FILE Bare
+            LWSFILE TRUE
+          }
+          CarryStand {
+            FILE Stand
+            LWSFILE TRUE
           }
           Stand {
             FILE Stand
@@ -448,6 +458,19 @@ private func fixtureWad(_ assets: [FixtureAsset]) -> Data {
         model.setMoving(false)
         precondition(model.showingFirstPersonMeshes,
                      "Resuming standing must show its original FPPoly hand")
+        // Authentic Carry and CarryStand select their own LWS scene.
+        // A carry walk with no FPPoly target must hide its full body; a
+        // carry idle with the authored Arm part may use the real hand mesh.
+        model.setCarryingResource(true)
+        model.setMoving(true)
+        precondition(!model.showingFirstPersonMeshes,
+                     "Original Carry motion without a hand must hide the FP body")
+        model.setMoving(false)
+        precondition(model.showingFirstPersonMeshes,
+                     "Original CarryStand clip has an authored FPPoly hand")
+        model.setCarryingResource(false)
+        precondition(model.showingFirstPersonMeshes,
+                     "Depositing returns the original Stand activity")
         let firstArm = arm.geometry
         precondition(model.selectFirstPersonCameraFrame(1))
         precondition(model.selectedCameraFrame == 1)
