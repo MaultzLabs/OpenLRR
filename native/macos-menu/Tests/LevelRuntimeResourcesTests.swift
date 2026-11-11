@@ -358,6 +358,66 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         precondition(!dropState.finish(dropOrder, raiderAt: dropOrder.approach))
         precondition(dropState.resourceDrops.count == 1)
         precondition(cryOreWorld.tile(x: 1, y: 1)?.excavation == .wall)
+
+        // A collect/deposit order consumes ONE genuine dropped item after
+        // reaching the correct tile, then credits it only on actual delivery
+        // at a pre-placed original Toolstation. No synthetic building is made.
+        let originalStore = NativeLevelNavigation.Position(x: 1, y: 2)
+        let pickupState = NativeExcavationState(
+            world: cryOreWorld, originalToolStores: [originalStore])
+        precondition(pickupState.finish(dropOrder, raiderAt: dropOrder.approach))
+        let pickup = pickupState.planCollect(from: origin, tile: crystalTile, raiderID: "Raider1")!
+        precondition(pickup.route.first == origin && pickup.route.last == crystalTile)
+        precondition(pickupState.collect(pickup, raiderID: "Raider1", raiderAt: origin) == nil)
+        precondition(pickupState.resourceDrops[crystalTile]?.count == 25)
+        precondition(pickupState.storedResources.isEmpty)
+        let carried = pickupState.collect(pickup, raiderID: "Raider1", raiderAt: crystalTile)!
+        precondition(carried.kind == .crystal && carried.level == 0)
+        precondition(pickupState.carrying["Raider1"] == carried)
+        precondition(pickupState.resourceDrops[crystalTile]?.count == 24)
+        precondition(pickupState.collect(pickup, raiderID: "Raider1", raiderAt: crystalTile) == nil)
+        precondition(pickupState.planCollect(from: crystalTile, tile: crystalTile,
+                                             raiderID: "Raider1") == nil)
+        precondition(pickupState.storedResources.isEmpty)
+        let delivery = pickupState.planDeposit(
+            from: crystalTile, raiderID: "Raider1", blockedBuildings: [originalStore])!
+        precondition(delivery.store == originalStore && delivery.approach == crystalTile)
+        precondition(pickupState.deposit(delivery, raiderID: "Raider2",
+                                         raiderAt: crystalTile) == nil)
+        precondition(pickupState.deposit(delivery, raiderID: "Raider1", raiderAt: origin) == nil)
+        precondition(pickupState.storedResources.isEmpty)
+        precondition(pickupState.deposit(delivery, raiderID: "Raider1",
+                                         raiderAt: crystalTile) == carried)
+        precondition(pickupState.storedResources[carried] == 1)
+        precondition(pickupState.carrying.isEmpty)
+        precondition(pickupState.deposit(delivery, raiderID: "Raider1",
+                                         raiderAt: crystalTile) == nil)
+        precondition(pickupState.planDeposit(from: crystalTile, raiderID: "Raider1") == nil)
+        // Multiple source items are separate trips: depletion reaches zero
+        // exactly once and creates neither negative stacks nor duplicate ore.
+        for _ in 0..<24 {
+            let next = pickupState.planCollect(from: crystalTile,
+                tile: crystalTile, raiderID: "Raider1")!
+            precondition(pickupState.collect(next, raiderID: "Raider1",
+                                            raiderAt: crystalTile) == carried)
+            let toStore = pickupState.planDeposit(from: crystalTile,
+                raiderID: "Raider1", blockedBuildings: [originalStore])!
+            precondition(pickupState.deposit(toStore, raiderID: "Raider1",
+                                            raiderAt: toStore.approach) == carried)
+        }
+        precondition(pickupState.resourceDrops[crystalTile] == nil)
+        precondition(pickupState.storedResources[carried] == 25)
+        precondition(pickupState.planCollect(from: crystalTile,
+            tile: crystalTile, raiderID: "Raider1") == nil)
+        let noStore = NativeExcavationState(world: cryOreWorld)
+        precondition(noStore.finish(dropOrder, raiderAt: dropOrder.approach))
+        let unbanked = noStore.planCollect(from: crystalTile, tile: crystalTile,
+                                          raiderID: "Raider1")!
+        precondition(noStore.collect(unbanked, raiderID: "Raider1",
+                                    raiderAt: crystalTile) != nil)
+        precondition(noStore.planDeposit(from: crystalTile, raiderID: "Raider1") == nil)
+        precondition(noStore.storedResources.isEmpty)
+        print("PASS: one-piece original Collect/Carry/Toolstation Deposit, stale arrival and no virtual storage")
         let sourceCryOreBytes = try cryOreResources.data(at: "Ore.map", maximumBytes: 10000)
         precondition(sourceCryOreBytes == Data(syntheticMap(cryOreCells, width: 5, height: 5)))
         let malformedCryOreWad = syntheticWad([

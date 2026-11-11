@@ -35,7 +35,32 @@ final class NativeExcavationState {
     /// counters merely because a wall was opened.
     private(set) var resourceDrops: [Position: LevelWorld.CryOreDeposit] = [:]
 
-    init(world: LevelWorld) {
+    /// Original AITask_Type_Collect and AITask_Type_Deposit move one physical
+    /// ore/crystal item at a time. The carried item is not stored inventory.
+    struct ResourceUnit: Hashable {
+        let kind: LevelWorld.CryOreDeposit.Kind
+        let level: Int
+    }
+
+    struct CollectOrder {
+        let tile: Position
+        let route: [Position]
+    }
+
+    struct DepositOrder {
+        let store: Position
+        let approach: Position
+        let route: [Position]
+    }
+
+    private let originalToolStores: Set<Position>
+    private(set) var carrying: [String: ResourceUnit] = [:]
+    private(set) var storedResources: [ResourceUnit: Int] = [:]
+
+    init(world: LevelWorld, originalToolStores: Set<Position> = []) {
+        self.originalToolStores = Set(originalToolStores.filter {
+            (0..<world.width).contains($0.x) && (0..<world.height).contains($0.y)
+        })
         self.world = world
         for y in 0..<world.height {
             for x in 0..<world.width {
@@ -45,6 +70,77 @@ final class NativeExcavationState {
                 }
             }
         }
+    }
+
+    /// Collect only exposed, reachable original dropped resources. The
+    /// movement callback must revalidate at arrival; a planned route never
+    /// reserves the stack or invents a successful pickup.
+    func planCollect(from raider: Position, tile: Position, raiderID: String) -> CollectOrder? {
+        guard !raiderID.isEmpty, carrying[raiderID] == nil,
+              (resourceDrops[tile]?.count ?? 0) > 0,
+              let route = NativeLevelNavigation(world: world, excavated: excavated,
+                  revealed: revealed).route(from: raider, to: tile),
+              route.count <= 512 else { return nil }
+        return CollectOrder(tile: tile, route: route)
+    }
+
+    /// Consume exactly ONE item after confirmed arrival at its source tile.
+    /// The retail source MAP bytes are unchanged, and this does not increment
+    /// NERPs delivered/stored counters.
+    @discardableResult
+    func collect(_ order: CollectOrder, raiderID: String, raiderAt: Position) -> ResourceUnit? {
+        guard !raiderID.isEmpty, carrying[raiderID] == nil,
+              raiderAt == order.tile,
+              NativeLevelNavigation(world: world, excavated: excavated,
+                                    revealed: revealed).canWalk(raiderAt),
+              let drop = resourceDrops[order.tile], drop.count > 0 else { return nil }
+        let item = ResourceUnit(kind: drop.kind, level: drop.level)
+        if drop.count == 1 { resourceDrops.removeValue(forKey: order.tile) }
+        else {
+            resourceDrops[order.tile] = .init(kind: drop.kind, level: drop.level,
+                                              count: drop.count - 1)
+        }
+        carrying[raiderID] = item
+        return item
+    }
+
+    /// A delivery destination must be a real original OL Toolstation.
+    /// Its occupied footprint is not traversed. Use a reachable cardinal
+    /// approach and preserve the real Raider's carrying state until arrival.
+    func planDeposit(from raider: Position, raiderID: String,
+                     blockedBuildings: Set<Position> = []) -> DepositOrder? {
+        guard !raiderID.isEmpty, carrying[raiderID] != nil else { return nil }
+        let nav = NativeLevelNavigation(world: world, excavated: excavated,
+            revealed: revealed, blockedBuildingTiles: blockedBuildings)
+        var best: DepositOrder?
+        for store in originalToolStores {
+            for tile in [Position(x: store.x - 1, y: store.y),
+                         Position(x: store.x + 1, y: store.y),
+                         Position(x: store.x, y: store.y - 1),
+                         Position(x: store.x, y: store.y + 1)] {
+                guard let route = nav.route(from: raider, to: tile),
+                      route.count <= 512 else { continue }
+                if best == nil || route.count < best!.route.count {
+                    best = DepositOrder(store: store, approach: tile, route: route)
+                }
+            }
+        }
+        return best
+    }
+
+    /// An unrelated building or a remote order never credits inventory.
+    /// This is a mission-local native stored counter, NOT yet an original
+    /// Building_Deposit or NERPs resource callback.
+    @discardableResult
+    func deposit(_ order: DepositOrder, raiderID: String, raiderAt: Position) -> ResourceUnit? {
+        guard !raiderID.isEmpty, originalToolStores.contains(order.store),
+              raiderAt == order.approach,
+              abs(raiderAt.x - order.store.x) + abs(raiderAt.y - order.store.y) == 1,
+              NativeLevelNavigation(world: world, excavated: excavated,
+                                    revealed: revealed).canWalk(raiderAt),
+              let item = carrying.removeValue(forKey: raiderID) else { return nil }
+        storedResources[item, default: 0] += 1
+        return item
     }
 
     func tile(x: Int, y: Int) -> LevelWorld.Tile? {
