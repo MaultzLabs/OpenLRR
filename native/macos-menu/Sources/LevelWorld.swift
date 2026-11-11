@@ -22,6 +22,14 @@ struct LevelWorld {
             level = (index % 4) / 2
             count = [1, 3, 5, 10, 25][index / 4]
         }
+
+        /// A decoded map deposit becomes a mutable mission-local stack as
+        /// Raiders pick up individual pieces. No MAP value is ever rewritten.
+        init(kind: Kind, level: Int, count: Int) {
+            self.kind = kind
+            self.level = level
+            self.count = count
+        }
     }
     enum WorldError: Error, CustomStringConvertible {
         case missingRequiredMap(String)
