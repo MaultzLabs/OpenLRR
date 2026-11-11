@@ -393,6 +393,22 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         precondition(pickupState.deposit(delivery, raiderID: "Raider1",
                                          raiderAt: crystalTile) == nil)
         precondition(pickupState.planDeposit(from: crystalTile, raiderID: "Raider1") == nil)
+        // Multiple source items are separate trips: depletion reaches zero
+        // exactly once and creates neither negative stacks nor duplicate ore.
+        for _ in 0..<24 {
+            let next = pickupState.planCollect(from: crystalTile,
+                tile: crystalTile, raiderID: "Raider1")!
+            precondition(pickupState.collect(next, raiderID: "Raider1",
+                                            raiderAt: crystalTile) == carried)
+            let toStore = pickupState.planDeposit(from: crystalTile,
+                raiderID: "Raider1", blockedBuildings: [originalStore])!
+            precondition(pickupState.deposit(toStore, raiderID: "Raider1",
+                                            raiderAt: toStore.approach) == carried)
+        }
+        precondition(pickupState.resourceDrops[crystalTile] == nil)
+        precondition(pickupState.storedResources[carried] == 25)
+        precondition(pickupState.planCollect(from: crystalTile,
+            tile: crystalTile, raiderID: "Raider1") == nil)
         let noStore = NativeExcavationState(world: cryOreWorld)
         precondition(noStore.finish(dropOrder, raiderAt: dropOrder.approach))
         let unbanked = noStore.planCollect(from: crystalTile, tile: crystalTile,
