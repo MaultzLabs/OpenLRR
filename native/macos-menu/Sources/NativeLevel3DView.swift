@@ -161,7 +161,12 @@ final class NativeLevel3DView: SCNView {
         self.originalResources = resources
         self.originalSharedTextures = config?.valueUnderGame(["Main", "SharedTextures"])
         self.world = world
-        let excavationState = NativeExcavationState(world: world)
+        // Only pre-existing original OL Toolstations can accept a delivery.
+        // No virtual store is created when an original mission has none.
+        let toolStores = Set((objects?.placements ?? []).filter {
+            $0.type.caseInsensitiveCompare("Toolstation") == .orderedSame
+        }.map { NativeLevelNavigation.Position(x: Int(floor($0.x)), y: Int(floor($0.y))) })
+        let excavationState = NativeExcavationState(world: world, originalToolStores: toolStores)
         self.terrainMesh = try NativeTerrainMesh(world: world,
             rubbleTiles: excavationState.rubble, rubbleLayers: excavationState.rubbleLayers)
         self.originalObjects = objects
@@ -520,6 +525,71 @@ final class NativeLevel3DView: SCNView {
             } catch {
                 modelDiagnostics.append("CryOreMap drop at \(tile.x),\(tile.y): \(error)")
             }
+        }
+    }
+
+    private func tileUnderRaider(_ marker: SCNNode) -> NativeLevelNavigation.Position {
+        let point = marker.presentation.position
+        return .init(x: Int(floor(Double(point.x) + Double(world.width) / 2)),
+                     y: Int(floor(Double(point.z) + Double(world.height) / 2)))
+    }
+
+    /// Original AITask_Type_Collect: walk to a real CryOreMap drop with the
+    /// existing swept wall + moving-unit clearance, then consume ONE object.
+    /// Clicking a dropped resource tile is a temporary native command mapping.
+    private func collectResource(at tile: NativeLevelNavigation.Position, raiderID id: String) {
+        guard !missionTimePaused, firstPersonRaider == nil,
+              tutorialInputPolicy.canClickMap, tutorialInputPolicy.canClickIcons,
+              let marker = raiderMarkers[id],
+              originalObjects?.rockRaiders.first(where: { $0.identifier == id })?.drivingIdentifier == nil,
+              let order = excavation.planCollect(from: tileUnderRaider(marker),
+                                                 tile: tile, raiderID: id) else {
+            onInteractionMessage?("Cannot collect: select a free Raider and a reachable resource.")
+            return
+        }
+        commandMove(to: .init(x: Double(tile.x) + 0.5, y: Double(tile.y) + 0.5),
+                    raiderID: id) { [weak self] in
+            guard let self, let marker = self.raiderMarkers[id],
+                  let item = self.excavation.collect(order, raiderID: id,
+                                                       raiderAt: self.tileUnderRaider(marker)) else {
+                self?.onInteractionMessage?("Resource was not collected; order interrupted or item unavailable.")
+                return
+            }
+            // Remove precisely one original LWOB instance, not the whole
+            // CryOreMap stack. A missing mesh never blocks gameplay state.
+            if var nodes = self.resourceDropNodes[tile], let node = nodes.popLast() {
+                node.removeFromParentNode()
+                if nodes.isEmpty { self.resourceDropNodes.removeValue(forKey: tile) }
+                else { self.resourceDropNodes[tile] = nodes }
+            }
+            self.raiderModels[id]?.setCarryingResource(true)
+            self.onInteractionMessage?("Raider \\(id) collected one original \\(item.kind.rawValue); carrying to Toolstation.")
+            self.deliverCarriedResource(raiderID: id)
+        }
+    }
+
+    /// The Toolstation is identified by an actual owner-supplied OL placement.
+    /// Building collision is respected in route choice. Carrying persists
+    /// when delivery cannot be completed; nothing is falsely stored.
+    private func deliverCarriedResource(raiderID id: String) {
+        guard !missionTimePaused, let marker = raiderMarkers[id],
+              let order = excavation.planDeposit(from: tileUnderRaider(marker),
+                  raiderID: id, blockedBuildings: blockedBuildingTiles) else {
+            onInteractionMessage?("Raider holds resource; no reachable original Toolstation entrance.")
+            return
+        }
+        commandMove(to: .init(x: Double(order.approach.x) + 0.5,
+                              y: Double(order.approach.y) + 0.5),
+                    raiderID: id) { [weak self] in
+            guard let self, let marker = self.raiderMarkers[id],
+                  let item = self.excavation.deposit(order, raiderID: id,
+                                                       raiderAt: self.tileUnderRaider(marker)) else {
+                self?.onInteractionMessage?("Resource remains carried; Toolstation delivery not completed.")
+                return
+            }
+            self.raiderModels[id]?.setCarryingResource(false)
+            let total = self.excavation.storedResources[item] ?? 0
+            self.onInteractionMessage?("Stored one \\(item.kind.rawValue) (level \\(item.level)); \\(total) of this type at Toolstation. NERPs economy callbacks are not yet connected.")
         }
     }
 
@@ -1141,7 +1211,11 @@ final class NativeLevel3DView: SCNView {
             selectedRubble = selectedWall == nil && excavation.canClearRubble(tilePosition) ? tilePosition : nil
             if let tile = excavation.tile(x: x, y: z) {
                 onTileSelected?(tile)
-                if selectedRaider != nil && selectedWall == nil && selectedRubble == nil {
+                if let id = selectedRaider,
+                   selectedWall == nil && selectedRubble == nil,
+                   excavation.resourceDrops[tilePosition] != nil {
+                    collectResource(at: tilePosition, raiderID: id)
+                } else if selectedRaider != nil && selectedWall == nil && selectedRubble == nil {
                     let ids = selectedRaiders.sorted()
                     for (index, id) in ids.enumerated() {
                         let angle = Double(index) * 2 * .pi / Double(max(1, ids.count))
