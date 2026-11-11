@@ -506,3 +506,50 @@ source PTL resource generation timing and inspect real-asset placement on
 the owner's Mac before claiming parity. Building, upgrades, vehicles,
 script completion, native save/load and full campaign acceptance remain
 incomplete. No completion percentage.
+
+
+## One-piece ore/crystal collection and Toolstation delivery — 2026-11-11
+
+Original source `GameCommon.h` defines `AITask_Type_Collect`,
+`AITask_Type_Deposit`, `Activity_Carry`, `Activity_CarryStand`, and the
+Tool Store OL type `Toolstation`. The previous CryOreMap milestone spawned
+authentic ore/crystal resource objects but could never remove one, carry it, or
+deliver it. A selected Pilot can now click a visible dropped resource tile to
+route using the existing continuous wall-clearance and moving-Raider checks,
+then collect **exactly one** resource unit on confirmed arrival. The stack
+decrements without rewriting original WAD/MAP data. A second pickup while
+carrying is refused; route cancellations and stale arrivals cannot credit
+an item. The native diagnostic click mapping is not represented as original
+retail controls.
+
+A carrying Raider uses the owner's original `Activity_Carry` and
+`Activity_CarryStand` LightWave scenes if present. If absent, the existing
+original Route/Stand animation remains; no replacement meshes or generated
+tools are supplied. Delivery plans use a **pre-existing original** OL
+`Toolstation`, block real building footprints, and choose reachable adjacent
+tiles. The resource remains carried when no actual store is placed, routing
+fails, or the order is cancelled. It is counted in *mission-local native
+storedResources* only after physically reaching the planned store approach,
+not upon wall destruction or first pickup.
+
+Synthetic portable tests cover remote and repeated pickup rejection,
+one-item inventory, 25 sequential collect/deposit trips, depleted stacks,
+actual-store requirements, interrupted/wrong-Raider delivery, and original
+CryOreMap immutability. Hosted synthetic SceneKit tests cover authentic
+Carry/CarryStand activity and FPPoly visibility transitions. These tests and
+Mac compilation must be reported from actual completed CI jobs, not assumed.
+
+**Acceptance gaps:** Exact original Collect/Deposit animation timing,
+handheld object attachment, task queues and auto-assignment, proper
+Toolstation entry/storage footprint, construction of missing Tool Stores,
+original pickup/drop SFX, original resource-tumble timing, script-visible
+NERPs pickup/storage counters and objectives, original retail asset visuals
+and owner-Mac gameplay are unverified or unported. The prototype neither
+credits NERPs early nor invents a store. This is a bounded resource-economy
+interaction milestone, not complete retail economy or a game-completion
+percentage.
+
+**Next milestone:** Read original `NERPsFunctions.cpp` pickup and storage
+semantics, connect successful real deposit events to matching script-visible
+crystal/ore counts, and finish original Collect/Deposit animations and
+carried object attachment before live first-tutorial validation.
