@@ -563,7 +563,7 @@ final class NativeLevel3DView: SCNView {
                 else { self.resourceDropNodes[tile] = nodes }
             }
             self.raiderModels[id]?.setCarryingResource(true)
-            self.onInteractionMessage?("Raider \\(id) collected one original \\(item.kind.rawValue); carrying to Toolstation.")
+            self.onInteractionMessage?("Raider \(id) collected one original \(item.kind.rawValue); carrying to Toolstation.")
             self.deliverCarriedResource(raiderID: id)
         }
     }
@@ -589,7 +589,7 @@ final class NativeLevel3DView: SCNView {
             }
             self.raiderModels[id]?.setCarryingResource(false)
             let total = self.excavation.storedResources[item] ?? 0
-            self.onInteractionMessage?("Stored one \\(item.kind.rawValue) (level \\(item.level)); \\(total) of this type at Toolstation. NERPs economy callbacks are not yet connected.")
+            self.onInteractionMessage?("Stored one \(item.kind.rawValue) (level \(item.level)); \(total) of this type at Toolstation. NERPs economy callbacks are not yet connected.")
         }
     }
 
