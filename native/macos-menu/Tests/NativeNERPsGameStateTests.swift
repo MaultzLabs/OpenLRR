@@ -98,6 +98,43 @@ private func encode(_ operations: [(UInt16, UInt16)]) throws -> NERPsScript {
 
         // The original OpenLRR functions use signed 32-bit registers.
         let callbacks = state.functions()
+        // C++ NERPsFunctions: four distinct repeatable pickup/storage queries.
+        let resourceState = NativeNERPsGameState(script: try encode([]))
+        let resourceCallbacks = resourceState.functions()
+        for id in [0x0c, 0x0d, 0x60, 0x61] {
+            precondition(resourceCallbacks[id]?.kind.arity == 0)
+            precondition(resourceCallbacks[id]!.invoke([]) == 0)
+        }
+        var crystalPickups: Int32 = 0, storedCrystals: Int32 = 0
+        var orePickups: Int32 = 0, storedOre: Int32 = 0
+        resourceState.crystalsPickedUp = { crystalPickups }
+        resourceState.crystalsCurrentlyStored = { storedCrystals }
+        resourceState.orePickedUp = { orePickups }
+        resourceState.oreCurrentlyStored = { storedOre }
+        crystalPickups = 2
+        orePickups = 3
+        precondition(resourceCallbacks[0x0c]!.invoke([]) == 2)
+        precondition(resourceCallbacks[0x0c]!.invoke([]) == 2)
+        precondition(resourceCallbacks[0x0d]!.invoke([]) == 0)
+        precondition(resourceCallbacks[0x60]!.invoke([]) == 3)
+        precondition(resourceCallbacks[0x61]!.invoke([]) == 0)
+        storedCrystals = 1
+        storedOre = 2
+        precondition(resourceCallbacks[0x0d]!.invoke([]) == 1)
+        precondition(resourceCallbacks[0x61]!.invoke([]) == 2)
+        precondition(resourceCallbacks[0x0c]!.invoke([]) == 2)
+        precondition(resourceCallbacks[0x60]!.invoke([]) == 3)
+        // Original NPL condition only sees banked resources, not pickups.
+        let bankGoal = NativeNERPsGameState(script: try encode([
+            (2, 0x0d), (1, 5), (0, 1), (2, 0x19), (0, 88)
+        ]))
+        var bankedCrystals: Int32 = 0
+        bankGoal.crystalsCurrentlyStored = { bankedCrystals }
+        _ = try bankGoal.tick(elapsedMilliseconds: 16)
+        precondition(bankGoal.registers[0] == 0)
+        bankedCrystals = 2
+        _ = try bankGoal.tick(elapsedMilliseconds: 16)
+        precondition(bankGoal.registers[0] == 88)
         state.reportDigIconClick()
         state.reportDigIconClick()
         state.reportBackIconClick()

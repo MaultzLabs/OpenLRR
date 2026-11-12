@@ -589,7 +589,7 @@ final class NativeLevel3DView: SCNView {
             }
             self.raiderModels[id]?.setCarryingResource(false)
             let total = self.excavation.storedResources[item] ?? 0
-            self.onInteractionMessage?("Stored one \(item.kind.rawValue) (level \(item.level)); \(total) of this type at Toolstation. NERPs economy callbacks are not yet connected.")
+            self.onInteractionMessage?("Stored one \(item.kind.rawValue) (level \(item.level)); \(total) of this type at Toolstation.")
         }
     }
 
@@ -1327,6 +1327,20 @@ final class NativeMissionWorkspace: NSView {
         nerpsState?.gotoTutorialCamera = { [weak self] id in self?.level3D.gotoTutorialCamera(id) }
         nerpsState?.cameraAtTutorial = { [weak self] id in self?.level3D.cameraAtTutorial(id) ?? 0 }
         nerpsState?.rockRaidersOnLevel = { [weak self] in self?.level3D.rockRaiderCount ?? 0 }
+        // Read the actual resource state each VM tick rather than generating
+        // a counter event for failed navigation or duplicated callbacks.
+        nerpsState?.crystalsPickedUp = { [weak self] in
+            self?.level3D.excavationState.pickedUpCount(.crystal) ?? 0
+        }
+        nerpsState?.crystalsCurrentlyStored = { [weak self] in
+            self?.level3D.excavationState.storedCount(.crystal) ?? 0
+        }
+        nerpsState?.orePickedUp = { [weak self] in
+            self?.level3D.excavationState.pickedUpCount(.ore) ?? 0
+        }
+        nerpsState?.oreCurrentlyStored = { [weak self] in
+            self?.level3D.excavationState.storedCount(.ore) ?? 0
+        }
         if let config, let wadURL {
             startCaveAudio = { [weak self] in
                 _ = self?.caveAudio.start(config: config, resources: resources, beside: wadURL,

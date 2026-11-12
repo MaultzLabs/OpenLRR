@@ -553,3 +553,29 @@ percentage.
 semantics, connect successful real deposit events to matching script-visible
 crystal/ore counts, and finish original Collect/Deposit animations and
 carried object attachment before live first-tutorial validation.
+
+## Original NERPs physical-resource counters — 2026-11-12
+
+OpenLRR `NERPsFunctions.cpp` exposes distinct NPL expressions:
+`GetCrystalsPickedUp` (0x0C), `GetCrystalsCurrentlyStored` (0x0D),
+`GetOrePickedUp` (0x60), and `GetOreCurrentlyStored` (0x61).
+`Object.cpp` increments picked-up counters after GatherRock, whereas
+`Game.cpp` stores ore and crystals separately. Native confirmed one-unit
+Collect actions now increment the appropriate mission pickup counter; successful
+physical Toolstation deposits independently increment stored inventory.
+Original NPL queries read the mission overlay every tick and never consume
+events. Wall destruction, a pending route, a duplicate pickup and a carried
+resource without a store cannot satisfy a stored-resource goal.
+
+Portable tests cover all four callback IDs, non-consuming reads, a synthetic
+NPL banked-crystal condition, 25 sequential actual pickups and deposits and
+missing Toolstation behavior. This is not original Collect animation completion
+timing (native collection currently completes at verified arrival), nor full
+retail economy. Initial stocks, power drain (included in the original crystal
+stored query), ore refinery, genuine store entry, task AI, other resource sources,
+construction spending, original held meshes, sound, visual owner-asset testing
+and mission win/loss remain incomplete. Report exact CI conclusions separately.
+No overall percentage is assigned.
+
+**Next:** authentic GatherRock/Collect/Deposit timing and original handheld
+resource geometry, then live first-tutorial original NPL completion handling.
