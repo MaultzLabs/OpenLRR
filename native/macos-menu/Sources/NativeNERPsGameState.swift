@@ -61,6 +61,12 @@ final class NativeNERPsGameState {
     var gotoTutorialCamera: ((Int32) -> Void)?
     var cameraAtTutorial: ((Int32) -> Int32)?
     var rockRaidersOnLevel: (() -> Int32)?
+    // Original NERPs reads Level pickup and inventory counters, separately.
+    // Bound to verified mission-local pickups/Toolstation deposits only.
+    var crystalsPickedUp: (() -> Int32)?
+    var crystalsCurrentlyStored: (() -> Int32)?
+    var orePickedUp: (() -> Int32)?
+    var oreCurrentlyStored: (() -> Int32)?
     var playMessageSound: ((String) -> Double?)?
     private var lastSoundPath: String?
     private var randomState: UInt32 = 1
@@ -172,6 +178,16 @@ final class NativeNERPsGameState {
         if let count = rockRaidersOnLevel {
             callbacks[0x34] = .init(kind: .expression(arity: 0), invoke: { _ in count() })
         }
+        // Retail NPL function IDs (NERPsFunctions.cpp / original NPL table).
+        // Reads do not consume counters; drilling alone does not credit them.
+        callbacks[0x0c] = .init(kind: .expression(arity: 0),
+                                invoke: { [unowned self] _ in self.crystalsPickedUp?() ?? 0 })
+        callbacks[0x0d] = .init(kind: .expression(arity: 0),
+                                invoke: { [unowned self] _ in self.crystalsCurrentlyStored?() ?? 0 })
+        callbacks[0x60] = .init(kind: .expression(arity: 0),
+                                invoke: { [unowned self] _ in self.orePickedUp?() ?? 0 })
+        callbacks[0x61] = .init(kind: .expression(arity: 0),
+                                invoke: { [unowned self] _ in self.oreCurrentlyStored?() ?? 0 })
         callbacks[0] = .init(kind: .action(arity: 0), invoke: { _ in 0 }) // Stop
         callbacks[1] = .init(kind: .expression(arity: 0), invoke: { _ in 1 })
         callbacks[2] = .init(kind: .expression(arity: 0), invoke: { _ in 0 })

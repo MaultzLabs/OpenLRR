@@ -374,6 +374,10 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         let carried = pickupState.collect(pickup, raiderID: "Raider1", raiderAt: crystalTile)!
         precondition(carried.kind == .crystal && carried.level == 0)
         precondition(pickupState.carrying["Raider1"] == carried)
+        precondition(pickupState.pickedUpCount(.crystal) == 1)
+        precondition(pickupState.pickedUpCount(.ore) == 0)
+        precondition(pickupState.storedCount(.crystal) == 0,
+                     "A carried crystal is not a stored crystal")
         precondition(pickupState.resourceDrops[crystalTile]?.count == 24)
         precondition(pickupState.collect(pickup, raiderID: "Raider1", raiderAt: crystalTile) == nil)
         precondition(pickupState.planCollect(from: crystalTile, tile: crystalTile,
@@ -389,6 +393,9 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         precondition(pickupState.deposit(delivery, raiderID: "Raider1",
                                          raiderAt: crystalTile) == carried)
         precondition(pickupState.storedResources[carried] == 1)
+        precondition(pickupState.pickedUpCount(.crystal) == 1)
+        precondition(pickupState.storedCount(.crystal) == 1)
+        precondition(pickupState.storedCount(.ore) == 0)
         precondition(pickupState.carrying.isEmpty)
         precondition(pickupState.deposit(delivery, raiderID: "Raider1",
                                          raiderAt: crystalTile) == nil)
@@ -407,6 +414,10 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         }
         precondition(pickupState.resourceDrops[crystalTile] == nil)
         precondition(pickupState.storedResources[carried] == 25)
+        precondition(pickupState.pickedUpCount(.crystal) == 25)
+        precondition(pickupState.storedCount(.crystal) == 25)
+        precondition(pickupState.pickedUpCount(.ore) == 0)
+        precondition(pickupState.storedCount(.ore) == 0)
         precondition(pickupState.planCollect(from: crystalTile,
             tile: crystalTile, raiderID: "Raider1") == nil)
         let noStore = NativeExcavationState(world: cryOreWorld)
@@ -417,6 +428,8 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
                                     raiderAt: crystalTile) != nil)
         precondition(noStore.planDeposit(from: crystalTile, raiderID: "Raider1") == nil)
         precondition(noStore.storedResources.isEmpty)
+        precondition(noStore.pickedUpCount(.crystal) == 1)
+        precondition(noStore.storedCount(.crystal) == 0)
         print("PASS: one-piece original Collect/Carry/Toolstation Deposit, stale arrival and no virtual storage")
         let sourceCryOreBytes = try cryOreResources.data(at: "Ore.map", maximumBytes: 10000)
         precondition(sourceCryOreBytes == Data(syntheticMap(cryOreCells, width: 5, height: 5)))

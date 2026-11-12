@@ -56,6 +56,24 @@ final class NativeExcavationState {
     private let originalToolStores: Set<Position>
     private(set) var carrying: [String: ResourceUnit] = [:]
     private(set) var storedResources: [ResourceUnit: Int] = [:]
+    // Retail Object.cpp increments picked-up counts on completed GatherRock.
+    // Native Collect currently completes at confirmed arrival, before the
+    // original GatherRock animation timing is implemented.
+    private(set) var crystalsPickedUp: Int32 = 0
+    private(set) var orePickedUp: Int32 = 0
+
+    func pickedUpCount(_ kind: LevelWorld.CryOreDeposit.Kind) -> Int32 {
+        kind == .crystal ? crystalsPickedUp : orePickedUp
+    }
+
+    /// Stored means physically deposited at a genuine original Toolstation.
+    /// Other original resource sources/consumption remain unimplemented.
+    func storedCount(_ kind: LevelWorld.CryOreDeposit.Kind) -> Int32 {
+        let total: Int = storedResources.reduce(into: 0) { sum, entry in
+            if entry.key.kind == kind { sum += entry.value }
+        }
+        return Int32(clamping: total)
+    }
 
     init(world: LevelWorld, originalToolStores: Set<Position> = []) {
         self.originalToolStores = Set(originalToolStores.filter {
@@ -101,6 +119,8 @@ final class NativeExcavationState {
                                               count: drop.count - 1)
         }
         carrying[raiderID] = item
+        if item.kind == .crystal { crystalsPickedUp &+= 1 }
+        else { orePickedUp &+= 1 }
         return item
     }
 
