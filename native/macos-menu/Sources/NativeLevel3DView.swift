@@ -836,7 +836,7 @@ final class NativeLevel3DView: SCNView {
                 selectedWall = nil
                 refreshExcavatedTerrain()
                 if let drop = excavation.resourceDrops[action.order.wall] {
-                    onInteractionMessage?("Wall opened: \(drop.count) original \(drop.kind.rawValue) drop(s), level \(drop.level). Collection remains unported.")
+                    onInteractionMessage?("Wall opened: \(drop.count) original \(drop.kind.rawValue) drop(s), level \(drop.level). Collection uses the original Collect activity when available.")
                 } else {
                     onInteractionMessage?("Wall excavated; rubble remains and connected caverns are revealed.")
                 }
