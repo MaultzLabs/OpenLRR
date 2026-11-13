@@ -24,8 +24,8 @@ struct NativeResourceAnimationClock {
 /// operation. Original WWAD/MAP bytes are never changed or saved.
 /// Drilling removes an already-visible, mineable wall only after a Raider has
 /// reached a cardinally adjacent walkable tile. Four-layer rubble/spade
-/// clearance now follows; CryOreMap-derived dropped resources are tracked
-/// separately from unported collection/storage, tools and stamina.
+/// clearance now follows; CryOreMap-derived dropped resources, one-piece
+/// collecting, and Toolstation storage are tracked without modifying MAP/WAD.
 final class NativeExcavationState {
     typealias Position = NativeLevelNavigation.Position
 
@@ -76,9 +76,9 @@ final class NativeExcavationState {
     private let originalToolStores: Set<Position>
     private(set) var carrying: [String: ResourceUnit] = [:]
     private(set) var storedResources: [ResourceUnit: Int] = [:]
-    // Retail Object.cpp increments picked-up counts on completed GatherRock.
-    // Native Collect currently completes at confirmed arrival, before the
-    // original GatherRock animation timing is implemented.
+    // Retail Object.cpp increments picked-up counts after the Collect activity.
+    // NativeLevel3DView now calls collect only after an authored Collect
+    // animation completes (or the explicitly provisional missing-clip fallback).
     private(set) var crystalsPickedUp: Int32 = 0
     private(set) var orePickedUp: Int32 = 0
 
@@ -169,8 +169,8 @@ final class NativeExcavationState {
     }
 
     /// An unrelated building or a remote order never credits inventory.
-    /// This is a mission-local native stored counter, NOT yet an original
-    /// Building_Deposit or NERPs resource callback.
+    /// This mission-local stored counter is exposed to the original NERPs
+    /// callback. Building_Deposit and resource processing remain incomplete.
     @discardableResult
     func deposit(_ order: DepositOrder, raiderID: String, raiderAt: Position) -> ResourceUnit? {
         guard !raiderID.isEmpty, originalToolStores.contains(order.store),
