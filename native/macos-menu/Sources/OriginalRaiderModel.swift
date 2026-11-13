@@ -132,7 +132,7 @@ final class OriginalRaiderModel {
                 if !geometrySets.contains(where: {
                     $0.firstPerson.contains(where: { $0.contains(where: { $0 != nil }) })
                 }) {
-                    firstPersonMeshDiagnostic = "Original FPPoly parts did not match the Stand/Route/Drill/Clear/Carry LWS objects"
+                    firstPersonMeshDiagnostic = "Original FPPoly parts did not match the Stand/Route/Drill/Clear/Carry/Collect/Deposit LWS objects"
                     geometrySets.removeAll()
                 }
             }
