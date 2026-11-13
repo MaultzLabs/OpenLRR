@@ -1,5 +1,25 @@
 import Foundation
 
+/// One-shot original animation work advances on unpaused mission frames, not
+/// wall-clock completion handlers. Pending resource actions neither remove
+/// drops nor credit NERPs until their final validated frame.
+struct NativeResourceAnimationClock {
+    let duration: Double
+    private(set) var progress = 0.0
+
+    init?(duration: Double) {
+        guard duration.isFinite, duration > 0 else { return nil }
+        self.duration = duration
+    }
+
+    mutating func advance(elapsed: Double) -> Bool {
+        guard elapsed.isFinite, elapsed > 0 else { return false }
+        // Like original drill work, bound an unobserved frame stall.
+        progress = min(duration, progress + min(elapsed, 0.25))
+        return progress >= duration
+    }
+}
+
 /// A mission-local overlay for the first real terrain-changing gameplay
 /// operation. Original WWAD/MAP bytes are never changed or saved.
 /// Drilling removes an already-visible, mineable wall only after a Raider has
