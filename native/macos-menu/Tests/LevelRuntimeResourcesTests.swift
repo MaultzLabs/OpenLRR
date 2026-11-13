@@ -31,6 +31,20 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
 
 @main struct LevelRuntimeResourcesTests {
     static func main() throws {
+        // Object.cpp waits for the authentic Collect/Deposit activity.
+        // Neither a queued route nor a paused/invalid frame may complete it.
+        precondition(NativeResourceAnimationClock(duration: 0) == nil)
+        precondition(NativeResourceAnimationClock(duration: .infinity) == nil)
+        var resourceWork = NativeResourceAnimationClock(duration: 1)!
+        precondition(!resourceWork.advance(elapsed: 0))
+        precondition(!resourceWork.advance(elapsed: -.infinity))
+        precondition(!resourceWork.advance(elapsed: 50),
+                     "Unobserved frame stalls cannot instantly credit resources")
+        precondition(resourceWork.progress == 0.25)
+        precondition(!resourceWork.advance(elapsed: 0.25))
+        precondition(!resourceWork.advance(elapsed: 0.25))
+        precondition(resourceWork.advance(elapsed: 0.25))
+        precondition(resourceWork.progress == 1)
         let referenced = try LegoConfig(text: """
         Lego* {
           Textures {
