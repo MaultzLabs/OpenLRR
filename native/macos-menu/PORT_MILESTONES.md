@@ -579,3 +579,44 @@ No overall percentage is assigned.
 
 **Next:** authentic GatherRock/Collect/Deposit timing and original handheld
 resource geometry, then live first-tutorial original NPL completion handling.
+
+## Original Pilot Collect/Deposit activity gating — 2026-11-13
+
+OpenLRR `src/openlrr/game/object/Object.cpp` selects `Activity_Collect`
+for `LIVEOBJ1_GATHERINGROCK` and `Activity_Deposit` for
+`LIVEOBJ1_STORING`, then waits for activity completion before advancing the
+object task. The native Pilot renderer now loads those named original AE/LWS
+activities if present, animates them in the existing genuine LWOB hierarchy,
+and switches back to Stand or CarryStand afterward. No alternative artwork
+or animation is created.
+
+After arriving at an original CryOreMap item, the native Raider now defers
+**removing one drop, taking possession, and incrementing the NERPs pickup
+counter** until its original `Activity_Collect` cycle completes. After
+physical arrival beside an existing original OL Toolstation, it likewise
+defers **stored resource credit and the removal of carried state** until its
+`Activity_Deposit` cycle finishes. Both use the unpaused mission clock,
+with each unobserved frame clamped to 0.25 seconds; interrupting a task or
+changing movement invalidates its generation and cannot finish an obsolete
+pickup or deposit. Arrival and source stack/real Toolstation are validated
+again at completion. If the owner lacks a supported original LWS clip, the
+older immediate-completion fallback is explicitly retained and does not
+invent an animation. The original resources, saves, Wine and main are untouched.
+
+Portable timing tests cover invalid duration/elapsed, pauses, frame-stall
+capping, and exactly one animation-cycle completion. Hosted macOS synthetic
+SceneKit tests exercise genuine-format original `Collect` and `Deposit`
+scene selection and first-person geometry transitions. Their **actual CI
+conclusions must be checked on the final commit**; compilation and original
+owner-asset on-device appearance are not inferred from source or fixture tests.
+
+**Acceptance gaps:** The original resource mesh is not yet attached to
+`CarryNull`, original activity frame-rate overrides/throw-timing and sound
+are not confirmed, and source-accurate automatic tasks, store entry/power,
+resource spending, actual tutorial NPL completion and owner-Mac gameplay
+remain incomplete. This is an incremental state-machine and animation
+milestone, not a full-game completion percentage.
+
+**Next:** attach the original carried ore/crystal LWOB to the animated Pilot
+carry null without substitute geometry, then verify the entire drill →
+collect → deliver → original NPL objective sequence using the owner's assets.
