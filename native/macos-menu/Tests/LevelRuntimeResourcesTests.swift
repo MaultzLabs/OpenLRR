@@ -385,6 +385,15 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         precondition(pickupState.collect(pickup, raiderID: "Raider1", raiderAt: origin) == nil)
         precondition(pickupState.resourceDrops[crystalTile]?.count == 25)
         precondition(pickupState.storedResources.isEmpty)
+        // The authored Collect activity must finish before the source stack
+        // disappears or the pickup callback can observe the crystal.
+        var collectClock = NativeResourceAnimationClock(duration: 1)!
+        for _ in 0..<3 {
+            precondition(!collectClock.advance(elapsed: 0.25))
+            precondition(pickupState.pickedUpCount(.crystal) == 0)
+            precondition(pickupState.resourceDrops[crystalTile]?.count == 25)
+        }
+        precondition(collectClock.advance(elapsed: 0.25))
         let carried = pickupState.collect(pickup, raiderID: "Raider1", raiderAt: crystalTile)!
         precondition(carried.kind == .crystal && carried.level == 0)
         precondition(pickupState.carrying["Raider1"] == carried)
@@ -404,6 +413,15 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
                                          raiderAt: crystalTile) == nil)
         precondition(pickupState.deposit(delivery, raiderID: "Raider1", raiderAt: origin) == nil)
         precondition(pickupState.storedResources.isEmpty)
+        // The authored Deposit activity must complete before NERPs sees
+        // banked inventory; carry possession survives all intermediate ticks.
+        var depositClock = NativeResourceAnimationClock(duration: 1)!
+        for _ in 0..<3 {
+            precondition(!depositClock.advance(elapsed: 0.25))
+            precondition(pickupState.carrying["Raider1"] == carried)
+            precondition(pickupState.storedCount(.crystal) == 0)
+        }
+        precondition(depositClock.advance(elapsed: 0.25))
         precondition(pickupState.deposit(delivery, raiderID: "Raider1",
                                          raiderAt: crystalTile) == carried)
         precondition(pickupState.storedResources[carried] == 1)
