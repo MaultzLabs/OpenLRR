@@ -15,6 +15,10 @@ final class OriginalRaiderModel {
     // Original GameCommon.h Activity_Carry and Activity_CarryStand scenes.
     private let carryingWalk: OriginalLightWaveRenderer.Clip?
     private let carryingStand: OriginalLightWaveRenderer.Clip?
+    // Object.cpp uses Activity_Collect / Activity_Deposit and waits for the
+    // original animation before pickup/deposit completion.
+    private let collecting: OriginalLightWaveRenderer.Clip?
+    private let depositing: OriginalLightWaveRenderer.Clip?
     private let cameraPartNames: [String]
     let cameraFlipDirection: Bool
     var cameraFrameCount: Int { cameraPartNames.count }
@@ -33,6 +37,8 @@ final class OriginalRaiderModel {
     private(set) var firstPersonMeshDiagnostic: String?
     private var isDrilling = false
     private var isClearing = false
+    private var isCollecting = false
+    private var isDepositing = false
     private var hasCarriedResource = false
     private var moving = false
     private var epoch = ProcessInfo.processInfo.systemUptime
@@ -43,6 +49,8 @@ final class OriginalRaiderModel {
     private var activeClip: OriginalLightWaveRenderer.Clip {
         if isDrilling { return drilling ?? standing }
         if isClearing { return clearing ?? standing }
+        if isCollecting { return collecting ?? standing }
+        if isDepositing { return depositing ?? standing }
         if hasCarriedResource {
             return moving ? (carryingWalk ?? walking) : (carryingStand ?? standing)
         }
@@ -77,6 +85,8 @@ final class OriginalRaiderModel {
         clearing = try? clip("Activity_Clear")
         carryingWalk = try? clip("Activity_Carry")
         carryingStand = try? clip("Activity_CarryStand")
+        collecting = try? clip("Activity_Collect")
+        depositing = try? clip("Activity_Deposit")
         root.addChildNode(standing.root)
         root.addChildNode(walking.root)
         walking.root.isHidden = true
@@ -84,6 +94,8 @@ final class OriginalRaiderModel {
         if let clearing { root.addChildNode(clearing.root); clearing.root.isHidden = true }
         if let carryingWalk { root.addChildNode(carryingWalk.root); carryingWalk.root.isHidden = true }
         if let carryingStand { root.addChildNode(carryingStand.root); carryingStand.root.isHidden = true }
+        if let collecting { root.addChildNode(collecting.root); collecting.root.isHidden = true }
+        if let depositing { root.addChildNode(depositing.root); depositing.root.isHidden = true }
         let scale = Float(activities.scale / blockSize)
         root.scale = SCNVector3(scale, scale, scale)
         // Retail LightWave space is -Z up; SceneKit cave space is +Y up.
@@ -97,7 +109,8 @@ final class OriginalRaiderModel {
             if lod.hasFirstPersonMeshes {
                 for clip in [standing, walking] + (drilling.map { [$0] } ?? []) +
                     (clearing.map { [$0] } ?? []) + (carryingWalk.map { [$0] } ?? []) +
-                    (carryingStand.map { [$0] } ?? []) {
+                    (carryingStand.map { [$0] } ?? []) +
+                    (collecting.map { [$0] } ?? []) + (depositing.map { [$0] } ?? []) {
                     let replacements = lod.frames.map { cameraSet in
                         clip.parts.map { part -> (Bool, SCNGeometry?) in
                             guard let name = part.name,
@@ -179,7 +192,8 @@ final class OriginalRaiderModel {
         let active = activeClip
         for clip in [standing, walking] + (drilling.map { [$0] } ?? []) +
             (clearing.map { [$0] } ?? []) + (carryingWalk.map { [$0] } ?? []) +
-            (carryingStand.map { [$0] } ?? []) {
+            (carryingStand.map { [$0] } ?? []) +
+            (collecting.map { [$0] } ?? []) + (depositing.map { [$0] } ?? []) {
             clip.root.isHidden = clip !== active
         }
     }
@@ -198,6 +212,8 @@ final class OriginalRaiderModel {
         guard moving != value || isDrilling || isClearing else { return }
         isDrilling = false
         isClearing = false
+        isCollecting = false
+        isDepositing = false
         moving = value
         epoch = ProcessInfo.processInfo.systemUptime
         showActiveActivity()
@@ -229,6 +245,45 @@ final class OriginalRaiderModel {
         epoch = ProcessInfo.processInfo.systemUptime
         showActiveActivity()
         return clearing.asset.duration
+    }
+
+    /// Start the owner's authentic one-shot Collect/Deposit LWS scene.
+    /// A missing authored scene reports nil: the view may keep its legacy
+    /// immediate task completion, but must not invent a substitute animation.
+    func beginCollecting() -> TimeInterval? {
+        guard let collecting, collecting.asset.duration.isFinite,
+              collecting.asset.duration > 0 else { return nil }
+        isCollecting = true
+        isDepositing = false
+        isDrilling = false
+        isClearing = false
+        moving = false
+        epoch = ProcessInfo.processInfo.systemUptime
+        showActiveActivity()
+        return collecting.asset.duration
+    }
+
+    func beginDepositing() -> TimeInterval? {
+        guard let depositing, depositing.asset.duration.isFinite,
+              depositing.asset.duration > 0 else { return nil }
+        isDepositing = true
+        isCollecting = false
+        isDrilling = false
+        isClearing = false
+        moving = false
+        epoch = ProcessInfo.processInfo.systemUptime
+        showActiveActivity()
+        return depositing.asset.duration
+    }
+
+    /// Restore Stand/CarryStand after a completed or interrupted one-shot.
+    /// Carrying state is independent of this visual action.
+    func endResourceActivity() {
+        guard isCollecting || isDepositing else { return }
+        isCollecting = false
+        isDepositing = false
+        epoch = ProcessInfo.processInfo.systemUptime
+        showActiveActivity()
     }
 
     /// Preserve the current animation frame across an initial objective pause.
