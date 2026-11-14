@@ -620,3 +620,47 @@ milestone, not a full-game completion percentage.
 **Next:** attach the original carried ore/crystal LWOB to the animated Pilot
 carry null without substitute geometry, then verify the entire drill →
 collect → deliver → original NPL objective sequence using the owner's assets.
+
+
+## Original carried-resource LWOB attachment — 2026-11-14
+
+OpenLRR `Creature_GetCarryNull` in `src/openlrr/game/object/Creature.cpp`
+reads `CarryNullName` from the original Pilot AE and resolves its frame-zero
+LWS part through `Container_FormatPartName`. The native activity renderer now
+uses that authored `*_00` null, if present, to parent **the same original
+ore/crystal LWOB root removed from the opened CryOreMap stack** after a
+successful Collect activity. This transfers an existing user-owned mesh
+instead of creating a placeholder, and preserves its authentic original
+materials/UVs. During Stand/CarryStand/Carry/Collect/Deposit animation
+changes the mesh follows the active clip's corresponding animated null.
+If an activity lacks the original null, the mesh is temporarily detached
+rather than rendered at a stale/free-floating location; mission custody
+remains intact. A successful completed Toolstation deposit detaches the
+mesh and ends carrying; interrupted deliveries retain it.
+
+The resource mesh is converted from standalone world rendering coordinates
+to character-null local coordinates by removing the already-applied
+world-to-SceneKit basis rotation and using inverse Pilot AE Scale. The
+Pilot model root already supplies the original basis and
+`AE Scale / BlockSize`, so the resource must not be scaled a second time
+by `1 / BlockSize`. Source files are only read, never modified.
+
+Synthetic tests cover original AE null-name lookup, authenticated LWOB
+geometry retained through pickup, carrying-clip hand reparenting, no
+double transform, and removal after deposit. The preceding PR #86 hosted
+Mac compile was found to have failed due to Swift type-check exhaustion
+in long optional-clip concatenation expressions, despite successful
+portable tests. This branch replaces those expressions with one explicitly
+typed activity collection. Its own CI result still determines whether
+both corrections compile.
+
+**Not yet verified:** actual retail Pilot null naming, hand alignment,
+resource orientation, mesh scale and material appearance, animation/sound
+synchronization and full first-tutorial victory on the owner's Mac.
+Absent original files are never replaced with fabricated artwork.
+
+**Next:** run a genuine user-owned first-level sequence from original
+wall drilling through source-model pickup, visible carrying, Toolstation
+deposit and NERPs storage objective. Then implement automatic Raider task
+assignment and remaining first-tutorial completion behavior, with
+original AI logic as reference. No completion percentage is asserted.
