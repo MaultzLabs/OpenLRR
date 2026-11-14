@@ -54,6 +54,7 @@ final class NativeLevel3DView: SCNView {
             marker.removeAllActions()
             stopDrilling(id: id)
             stopClearing(id: id)
+            stopResourceActivity(id: id)
             marker.position = position
             raiderModels[id]?.setMoving(false)
         }
@@ -85,6 +86,19 @@ final class NativeLevel3DView: SCNView {
     }
     private var activeClears: [String: ActiveClear] = [:]
     private var clearingRaiders = Set<String>()
+    // Original Object.cpp waits for Activity_Collect / Activity_Deposit.
+    // No pickup or storage mutation until the authored animation has finished
+    // and the exact order is revalidated against the live mission state.
+    private enum ResourceStage {
+        case collect(NativeExcavationState.CollectOrder)
+        case deposit(NativeExcavationState.DepositOrder)
+    }
+    private struct ActiveResourceActivity {
+        let stage: ResourceStage
+        var clock: NativeResourceAnimationClock
+        let generation: UUID
+    }
+    private var activeResourceActivities: [String: ActiveResourceActivity] = [:]
     private var drillAudio: OriginalDrillAudio?
     var selectionCount: Int32 { Int32(selectedRaiders.count) }
     private var raiderModels: [String: OriginalRaiderModel] = [:]
@@ -421,6 +435,7 @@ final class NativeLevel3DView: SCNView {
         }
         for id in Array(drillingRaiders) { stopDrilling(id: id, fade: false) }
         for id in Array(clearingRaiders) { stopClearing(id: id) }
+        for id in Array(activeResourceActivities.keys) { stopResourceActivity(id: id) }
         drillAudio?.stopAll()
     }
 
@@ -549,22 +564,17 @@ final class NativeLevel3DView: SCNView {
         }
         commandMove(to: .init(x: Double(tile.x) + 0.5, y: Double(tile.y) + 0.5),
                     raiderID: id) { [weak self] in
-            guard let self, let marker = self.raiderMarkers[id],
-                  let item = self.excavation.collect(order, raiderID: id,
-                                                       raiderAt: self.tileUnderRaider(marker)) else {
-                self?.onInteractionMessage?("Resource was not collected; order interrupted or item unavailable.")
-                return
+            guard let self else { return }
+            let duration = self.raiderModels[id]?.beginCollecting()
+            if let duration, let clock = NativeResourceAnimationClock(duration: duration),
+               let generation = self.motionGenerations[id] {
+                self.activeResourceActivities[id] = ActiveResourceActivity(
+                    stage: .collect(order), clock: clock, generation: generation)
+            } else {
+                // Unsupported or absent retail activity retains legacy instant
+                // completion instead of playing a fabricated animation.
+                self.finishCollect(order, raiderID: id)
             }
-            // Remove precisely one original LWOB instance, not the whole
-            // CryOreMap stack. A missing mesh never blocks gameplay state.
-            if var nodes = self.resourceDropNodes[tile], let node = nodes.popLast() {
-                node.removeFromParentNode()
-                if nodes.isEmpty { self.resourceDropNodes.removeValue(forKey: tile) }
-                else { self.resourceDropNodes[tile] = nodes }
-            }
-            self.raiderModels[id]?.setCarryingResource(true)
-            self.onInteractionMessage?("Raider \(id) collected one original \(item.kind.rawValue); carrying to Toolstation.")
-            self.deliverCarriedResource(raiderID: id)
         }
     }
 
@@ -581,15 +591,71 @@ final class NativeLevel3DView: SCNView {
         commandMove(to: .init(x: Double(order.approach.x) + 0.5,
                               y: Double(order.approach.y) + 0.5),
                     raiderID: id) { [weak self] in
-            guard let self, let marker = self.raiderMarkers[id],
-                  let item = self.excavation.deposit(order, raiderID: id,
-                                                       raiderAt: self.tileUnderRaider(marker)) else {
-                self?.onInteractionMessage?("Resource remains carried; Toolstation delivery not completed.")
-                return
+            guard let self else { return }
+            let duration = self.raiderModels[id]?.beginDepositing()
+            if let duration, let clock = NativeResourceAnimationClock(duration: duration),
+               let generation = self.motionGenerations[id] {
+                self.activeResourceActivities[id] = ActiveResourceActivity(
+                    stage: .deposit(order), clock: clock, generation: generation)
+            } else {
+                self.finishDeposit(order, raiderID: id)
             }
-            self.raiderModels[id]?.setCarryingResource(false)
-            let total = self.excavation.storedResources[item] ?? 0
-            self.onInteractionMessage?("Stored one \(item.kind.rawValue) (level \(item.level)); \(total) of this type at Toolstation.")
+        }
+    }
+
+    private func stopResourceActivity(id: String) {
+        activeResourceActivities.removeValue(forKey: id)
+        raiderModels[id]?.endResourceActivity()
+    }
+
+    private func finishCollect(_ order: NativeExcavationState.CollectOrder, raiderID id: String) {
+        guard !missionTimePaused, let marker = raiderMarkers[id],
+              let item = excavation.collect(order, raiderID: id,
+                                            raiderAt: tileUnderRaider(marker)) else {
+            onInteractionMessage?("Resource was not collected; order interrupted or item unavailable.")
+            return
+        }
+        // Remove one genuine original mesh only after the Collect animation.
+        // Missing source meshes remain invisible without changing task state.
+        if var nodes = resourceDropNodes[order.tile], let node = nodes.popLast() {
+            node.removeFromParentNode()
+            if nodes.isEmpty { resourceDropNodes.removeValue(forKey: order.tile) }
+            else { resourceDropNodes[order.tile] = nodes }
+        }
+        raiderModels[id]?.setCarryingResource(true)
+        onInteractionMessage?("Raider \(id) collected one original \(item.kind.rawValue); carrying to Toolstation.")
+        deliverCarriedResource(raiderID: id)
+    }
+
+    private func finishDeposit(_ order: NativeExcavationState.DepositOrder, raiderID id: String) {
+        guard !missionTimePaused, let marker = raiderMarkers[id],
+              let item = excavation.deposit(order, raiderID: id,
+                                            raiderAt: tileUnderRaider(marker)) else {
+            onInteractionMessage?("Resource remains carried; Toolstation delivery not completed.")
+            return
+        }
+        raiderModels[id]?.setCarryingResource(false)
+        let total = excavation.storedResources[item] ?? 0
+        onInteractionMessage?("Stored one \(item.kind.rawValue) (level \(item.level)); \(total) of this type at Toolstation.")
+    }
+
+    private func advanceResourceActivities(elapsed: Double) {
+        guard elapsed.isFinite, elapsed > 0 else { return }
+        for (id, var task) in Array(activeResourceActivities) {
+            guard motionGenerations[id] == task.generation,
+                  raiderMarkers[id] != nil else {
+                stopResourceActivity(id: id)
+                continue
+            }
+            if task.clock.advance(elapsed: elapsed) {
+                stopResourceActivity(id: id)
+                switch task.stage {
+                case .collect(let order): finishCollect(order, raiderID: id)
+                case .deposit(let order): finishDeposit(order, raiderID: id)
+                }
+            } else {
+                activeResourceActivities[id] = task
+            }
         }
     }
 
@@ -770,7 +836,7 @@ final class NativeLevel3DView: SCNView {
                 selectedWall = nil
                 refreshExcavatedTerrain()
                 if let drop = excavation.resourceDrops[action.order.wall] {
-                    onInteractionMessage?("Wall opened: \(drop.count) original \(drop.kind.rawValue) drop(s), level \(drop.level). Collection remains unported.")
+                    onInteractionMessage?("Wall opened: \(drop.count) original \(drop.kind.rawValue) drop(s), level \(drop.level). Collection uses the original Collect activity when available.")
                 } else {
                     onInteractionMessage?("Wall excavated; rubble remains and connected caverns are revealed.")
                 }
@@ -1042,6 +1108,7 @@ final class NativeLevel3DView: SCNView {
         for model in objectModels.values { model.update(time: now) }
         advanceDrilling(elapsed: elapsed)
         advanceClearing(elapsed: elapsed)
+        advanceResourceActivities(elapsed: elapsed)
         if firstPersonRaider == nil, window?.isKeyWindow == true {
             let horizontal = (heldKeys.contains(124) ? 1.0 : 0) - (heldKeys.contains(123) ? 1.0 : 0)
             let vertical = (heldKeys.contains(125) ? 1.0 : 0) - (heldKeys.contains(126) ? 1.0 : 0)
@@ -1139,6 +1206,7 @@ final class NativeLevel3DView: SCNView {
         marker.removeAllActions()
         stopDrilling(id: id)
         stopClearing(id: id)
+        stopResourceActivity(id: id)
         marker.position = current // Retarget from the visible position without snapping.
         var previous = from
         let actions: [SCNAction] = route.dropFirst().map { target in

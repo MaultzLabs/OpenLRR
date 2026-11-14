@@ -271,6 +271,18 @@ private func fixtureWad(_ assets: [FixtureAsset]) -> Data {
             Activity_Clear Clear
             Activity_Carry Carry
             Activity_CarryStand CarryStand
+            Activity_Collect Collect
+            Activity_Deposit Deposit
+          }
+          Collect {
+            FILE Stand
+            LWSFILE TRUE
+            LOOPING FALSE
+          }
+          Deposit {
+            FILE Stand
+            LWSFILE TRUE
+            LOOPING FALSE
           }
           Carry {
             FILE Bare
@@ -468,9 +480,22 @@ private func fixtureWad(_ assets: [FixtureAsset]) -> Data {
         model.setMoving(false)
         precondition(model.showingFirstPersonMeshes,
                      "Original CarryStand clip has an authored FPPoly hand")
+        precondition(model.beginCollecting() == 1,
+                     "Original Activity_Collect must use its authored 25-frame LWS duration")
+        precondition(model.root.childNodes.filter { !$0.isHidden }.count == 1,
+                     "Only the authored Collect clip may render")
+        precondition(model.showingFirstPersonMeshes,
+                     "Collect uses its own authored camera-frame FPPoly parts")
+        model.endResourceActivity()
+        precondition(model.root.childNodes.filter { !$0.isHidden }.count == 1)
+        precondition(model.beginDepositing() == 1,
+                     "Original Activity_Deposit must use its authored LWS duration")
+        precondition(model.root.childNodes.filter { !$0.isHidden }.count == 1,
+                     "Only the authored Deposit clip may render")
+        model.endResourceActivity()
         model.setCarryingResource(false)
         precondition(model.showingFirstPersonMeshes,
-                     "Depositing returns the original Stand activity")
+                     "Completed deposit returns the original Stand activity")
         let firstArm = arm.geometry
         precondition(model.selectFirstPersonCameraFrame(1))
         precondition(model.selectedCameraFrame == 1)
