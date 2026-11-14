@@ -1,4 +1,7 @@
 import Foundation
+#if os(macOS)
+import SceneKit
+#endif
 
 // Entirely synthetic archive paths/payloads, including author-machine decoys.
 private struct FixtureAsset {
@@ -30,6 +33,7 @@ private func fixtureWad(_ assets: [FixtureAsset]) -> Data {
         Lego* {
           CameraNullName Camera
           CameraNullFrames 2
+          CarryNullName Hand
           Activities {
             Activity_Stand Stand
             Activity_Route Walk
@@ -49,6 +53,8 @@ private func fixtureWad(_ assets: [FixtureAsset]) -> Data {
         precondition(activities.cameraNullPartName(frame: 1) == "Camera_01")
         precondition(activities.cameraNullPartName(frame: 2) == nil)
         precondition(activities.cameraNullPartName(frame: -1) == nil)
+        precondition(activities.carryNullPartName == "Hand_00",
+                     "Creature_GetCarryNull must resolve original AE frame zero")
         let stand = try activities.scenePath(activity: "Activity_Stand")
         precondition(stand == "MiniFigures/Pilot/PilotStand.lws")
         let walk = try activities.scenePath(activity: "Activity_Route")
@@ -255,6 +261,7 @@ private func fixtureWad(_ assets: [FixtureAsset]) -> Data {
         Lego* {
           CameraNullName Cam
           CameraNullFrames 2
+          CarryNullName Hand
           FPPoly {
             Camera0 {
               Arm \(partValue)
@@ -402,6 +409,12 @@ private func fixtureWad(_ assets: [FixtureAsset]) -> Data {
         1
         0 1 0 0 0 0 1 1 1
         0 0 0 0 0
+        AddNullObject Hand_00
+        ObjectMotion (unnamed)
+        9
+        1
+        0 2 0 0 0 0 1 1 1
+        0 0 0 0 0
         """.utf8)
         // The authored Route/Drill animation lacks the Arm FPPoly target.
         // Its unmodified Head mesh would obstruct the first-person view if
@@ -429,6 +442,12 @@ private func fixtureWad(_ assets: [FixtureAsset]) -> Data {
         9
         1
         0 0 0 0 0 0 1 1 1
+        0 0 0 0 0
+        AddNullObject Hand_00
+        ObjectMotion (unnamed)
+        9
+        1
+        0 3 0 0 0 0 1 1 1
         0 0 0 0 0
         """.utf8)
         let resources = try GameResources(archives: [(0, fixtureWad([
@@ -474,10 +493,33 @@ private func fixtureWad(_ assets: [FixtureAsset]) -> Data {
         // A carry walk with no FPPoly target must hide its full body; a
         // carry idle with the authored Arm part may use the real hand mesh.
         model.setCarryingResource(true)
+        // Real-format original LWOB geometry (not a procedural shape)
+        // must move from its ground-scale frame into the active hand null.
+        let itemAsset = try OriginalLightWaveMeshAsset.load(
+            path: "Fixture/Pilot/OriginalTool.lwo", resources: resources)
+        let item = SCNNode()
+        item.scale = SCNVector3(0.025, 0.025, 0.025)
+        item.eulerAngles.x = CGFloat(OriginalModelCoordinateBasis.sceneKitRootPitchRadians)
+        item.addChildNode(SCNNode(geometry: OriginalLightWaveRenderer.geometry(
+            asset: itemAsset, resources: resources, sharedTextures: nil)))
+        model.setCarriedOriginalResource(item)
+        precondition(model.carriedOriginalResourceAnchorName == "Hand_00")
+        precondition(item.childNodes.first?.geometry != nil,
+                     "The source LWOB geometry must survive pickup")
+        precondition(abs(Double(item.scale.x) - 1) < 0.00001 &&
+                     abs(Double(item.eulerAngles.x)) < 0.00001,
+                     "An attached resource must not be double-scaled or double-rotated")
+        let idleCarryRoot = item.parent?.parent
+        precondition(idleCarryRoot === model.root.childNodes.first(where: { !$0.isHidden }))
         model.setMoving(true)
+        precondition(model.carriedOriginalResourceAnchorName == "Hand_00")
+        precondition(item.parent?.parent === model.root.childNodes.first(where: { !$0.isHidden }) &&
+                     item.parent?.parent !== idleCarryRoot,
+                     "The held original item must follow the Route/Carry activity null")
         precondition(!model.showingFirstPersonMeshes,
                      "Original Carry motion without a hand must hide the FP body")
         model.setMoving(false)
+        precondition(model.carriedOriginalResourceAnchorName == "Hand_00")
         precondition(model.showingFirstPersonMeshes,
                      "Original CarryStand clip has an authored FPPoly hand")
         precondition(model.beginCollecting() == 1,
@@ -493,7 +535,10 @@ private func fixtureWad(_ assets: [FixtureAsset]) -> Data {
         precondition(model.root.childNodes.filter { !$0.isHidden }.count == 1,
                      "Only the authored Deposit clip may render")
         model.endResourceActivity()
+        model.setCarriedOriginalResource(nil)
         model.setCarryingResource(false)
+        precondition(item.parent == nil && model.carriedOriginalResourceAnchorName == nil,
+                     "A completed Toolstation deposit leaves no ghost resource mesh")
         precondition(model.showingFirstPersonMeshes,
                      "Completed deposit returns the original Stand activity")
         let firstArm = arm.geometry

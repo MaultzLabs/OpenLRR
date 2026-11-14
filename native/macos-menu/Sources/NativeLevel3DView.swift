@@ -615,14 +615,19 @@ final class NativeLevel3DView: SCNView {
             onInteractionMessage?("Resource was not collected; order interrupted or item unavailable.")
             return
         }
-        // Remove one genuine original mesh only after the Collect animation.
-        // Missing source meshes remain invisible without changing task state.
+        // Move the same owner-owned LWOB that was displayed on the ground
+        // into the animated Pilot CarryNull after the completed Collect task.
+        // An unavailable retail mesh/null remains invisible, not substituted.
+        var heldOriginalMesh: SCNNode?
         if var nodes = resourceDropNodes[order.tile], let node = nodes.popLast() {
+            heldOriginalMesh = node.childNodes.first
+            heldOriginalMesh?.removeFromParentNode()
             node.removeFromParentNode()
             if nodes.isEmpty { resourceDropNodes.removeValue(forKey: order.tile) }
             else { resourceDropNodes[order.tile] = nodes }
         }
         raiderModels[id]?.setCarryingResource(true)
+        raiderModels[id]?.setCarriedOriginalResource(heldOriginalMesh)
         onInteractionMessage?("Raider \(id) collected one original \(item.kind.rawValue); carrying to Toolstation.")
         deliverCarriedResource(raiderID: id)
     }
@@ -634,6 +639,9 @@ final class NativeLevel3DView: SCNView {
             onInteractionMessage?("Resource remains carried; Toolstation delivery not completed.")
             return
         }
+        // Physical custody ends only after the original Deposit activity and
+        // successful Toolstation storage. Cancelled orders retain the mesh.
+        raiderModels[id]?.setCarriedOriginalResource(nil)
         raiderModels[id]?.setCarryingResource(false)
         let total = excavation.storedResources[item] ?? 0
         onInteractionMessage?("Stored one \(item.kind.rawValue) (level \(item.level)); \(total) of this type at Toolstation.")

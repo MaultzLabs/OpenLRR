@@ -20,6 +20,9 @@ final class OriginalRaiderModel {
     private let collecting: OriginalLightWaveRenderer.Clip?
     private let depositing: OriginalLightWaveRenderer.Clip?
     private let cameraPartNames: [String]
+    private let carryPartName: String?
+    private let carriedMeshScale: Float
+    private var carriedOriginalResource: SCNNode?
     let cameraFlipDirection: Bool
     var cameraFrameCount: Int { cameraPartNames.count }
     private(set) var selectedCameraFrame = 0
@@ -57,6 +60,17 @@ final class OriginalRaiderModel {
         return moving ? walking : standing
     }
 
+    /// Keep the optional original activity clips in one typed collection.
+    /// Large chains of optional array concatenations exhaust Swift's Mac
+    /// type checker even though portable (non-SceneKit) tests cannot see it.
+    private var allActivityClips: [OriginalLightWaveRenderer.Clip] {
+        var clips: [OriginalLightWaveRenderer.Clip] = [standing, walking]
+        for optionalClip in [drilling, clearing, carryingWalk, carryingStand, collecting, depositing] {
+            if let clip = optionalClip { clips.append(clip) }
+        }
+        return clips
+    }
+
     /// True only if the CURRENT activity has an authentic first-person mesh
     /// in the selected camera set. Checking every loaded clip previously kept
     /// the full body visible when the active clip lacked its FPPoly parts.
@@ -78,6 +92,12 @@ final class OriginalRaiderModel {
                 resources: resources, sharedTextures: sharedTextures)
         }
         cameraPartNames = (0..<4).compactMap { activities.cameraNullPartName(frame: $0) }
+        carryPartName = activities.carryNullPartName
+        // The Pilot's model root already scales original LightWave world
+        // coordinates by activities.scale / blockSize. A retail resource
+        // LWOB originally has scale 1 / blockSize at ground level, so its
+        // scale when parented to an animated Pilot null is 1 / AE Scale.
+        carriedMeshScale = Float(1 / activities.scale)
         cameraFlipDirection = activities.cameraFlipDirection
         standing = try clip("Activity_Stand")
         walking = try clip("Activity_Route")
@@ -107,10 +127,7 @@ final class OriginalRaiderModel {
         do {
             let lod = try OriginalFirstPersonMeshLOD.load(activities: activities, resources: resources)
             if lod.hasFirstPersonMeshes {
-                for clip in [standing, walking] + (drilling.map { [$0] } ?? []) +
-                    (clearing.map { [$0] } ?? []) + (carryingWalk.map { [$0] } ?? []) +
-                    (carryingStand.map { [$0] } ?? []) +
-                    (collecting.map { [$0] } ?? []) + (depositing.map { [$0] } ?? []) {
+                for clip in allActivityClips {
                     let replacements = lod.frames.map { cameraSet in
                         clip.parts.map { part -> (Bool, SCNGeometry?) in
                             guard let name = part.name,
@@ -190,12 +207,48 @@ final class OriginalRaiderModel {
 
     private func showActiveActivity() {
         let active = activeClip
-        for clip in [standing, walking] + (drilling.map { [$0] } ?? []) +
-            (clearing.map { [$0] } ?? []) + (carryingWalk.map { [$0] } ?? []) +
-            (carryingStand.map { [$0] } ?? []) +
-            (collecting.map { [$0] } ?? []) + (depositing.map { [$0] } ?? []) {
+        for clip in allActivityClips {
             clip.root.isHidden = clip !== active
         }
+        followOriginalCarryNull()
+    }
+
+    /// Attach the owner's actual rendered ore/crystal mesh to the Pilot's
+    /// current animated CarryNullName_00, as Creature_GetCarryNull does.
+    /// The argument is a detached resource-model root from the original
+    /// world drop. Never synthesize a missing null or substitute geometry.
+    func setCarriedOriginalResource(_ resource: SCNNode?) {
+        carriedOriginalResource?.removeFromParentNode()
+        carriedOriginalResource = resource
+        if let resource {
+            resource.removeFromParentNode()
+            resource.position = SCNVector3Zero
+            resource.eulerAngles = SCNVector3Zero // Parent already converts LWOB up axis.
+            resource.scale = SCNVector3(carriedMeshScale, carriedMeshScale, carriedMeshScale)
+        }
+        followOriginalCarryNull()
+    }
+
+    private func followOriginalCarryNull() {
+        guard let resource = carriedOriginalResource else { return }
+        guard hasCarriedResource, let name = carryPartName,
+              let carryNull = activeClip.parts.first(where: {
+                  $0.name?.caseInsensitiveCompare(name) == .orderedSame
+              }) else {
+            // An activity without the authentic null must not render a
+            // free-floating object at the previous animation's hand location.
+            resource.removeFromParentNode()
+            return
+        }
+        if resource.parent !== carryNull {
+            resource.removeFromParentNode()
+            carryNull.addChildNode(resource)
+        }
+    }
+
+    /// Synthetic SceneKit tests can inspect the actual retail frame binding.
+    var carriedOriginalResourceAnchorName: String? {
+        carriedOriginalResource?.parent?.name
     }
 
     /// Switch to genuine retail carry activity scenes, if present. Unsupported
