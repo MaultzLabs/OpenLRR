@@ -94,6 +94,18 @@ struct OriginalModelActivities {
 
     func scenePath(activity: String) throws -> String { try self.activity(activity).path }
 
+    /// Creature_FindNull(Creature_GetCarryNull) looks up the AE's
+    /// CarryNullName at frame 0 through Container_FormatPartName, not an
+    /// invented hand offset. No authored null means no visible carried mesh.
+    var carryNullPartName: String? {
+        guard let name = definition.valueUnderGame(["CarryNullName"])?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              !name.isEmpty, name.utf8.count <= 128,
+              !name.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) })
+        else { return nil }
+        return name + "_00"
+    }
+
     /// Creature_Load reads AE CameraFlipDir via Config_GetBoolValue;
     /// Creature_IsCameraFlipDir recognizes only BOOL3_TRUE. The original
     /// Util_GetBoolFromString accepts YES/TRUE/ON (case-insensitive).
