@@ -1,4 +1,7 @@
 import Foundation
+#if os(macOS)
+import SceneKit
+#endif
 
 // Entirely synthetic archive paths/payloads, including author-machine decoys.
 private struct FixtureAsset {
