@@ -57,6 +57,17 @@ final class OriginalRaiderModel {
         return moving ? walking : standing
     }
 
+    /// Keep the optional original activity clips in one typed collection.
+    /// Large chains of optional array concatenations exhaust Swift's Mac
+    /// type checker even though portable (non-SceneKit) tests cannot see it.
+    private var allActivityClips: [OriginalLightWaveRenderer.Clip] {
+        var clips: [OriginalLightWaveRenderer.Clip] = [standing, walking]
+        for optionalClip in [drilling, clearing, carryingWalk, carryingStand, collecting, depositing] {
+            if let clip = optionalClip { clips.append(clip) }
+        }
+        return clips
+    }
+
     /// True only if the CURRENT activity has an authentic first-person mesh
     /// in the selected camera set. Checking every loaded clip previously kept
     /// the full body visible when the active clip lacked its FPPoly parts.
@@ -107,10 +118,7 @@ final class OriginalRaiderModel {
         do {
             let lod = try OriginalFirstPersonMeshLOD.load(activities: activities, resources: resources)
             if lod.hasFirstPersonMeshes {
-                for clip in [standing, walking] + (drilling.map { [$0] } ?? []) +
-                    (clearing.map { [$0] } ?? []) + (carryingWalk.map { [$0] } ?? []) +
-                    (carryingStand.map { [$0] } ?? []) +
-                    (collecting.map { [$0] } ?? []) + (depositing.map { [$0] } ?? []) {
+                for clip in allActivityClips {
                     let replacements = lod.frames.map { cameraSet in
                         clip.parts.map { part -> (Bool, SCNGeometry?) in
                             guard let name = part.name,
@@ -190,10 +198,7 @@ final class OriginalRaiderModel {
 
     private func showActiveActivity() {
         let active = activeClip
-        for clip in [standing, walking] + (drilling.map { [$0] } ?? []) +
-            (clearing.map { [$0] } ?? []) + (carryingWalk.map { [$0] } ?? []) +
-            (carryingStand.map { [$0] } ?? []) +
-            (collecting.map { [$0] } ?? []) + (depositing.map { [$0] } ?? []) {
+        for clip in allActivityClips {
             clip.root.isHidden = clip !== active
         }
     }
