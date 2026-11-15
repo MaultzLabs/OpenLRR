@@ -1317,12 +1317,20 @@ final class NativeMissionWorkspace: NSView {
     private let nerpsInfo: NSTextField
     private let missionHUD: OriginalMissionMessageUI
     private let briefing: OriginalMissionBriefingUI?
+    /// The same owner-owned ObjectiveText drives briefing, success and failure.
+    private let objectiveAssets: GameResources
+    private let objectiveConfig: LegoConfig?
+    private let objectiveData: Data
+    private let objectiveIdentifier: String
+    private var outcomeOverlay: OriginalMissionBriefingUI?
     private let briefingAudio = OriginalMissionBriefingAudio()
     private var startBriefingAudio: (() -> String)?
     private var startup = OriginalMissionStartupGate()
     private(set) var startupStatus = "Preparing original mission briefing"
     var isBriefingActive: Bool { briefing?.isActive == true }
     var onGameplayStart: (() -> Void)?
+    /// Allows the existing menu audio controller to stop the mission track.
+    var onMissionOutcome: (() -> Void)?
     var onStartupStatus: ((String) -> Void)?
     private let panels: OriginalMissionPanels
     private let commands: OriginalMissionCommands
@@ -1347,6 +1355,7 @@ final class NativeMissionWorkspace: NSView {
             commands.originalCursor = originalCursor
             panels.originalCursor = originalCursor
             briefing?.originalCursor = originalCursor
+            outcomeOverlay?.originalCursor = originalCursor
         }
     }
     var onBack: (() -> Void)? {
@@ -1354,6 +1363,7 @@ final class NativeMissionWorkspace: NSView {
             level3D.onExit = { [weak self] in self?.onBack?() }
             level2D.onExit = { [weak self] in self?.onBack?() }
             briefing?.onExit = { [weak self] in self?.onBack?() }
+            outcomeOverlay?.onExit = { [weak self] in self?.onBack?() }
         }
     }
 
@@ -1371,6 +1381,10 @@ final class NativeMissionWorkspace: NSView {
             try resources.data(at: $0, maximumBytes: OriginalMissionBriefingText.maximumFileBytes)
         } ?? Data()
         let text = try OriginalMissionBriefingText(data: bytes, levelIdentifier: world.identifier)
+        self.objectiveAssets = resources
+        self.objectiveConfig = config
+        self.objectiveData = bytes
+        self.objectiveIdentifier = world.identifier
         briefing = try OriginalMissionBriefingUI(definition: definition, text: text,
                                                 resources: resources, openingInput: openingInput)
         self.nerpsInfo = NSTextField(labelWithString:
@@ -1390,7 +1404,9 @@ final class NativeMissionWorkspace: NSView {
         super.init(frame: frame)
         level3D.missionTimePaused = isBriefingActive
         level2D.missionInputBlocked = isBriefingActive
-        nerpsState?.objectiveShowing = { [weak self] in self?.briefing?.objectiveShowing == true }
+        nerpsState?.objectiveShowing = { [weak self] in
+            self?.briefing?.objectiveShowing == true || self?.outcomeOverlay?.objectiveShowing == true
+        }
         briefing?.onDismiss = { [weak self] in self?.dismissInitialBriefing() }
         if let briefing {
             startBriefingAudio = { [weak self] in
@@ -1546,6 +1562,8 @@ final class NativeMissionWorkspace: NSView {
         nerpsTimer?.invalidate()
         nerpsTimer = nil
         briefing?.cancel()
+        outcomeOverlay?.cancel()
+        outcomeOverlay = nil
         briefingAudio.stop()
         nerpsAudio.stop()
         caveAudio.stop()
@@ -1581,8 +1599,48 @@ final class NativeMissionWorkspace: NSView {
         focusActiveView()
     }
 
+    /// Show only the source-authored result, never a fabricated victory panel.
+    /// Original Objective_SetStatus ends the level and stops further normal play.
+    private func showMissionOutcome(_ outcome: NativeNERPsGameState.MissionOutcome) {
+        guard outcomeOverlay == nil, !startup.hasExited else { return }
+        level3D.missionTimePaused = true
+        level2D.missionInputBlocked = true
+        caveAudio.stop()
+        nerpsAudio.stop()
+        onMissionOutcome?()
+        scriptClock.reset()
+        nerpsTimer?.invalidate()
+        nerpsTimer = nil
+        let phase: OriginalMissionObjectivePhase = outcome == .completed ? .completed : .failed
+        do {
+            let definition = try OriginalMissionBriefingDefinition(
+                config: objectiveConfig, levelIdentifier: objectiveIdentifier, phase: phase)
+            let text = try OriginalMissionBriefingText(
+                data: objectiveData, levelIdentifier: objectiveIdentifier, phase: phase)
+            let overlay = try OriginalMissionBriefingUI(
+                definition: definition, text: text, resources: objectiveAssets,
+                openingInput: OriginalMissionBriefingUI.heldInput())
+            overlay.originalCursor = originalCursor
+            overlay.onDismiss = { [weak self] in self?.onBack?() }
+            overlay.onExit = { [weak self] in self?.onBack?() }
+            outcomeOverlay = overlay
+            overlay.frame = bounds
+            addSubview(overlay)
+            refreshWallControls()
+            window?.makeFirstResponder(overlay)
+        } catch {
+            // Do not resume gameplay or claim that a malformed original result
+            // was shown. Leave the mission paused with a visible diagnostic.
+            nerpsHalted = true
+            nerpsInfo.stringValue = "Original mission result unavailable: \(error)"
+            nerpsInfo.toolTip = nerpsInfo.stringValue
+            diagnosticsButton.state = .on
+            setDiagnosticsVisible(true)
+        }
+    }
+
     private func advanceNERPs() {
-        guard startup.isAttached, !startup.hasExited else { return }
+        guard startup.isAttached, !startup.hasExited, outcomeOverlay == nil else { return }
         updateStartup()
         let elapsed = scriptClock.advance(now: ProcessInfo.processInfo.systemUptime,
                                           paused: isBriefingActive || nerpsState?.isPaused == true)
@@ -1592,6 +1650,10 @@ final class NativeMissionWorkspace: NSView {
               let nerpsState, !nerpsHalted, !nerpsState.isPaused else { return }
         do {
             let result = try nerpsState.tick(elapsedMilliseconds: Float(elapsed * 1000))
+            if let outcome = nerpsState.missionOutcome {
+                showMissionOutcome(outcome)
+                return
+            }
             // Original tutorial script flags now gate both actual mission views.
             let policy = nerpsState.inputPolicy
             level3D.tutorialInputPolicy = policy
@@ -1630,6 +1692,11 @@ final class NativeMissionWorkspace: NSView {
     }
 
     private func refreshWallControls() {
+        if outcomeOverlay != nil {
+            commands.isHidden = true
+            panels.isHidden = true
+            return
+        }
         if (commandPage == .wall && !level3D.hasSelectedWall) ||
            (commandPage == .rubble && !level3D.hasSelectedRubble) {
             commandPage = level3D.hasSelectedRaider ? .raider : .main
@@ -1642,7 +1709,7 @@ final class NativeMissionWorkspace: NSView {
     }
 
     private func performCommand(_ action: String) {
-        guard !isBriefingActive, !startup.hasExited else { return }
+        guard !isBriefingActive, !startup.hasExited, outcomeOverlay == nil else { return }
         switch action {
         case "Dig":
             nerpsState?.reportDigIconClick()
@@ -1661,7 +1728,7 @@ final class NativeMissionWorkspace: NSView {
     }
 
     private func returnToCommands() {
-        guard !isBriefingActive, !startup.hasExited else { return }
+        guard !isBriefingActive, !startup.hasExited, outcomeOverlay == nil else { return }
         nerpsState?.reportBackIconClick()
         level3D.clearSelection()
         commandPage = .main
@@ -1689,6 +1756,10 @@ final class NativeMissionWorkspace: NSView {
     }
 
     private func refreshTutorialMessage() {
+        if outcomeOverlay != nil {
+            missionHUD.update(text: nil, canAdvance: false, hideArrow: true)
+            return
+        }
         if isBriefingActive {
             // Objective_Update displays the configured Space prompt through
             // the ordinary bottom panel; NERP messages retain precedence.
@@ -1737,6 +1808,7 @@ final class NativeMissionWorkspace: NSView {
                                 height: 19)
         missionHUD.frame = bounds
         briefing?.frame = bounds
+        outcomeOverlay?.frame = bounds
         panels.frame = bounds
         // A full-canvas flipped overlay shares the panels' HUD transform.
         // Surround art can extend left/up of the fixed (565,18) icon origin.
@@ -1751,7 +1823,9 @@ final class NativeMissionWorkspace: NSView {
     }
 
     func focusActiveView() {
-        if let briefing, briefing.isActive { window?.makeFirstResponder(briefing) }
+        if let outcomeOverlay, outcomeOverlay.isActive {
+            window?.makeFirstResponder(outcomeOverlay)
+        } else if let briefing, briefing.isActive { window?.makeFirstResponder(briefing) }
         else { window?.makeFirstResponder(mode.selectedSegment == 0 ? level3D : level2D) }
     }
 
