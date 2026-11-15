@@ -779,6 +779,10 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
                 guard let self, let viewer, self.missionView === viewer else { return }
                 self.restartMissionMusic()
             }
+            viewer.onMissionOutcome = { [weak self, weak viewer] in
+                guard let self, let viewer, self.missionView === viewer else { return }
+                self.missionAudio.stop()
+            }
             viewer.onStartupStatus = { [weak self, weak viewer] message in
                 guard let self, let viewer, self.missionView === viewer else { return }
                 self.status.stringValue = message

@@ -6,6 +6,7 @@ import Foundation
 @main struct OriginalMissionBriefingTests {
     static func main() throws {
         try textSectionsAndEscapes()
+        try objectiveOutcomeTextSections()
         try malformedText()
         try configurationAndLayout()
         try configuredContinuePrompt()
@@ -85,6 +86,51 @@ import Foundation
         let bytes = Data(Array("[Level01]\nObjective: Caf".utf8) + [0xe9, 10])
         let accented = try OriginalMissionBriefingText(data: bytes, levelIdentifier: "Levels::Level01")
         precondition(accented.body == "Café")
+    }
+
+    static func objectiveOutcomeTextSections() throws {
+        let bytes = Data("""
+        [Level01]
+        Objective: Drill_and_build.
+        Completion: Mission_won\\aGood_work.
+        Failure: Mission_lost.
+        [Level02]
+        Completion: Wrong_level.
+        """.utf8)
+        let name = "Levels::Level01"
+        let briefing = try OriginalMissionBriefingText(data: bytes, levelIdentifier: name)
+        let completed = try OriginalMissionBriefingText(data: bytes, levelIdentifier: name, phase: .completed)
+        let failed = try OriginalMissionBriefingText(data: bytes, levelIdentifier: name, phase: .failed)
+        precondition(briefing.body == "Drill_and_build.")
+        precondition(completed.body == "Mission_won \u{7}Good_work.")
+        precondition(completed.pages == ["Mission_won ", "Good_work."])
+        precondition(failed.body == "Mission_lost." && failed.pages.count == 1)
+        precondition(completed.phase == .completed && failed.phase == .failed)
+        let missingFailure = try OriginalMissionBriefingText(data: Data(),
+                                                             levelIdentifier: name, phase: .failed)
+        precondition(missingFailure.body == nil)
+        invalid {
+            _ = try OriginalMissionBriefingText(data: Data("""
+            [Level01]
+            Failure: Once
+            Failure: Twice
+            """.utf8), levelIdentifier: name, phase: .failed)
+        }
+        let config = try LegoConfig(text: """
+        Lego* {
+          Main {
+            MissionBriefingText Briefing_Title
+            MissionCompletedText Mission_Completed
+            MissionFailedText Mission_Failed
+          }
+          Levels { Level01 { ObjectiveText Levels\\Objective.txt } }
+        }
+        """)
+        let success = try OriginalMissionBriefingDefinition(config: config, levelIdentifier: name, phase: .completed)
+        let failure = try OriginalMissionBriefingDefinition(config: config, levelIdentifier: name, phase: .failed)
+        precondition(success.heading == "Mission Completed")
+        precondition(failure.heading == "Mission Failed")
+        precondition(success.objectiveTextPath == "Levels/Objective.txt")
     }
 
     static func malformedText() throws {

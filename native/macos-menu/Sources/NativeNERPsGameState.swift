@@ -9,6 +9,22 @@ final class NativeNERPsGameState {
         case invalidElapsedTime
     }
 
+    /// Only an original NPL outcome callback can end a scripted mission.
+    /// This is not a claim of complete campaign rewards or save progression.
+    enum MissionOutcome: Equatable {
+        case completed, failed
+    }
+    private(set) var missionOutcome: MissionOutcome?
+
+    /// Objective_SetStatus does nothing while an objective window is showing,
+    /// and repeated end calls must not restart a completed level.
+    @discardableResult
+    func reportMissionOutcome(_ value: MissionOutcome) -> Bool {
+        guard missionOutcome == nil, objectiveShowing?() != true else { return false }
+        missionOutcome = value
+        return true
+    }
+
     private(set) var digIconClicks: Int32 = 0
     private(set) var backIconClicks: Int32 = 0
     private(set) var buildIconClicks: Int32 = 0
@@ -137,7 +153,7 @@ final class NativeNERPsGameState {
     /// diagnostic VM pause, not the objective overlay's world-time pause.
     func tick(elapsedMilliseconds: Float, maxSteps: Int = 200_000,
               onCall: ((NERPsRuntime.Call) -> Void)? = nil) throws -> NERPsRuntime.Tick {
-        guard !isPaused else {
+        guard !isPaused, missionOutcome == nil else {
             return NERPsRuntime.Tick(visitedInstructions: 0, functionCalls: 0,
                                     actionsExecuted: 0, stoppedByStopFunction: false)
         }
@@ -162,6 +178,24 @@ final class NativeNERPsGameState {
     /// NERPsRuntime throws rather than manufacturing gameplay outcomes.
     func functions() -> [Int: NERPsRuntime.Function] {
         var callbacks: [Int: NERPsRuntime.Function] = [:]
+        // Original NPL end-of-level actions. 0x08 and 0x09 dispatch to
+        // Objective_SetStatus(COMPLETE/FAILED); 0x0B is SetGameFail.
+        // Do not pretend that these write the original campaign save.
+        callbacks[0x08] = .init(kind: .action(arity: 0),
+                                invoke: { [unowned self] _ in
+            _ = self.reportMissionOutcome(.completed)
+            return 1
+        })
+        callbacks[0x09] = .init(kind: .action(arity: 0),
+                                invoke: { [unowned self] _ in
+            _ = self.reportMissionOutcome(.failed)
+            return 1
+        })
+        callbacks[0x0b] = .init(kind: .action(arity: 0),
+                                invoke: { [unowned self] _ in
+            _ = self.reportMissionOutcome(.failed)
+            return 1
+        })
         callbacks[0x32] = .init(kind: .expression(arity: 0),
                                 invoke: { [unowned self] _ in
             self.objectiveShowing?() == true ? 1 : 0

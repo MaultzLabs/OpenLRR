@@ -10,6 +10,27 @@ enum OriginalMissionBriefingError: Error, CustomStringConvertible {
     }
 }
 
+/// Original ObjectiveText sections share a panel and pagination but retain
+/// separate level-briefing, completion and failure content (Objective.cpp).
+enum OriginalMissionObjectivePhase {
+    case briefing, completed, failed
+
+    var textPrefix: String {
+        switch self {
+        case .briefing: return "objective:"
+        case .completed: return "completion:"
+        case .failed: return "failure:"
+        }
+    }
+    var titleSetting: String {
+        switch self {
+        case .briefing: return "MissionBriefingText"
+        case .completed: return "MissionCompletedText"
+        case .failed: return "MissionFailedText"
+        }
+    }
+}
+
 /// Initial-objective resources only, not the later NERP message panel. No art,
 /// narrative, advisor animation, VM side effects or audio is synthesized here.
 /// Objective.cpp:400–433,569–572; GameState.cpp:158–159,456–501.
@@ -78,7 +99,7 @@ struct OriginalMissionBriefingDefinition {
     let previousArrowPath: String?
     let previousHitTestPath: String?
 
-    init(config: LegoConfig?, levelIdentifier: String) throws {
+    init(config: LegoConfig?, levelIdentifier: String, phase: OriginalMissionObjectivePhase = .briefing) throws {
         self.levelIdentifier = levelIdentifier
         shortLevelName = try Self.validatedShortLevelName(levelIdentifier)
         let level = ["Levels", shortLevelName]
@@ -86,11 +107,11 @@ struct OriginalMissionBriefingDefinition {
             .map(Self.validatedPath)
         panel = try config?.valueUnderGame(level + ["ObjectiveImage640x480"])
             .map { try Panel(setting: $0) }
-        let rawHeading = config?.valueUnderGame(["Main", "MissionBriefingText"])
+        let rawHeading = config?.valueUnderGame(["Main", phase.titleSetting])
         if let rawHeading {
             guard rawHeading.utf8.count <= 1022,
                   !rawHeading.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else {
-                throw OriginalMissionBriefingError.invalid("invalid MissionBriefingText")
+                throw OriginalMissionBriefingError.invalid("invalid \(phase.titleSetting)")
             }
         }
         // Lego_LoadTextMessages (0x434a20): TextMessages is followed by
@@ -143,7 +164,7 @@ struct OriginalMissionBriefingDefinition {
 }
 
 /// Objective.cpp:121–270: column-zero, case-insensitive section/prefix matching;
-/// only the Objective: status is needed for the initial briefing. The BEGIN
+/// the selected original status is parsed independently. The BEGIN
 /// line is literal (including underscores/backslashes), and even a blank line
 /// counts as present. Body underscores are also literal.
 struct OriginalMissionBriefingText {
@@ -153,11 +174,12 @@ struct OriginalMissionBriefingText {
 
     /// nil means no matching Objective: declaration, not invented fallback text.
     let body: String?
+    let phase: OriginalMissionObjectivePhase
     let beginText: String?
     let pages: [String]
     var hasBeginText: Bool { beginText != nil }
 
-    init(data: Data, levelIdentifier: String) throws {
+    init(data: Data, levelIdentifier: String, phase: OriginalMissionObjectivePhase = .briefing) throws {
         let name = try OriginalMissionBriefingDefinition.validatedShortLevelName(levelIdentifier)
         guard data.count <= Self.maximumFileBytes else {
             throw OriginalMissionBriefingError.invalid("ObjectiveText exceeds file budget")
@@ -182,13 +204,13 @@ struct OriginalMissionBriefingText {
             }
             if value.hasPrefix("[") { inLevel = false; inBegin = false }
             let folded = value.lowercased()
-            if inLevel && folded.hasPrefix("objective:") {
+            if inLevel && folded.hasPrefix(phase.textPrefix) {
                 // Repeated definitions corrupt the original count/message
                 // relationship. Reject that ambiguous case, not silently merge.
                 guard parsedBody == nil else {
-                    throw OriginalMissionBriefingError.invalid("duplicate Objective: declaration")
+                    throw OriginalMissionBriefingError.invalid("duplicate \(phase.textPrefix) declaration")
                 }
-                let content = value.dropFirst("Objective:".count)
+                let content = value.dropFirst(phase.textPrefix.count)
                     .drop(while: { $0 == " " || $0 == "\t" })
                 parsedBody = Self.unescape(String(content))
             }
@@ -218,6 +240,7 @@ struct OriginalMissionBriefingText {
         }
         if !line.isEmpty { try finishLine() }
         body = parsedBody
+        self.phase = phase
         beginText = parsedBegin
         // The C pageCounts value is a LAST INDEX, initially zero. A missing or
         // empty body still has one empty page; body distinguishes those cases.

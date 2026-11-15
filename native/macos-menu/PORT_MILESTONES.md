@@ -664,3 +664,45 @@ wall drilling through source-model pickup, visible carrying, Toolstation
 deposit and NERPs storage objective. Then implement automatic Raider task
 assignment and remaining first-tutorial completion behavior, with
 original AI logic as reference. No completion percentage is asserted.
+
+## Original NERPs mission completion/failure bridge — 2026-11-15
+
+The original source `NERPsFunctions.cpp` calls `Objective_SetStatus` for
+`SetLevelCompleted` / `SetLevelFail`, and `Objective.cpp` loads the
+authored `Completion:` and `Failure:` sections from the same per-level
+ObjectiveText file as the opening `Objective:` message. Native NPL 0x08
+now latches a genuine scripted level-completed outcome; 0x09 and 0x0B
+latch failure. The mission status is not manufactured from the wall being
+drilled, an undelivered pickup, a new PR, or a numerical progress estimate.
+Repeated end calls, a diagnostic pause, and callbacks while the initial
+objective window remains open cannot prematurely or repeatedly end the level.
+0x0A (`SetGameCompleted`) remains explicitly unsupported pending exact
+reconciliation of its distinct original source behavior.
+
+The existing owner-supplied bitmap panel, fonts, configured heading and
+ObjectiveText pages are reused for native success and failure. The live
+mission session stops further NPL ticks, player movement, and mission audio
+after a script-set outcome, and gives the outcome overlay its own dismissal
+path back to the original menu. No substitute art, campaign unlock or
+writable save is introduced.
+
+Synthetic tests exercise the original NPL banked-crystal predicate,
+undelivered pickups, paused/briefing/finished states, failure action, and
+the three independently parsed original status text sections and headings.
+The standard hosted Linux portable and macOS-15 ARM64 actions must pass on
+the final commit before calling this compiled/verified. Source-only test
+fixtures are not an actual owner's-asset in-game tutorial playthrough.
+
+**Not accepted:** Full tutorial NPL function coverage and its genuine
+unmodified script reaching a success branch, retail timing/audio/animation
+comparison, original outro teleport and rewards, win/loss persistence,
+next-level unlocking, original WAD-visible UI fidelity, automatic AI task
+assignment, construction, vehicles, campaign save/load and a full playthrough.
+These require the owner's retail assets on Apple Silicon and separate
+acceptance evidence; do not assign a full-game percentage.
+
+**Next milestone:** Run the real first original mission script through the
+complete drill, rubble, crystal pickup, carry, Toolstation deposit and
+scripted completion path using owner-owned game assets. Resolve the first
+missing original NPL callback or gameplay task encountered; then restore
+retail outcome/reward/next-level persistence without touching existing saves.
