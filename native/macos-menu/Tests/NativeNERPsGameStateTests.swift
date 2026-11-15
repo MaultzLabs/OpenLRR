@@ -13,6 +13,7 @@ private func encode(_ operations: [(UInt16, UInt16)]) throws -> NERPsScript {
 
 @main struct NativeNERPsGameStateTests {
     static func main() throws {
+        try missionOutcomeScriptGate()
         try initialBriefingBridge()
         try openingBriefingDoesNotBypassScript()
         // Retail uses function opcodes for True/False/Null, not literals.
@@ -445,6 +446,62 @@ private func encode(_ operations: [(UInt16, UInt16)]) throws -> NERPsScript {
         precondition(fresh.registers == Array(repeating: 0, count: 8))
         precondition(fresh.timers == Array(repeating: 0, count: 4))
         print("PASS: persistent NERPs register, timer and tutorial-state callbacks")
+    }
+
+    /// A banked crystal objective from the original NPL VM, not an invented
+    /// victory on drilling or picking up an undelivered crystal.
+    static func missionOutcomeScriptGate() throws {
+        let goal = NativeNERPsGameState(script: try encode([
+            (2, 0x0d), (1, 5), (0, 1), (2, 0x08), // Stored crystals > 1: SetLevelCompleted
+            (2, 0) // Original Stop
+        ]))
+        var storedCrystals: Int32 = 0
+        var pickedCrystals: Int32 = 0
+        goal.crystalsCurrentlyStored = { storedCrystals }
+        goal.crystalsPickedUp = { pickedCrystals }
+        _ = try goal.tick(elapsedMilliseconds: 16)
+        precondition(goal.missionOutcome == nil)
+        pickedCrystals = 10
+        _ = try goal.tick(elapsedMilliseconds: 16)
+        precondition(goal.missionOutcome == nil, "Picked-up but undelivered crystal cannot win")
+        storedCrystals = 1
+        _ = try goal.tick(elapsedMilliseconds: 16)
+        precondition(goal.missionOutcome == nil)
+        storedCrystals = 2
+        let goalTick = try goal.tick(elapsedMilliseconds: 16)
+        precondition(goalTick.actionsExecuted == 1 && goal.missionOutcome == .completed)
+        let tickCount = goal.completedTicks, timerCount = goal.timers[0]
+        storedCrystals = 0
+        let stopped = try goal.tick(elapsedMilliseconds: 5000)
+        precondition(stopped.actionsExecuted == 0 && goal.completedTicks == tickCount)
+        precondition(goal.timers[0] == timerCount && goal.missionOutcome == .completed,
+                     "An ending NPL must never repeat or reverse a successful outcome")
+        precondition(!goal.reportMissionOutcome(.failed))
+
+        let fail = NativeNERPsGameState(script: try encode([
+            (2, 1), (2, 0x09), (2, 0)
+        ]))
+        _ = try fail.tick(elapsedMilliseconds: 16)
+        precondition(fail.missionOutcome == .failed)
+        precondition(fail.functions()[0x09]?.kind.arity == 0)
+        precondition(fail.functions()[0x0b]!.kind.arity == 0)
+        precondition(fail.functions()[0x0b]!.invoke([]) == 1)
+        precondition(fail.missionOutcome == .failed)
+
+        let paused = NativeNERPsGameState(script: try encode([(2, 1), (2, 0x08)]))
+        paused.isPaused = true
+        _ = try paused.tick(elapsedMilliseconds: 16)
+        precondition(paused.missionOutcome == nil)
+        paused.isPaused = false
+        var showing = true
+        paused.objectiveShowing = { showing }
+        _ = try paused.tick(elapsedMilliseconds: 16)
+        precondition(paused.missionOutcome == nil, "An open objective panel rejects end status")
+        showing = false
+        _ = try paused.tick(elapsedMilliseconds: 16)
+        precondition(paused.missionOutcome == .completed)
+        precondition(paused.functions()[0x0a] == nil,
+                     "Unverified original SetGameCompleted semantics must not be invented")
     }
 
     static func initialBriefingBridge() throws {
