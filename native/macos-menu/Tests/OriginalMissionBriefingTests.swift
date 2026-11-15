@@ -102,7 +102,7 @@ import Foundation
         let completed = try OriginalMissionBriefingText(data: bytes, levelIdentifier: name, phase: .completed)
         let failed = try OriginalMissionBriefingText(data: bytes, levelIdentifier: name, phase: .failed)
         precondition(briefing.body == "Drill_and_build.")
-        precondition(completed.body == "Mission_won Good_work.")
+        precondition(completed.body == "Mission_won \u{7}Good_work.")
         precondition(completed.pages == ["Mission_won ", "Good_work."])
         precondition(failed.body == "Mission_lost." && failed.pages.count == 1)
         precondition(completed.phase == .completed && failed.phase == .failed)
