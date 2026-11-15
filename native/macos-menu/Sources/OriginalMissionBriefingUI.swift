@@ -55,7 +55,7 @@ final class OriginalMissionBriefingUI: NSView {
         if headingFont == nil { diagnostics.append("Original MBriefFONT2.bmp unavailable; text uses diagnostic system font") }
         if nextArt == nil && text.pages.count > 1 { diagnostics.append("Original Next bitmap unavailable; use Space") }
         if previousArt == nil || previousHitArt == nil { diagnostics.append("Original Previous art/hit bitmap unavailable") }
-        if text.body == nil { diagnostics.append("No Objective: text for \(definition.shortLevelName)") }
+        if text.body == nil { diagnostics.append("No \(text.phase.textPrefix) text for \(definition.shortLevelName)") }
         if definition.continuePromptHasImage {
             diagnostics.append("Text_SpaceToContinue image/SFX variant not yet rendered; original prompt text only")
         }
