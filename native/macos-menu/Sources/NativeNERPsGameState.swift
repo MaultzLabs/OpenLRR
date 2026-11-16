@@ -180,7 +180,11 @@ final class NativeNERPsGameState {
         var callbacks: [Int: NERPsRuntime.Function] = [:]
         // Original NPL end-of-level actions. 0x08 and 0x09 dispatch to
         // Objective_SetStatus(COMPLETE/FAILED); 0x0B is SetGameFail.
-        // Do not pretend that these write the original campaign save.
+        // Source NERPsFunctions.cpp names 0x0A SetGameCompleted, but its
+        // implemented behavior is *failure* unless GAME1_LEVELENDING is set.
+        // missionOutcome is the native level-ending latch; none means active.
+        // Do not turn this misleading function name into a fake victory.
+        // None of these callbacks write the original campaign save.
         callbacks[0x08] = .init(kind: .action(arity: 0),
                                 invoke: { [unowned self] _ in
             _ = self.reportMissionOutcome(.completed)
@@ -189,6 +193,13 @@ final class NativeNERPsGameState {
         callbacks[0x09] = .init(kind: .action(arity: 0),
                                 invoke: { [unowned self] _ in
             _ = self.reportMissionOutcome(.failed)
+            return 1
+        })
+        callbacks[0x0a] = .init(kind: .action(arity: 0),
+                                invoke: { [unowned self] _ in
+            if self.missionOutcome == nil {
+                _ = self.reportMissionOutcome(.failed)
+            }
             return 1
         })
         callbacks[0x0b] = .init(kind: .action(arity: 0),
