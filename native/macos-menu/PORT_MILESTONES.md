@@ -706,3 +706,46 @@ complete drill, rubble, crystal pickup, carry, Toolstation deposit and
 scripted completion path using owner-owned game assets. Resolve the first
 missing original NPL callback or gameplay task encountered; then restore
 retail outcome/reward/next-level persistence without touching existing saves.
+
+
+## Source-grounded follow-up Collect/Deposit tasks — 2026-11-16
+
+A completed original resource deposit now allows the **same Raider** to
+continue the existing `AITask_Type_Collect` → `AITask_Type_Deposit`
+sequence for remaining *physically exposed* CryOreMap units without requiring
+one mouse click per crystal. `NativeExcavationState.planNextCollect` picks
+a deterministically ordered shortest reachable route, respects original
+building footprint occupancy, and refuses new pickups while the Raider
+is carrying an item. The live 3D view re-plans and revalidates the task
+on arrival, then waits for original Collect/Deposit activity completion
+before moving the original LWOB model and changing NPL pickup/storage
+counters. Exhausted stacks terminate naturally. User move/retarget
+cancels pending actions through existing motion-generation checks; a
+paused mission never progresses a pickup or storage credit.
+
+This is a **follow-up task chain after a real deposit**, not the full
+original idle-Raider AI scheduler or priority system. Starting the first
+task still requires a player click. A blocked route or missing original
+Toolstation leaves the actual resource uncredited; no magic items,
+virtual buildings or replacement artwork are introduced. In first-person
+mode the auto-follow-up is not started, pending a source-accurate policy.
+
+Also reconciled original `NERPsFunctions.cpp::SetGameCompleted` (0x0A):
+despite its name, before `GAME1_LEVELENDING` the retail function calls
+`Objective_SetStatus(LEVELSTATUS_FAILED)`. Native NPL now **fails**
+the active mission rather than inventing a successful completion; an
+already-ended mission remains latched. Synthetic tests guard against
+this misleading victory and verify reachable follow-up, footprint
+exclusion, in-flight custody and eventual stack depletion.
+
+**Still not accepted:** an actual retail-assets first-tutorial playthrough,
+automatic idle-unit priorities, exact PTL tumble/drop placement, original
+Raider tool acquisition and rubble-clearing rules, first-person full
+carry/drill fidelity, resource SFX, original outro/rewards, save/load and
+next-level unlock. All effects remain mission-local. Full-game acceptance
+cannot be quantified by these source/test changes.
+
+**Next milestone:** Test the owner-owned first tutorial end-to-end on
+Apple Silicon and implement source-accurate idle-Raider task dispatch,
+followed by original campaign progression/save semantics without
+overwriting or migrating existing saves.
