@@ -552,13 +552,16 @@ final class NativeLevel3DView: SCNView {
     /// Original AITask_Type_Collect: walk to a real CryOreMap drop with the
     /// existing swept wall + moving-unit clearance, then consume ONE object.
     /// Clicking a dropped resource tile is a temporary native command mapping.
-    private func collectResource(at tile: NativeLevelNavigation.Position, raiderID id: String) {
+    /// The completed Deposit task may continue collecting exposed resources
+    /// without treating the tutorial's click restrictions as AI restrictions.
+    private func collectResource(at tile: NativeLevelNavigation.Position, raiderID id: String,
+                                 continuingTask: Bool = false) {
         guard !missionTimePaused, firstPersonRaider == nil,
-              tutorialInputPolicy.canClickMap, tutorialInputPolicy.canClickIcons,
+              (continuingTask || (tutorialInputPolicy.canClickMap && tutorialInputPolicy.canClickIcons)),
               let marker = raiderMarkers[id],
               originalObjects?.rockRaiders.first(where: { $0.identifier == id })?.drivingIdentifier == nil,
               let order = excavation.planCollect(from: tileUnderRaider(marker),
-                                                 tile: tile, raiderID: id) else {
+                  tile: tile, raiderID: id, blockedBuildings: blockedBuildingTiles) else {
             onInteractionMessage?("Cannot collect: select a free Raider and a reachable resource.")
             return
         }
@@ -645,6 +648,15 @@ final class NativeLevel3DView: SCNView {
         raiderModels[id]?.setCarryingResource(false)
         let total = excavation.storedResources[item] ?? 0
         onInteractionMessage?("Stored one \(item.kind.rawValue) (level \(item.level)); \(total) of this type at Toolstation.")
+        // Finishing one legitimate Collect/Deposit job may leave additional
+        // original items in the cavern. Continue this Raider's task without
+        // requiring a fresh click for every unit; an explicit player move
+        // cancels via motionGenerations, as with all existing orders.
+        // Idle-unit priority dispatch remains a separate unported feature.
+        guard firstPersonRaider == nil,
+              let next = excavation.planNextCollect(from: tileUnderRaider(marker),
+                  raiderID: id, blockedBuildings: blockedBuildingTiles) else { return }
+        collectResource(at: next.tile, raiderID: id, continuingTask: true)
     }
 
     private func advanceResourceActivities(elapsed: Double) {
