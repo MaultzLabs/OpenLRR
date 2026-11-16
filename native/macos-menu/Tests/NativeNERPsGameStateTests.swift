@@ -500,8 +500,20 @@ private func encode(_ operations: [(UInt16, UInt16)]) throws -> NERPsScript {
         showing = false
         _ = try paused.tick(elapsedMilliseconds: 16)
         precondition(paused.missionOutcome == .completed)
-        precondition(paused.functions()[0x0a] == nil,
-                     "Unverified original SetGameCompleted semantics must not be invented")
+        // SetGameCompleted is NOT a synonym for SetLevelCompleted in the
+        // original NERPsFunctions.cpp: before GAME1_LEVELENDING it fails.
+        let gameEnd = NativeNERPsGameState(script: try encode([
+            (2, 1), (2, 0x0a), (2, 0)
+        ]))
+        let gameEndTick = try gameEnd.tick(elapsedMilliseconds: 16)
+        precondition(gameEndTick.actionsExecuted == 1 && gameEnd.missionOutcome == .failed,
+                     "Original SetGameCompleted must not grant false victory")
+        let alreadyEnding = NativeNERPsGameState(script: try encode([(2, 0)]))
+        precondition(alreadyEnding.reportMissionOutcome(.completed))
+        precondition(alreadyEnding.functions()[0x0a]!.kind.arity == 0)
+        precondition(alreadyEnding.functions()[0x0a]!.invoke([]) == 1)
+        precondition(alreadyEnding.missionOutcome == .completed,
+                     "An already-ending mission cannot reverse its result")
     }
 
     static func initialBriefingBridge() throws {

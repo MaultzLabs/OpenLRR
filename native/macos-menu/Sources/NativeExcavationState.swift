@@ -113,13 +113,40 @@ final class NativeExcavationState {
     /// Collect only exposed, reachable original dropped resources. The
     /// movement callback must revalidate at arrival; a planned route never
     /// reserves the stack or invents a successful pickup.
-    func planCollect(from raider: Position, tile: Position, raiderID: String) -> CollectOrder? {
+    func planCollect(from raider: Position, tile: Position, raiderID: String,
+                     blockedBuildings: Set<Position> = []) -> CollectOrder? {
         guard !raiderID.isEmpty, carrying[raiderID] == nil,
               (resourceDrops[tile]?.count ?? 0) > 0,
               let route = NativeLevelNavigation(world: world, excavated: excavated,
-                  revealed: revealed).route(from: raider, to: tile),
+                  revealed: revealed, blockedBuildingTiles: blockedBuildings)
+                  .route(from: raider, to: tile),
               route.count <= 512 else { return nil }
         return CollectOrder(tile: tile, route: route)
+    }
+
+    /// After a completed deposit, continue the original Collect -> Deposit
+    /// task chain with a still-exposed CryOreMap object. Choose the shortest
+    /// walkable route; sorted ties make identical mission state deterministic.
+    /// This does not spawn an AI task, reserve any drop, or grant inventory.
+    /// It must be re-planned and revalidated on actual arrival.
+    func planNextCollect(from raider: Position, raiderID: String,
+                         blockedBuildings: Set<Position> = []) -> CollectOrder? {
+        guard !raiderID.isEmpty, carrying[raiderID] == nil else { return nil }
+        let nav = NativeLevelNavigation(world: world, excavated: excavated,
+            revealed: revealed, blockedBuildingTiles: blockedBuildings)
+        var best: CollectOrder?
+        let candidates = resourceDrops.keys.sorted {
+            $0.y == $1.y ? $0.x < $1.x : $0.y < $1.y
+        }
+        for tile in candidates {
+            guard (resourceDrops[tile]?.count ?? 0) > 0,
+                  let route = nav.route(from: raider, to: tile),
+                  route.count <= 512 else { continue }
+            if best == nil || route.count < best!.route.count {
+                best = CollectOrder(tile: tile, route: route)
+            }
+        }
+        return best
     }
 
     /// Consume exactly ONE item after confirmed arrival at its source tile.
