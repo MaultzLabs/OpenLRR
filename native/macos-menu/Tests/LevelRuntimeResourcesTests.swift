@@ -380,6 +380,16 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         let pickupState = NativeExcavationState(
             world: cryOreWorld, originalToolStores: [originalStore])
         precondition(pickupState.finish(dropOrder, raiderAt: dropOrder.approach))
+        // Follow-up jobs must find an exposed source without stealing items,
+        // crossing an original building footprint or inventing a pickup.
+        precondition(pickupState.planNextCollect(from: origin, raiderID: "Raider1")?.tile == crystalTile)
+        precondition(pickupState.planNextCollect(from: origin, raiderID: "") == nil)
+        precondition(pickupState.planNextCollect(from: origin, raiderID: "Raider1",
+                      blockedBuildings: [crystalTile]) == nil)
+        precondition(pickupState.planCollect(from: origin, tile: crystalTile,
+                      raiderID: "Raider1", blockedBuildings: [crystalTile]) == nil)
+        precondition(pickupState.resourceDrops[crystalTile]?.count == 25)
+        precondition(pickupState.storedResources.isEmpty)
         let pickup = pickupState.planCollect(from: origin, tile: crystalTile, raiderID: "Raider1")!
         precondition(pickup.route.first == origin && pickup.route.last == crystalTile)
         precondition(pickupState.collect(pickup, raiderID: "Raider1", raiderAt: origin) == nil)
@@ -405,6 +415,9 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         precondition(pickupState.collect(pickup, raiderID: "Raider1", raiderAt: crystalTile) == nil)
         precondition(pickupState.planCollect(from: crystalTile, tile: crystalTile,
                                              raiderID: "Raider1") == nil)
+        precondition(pickupState.planNextCollect(from: crystalTile,
+                                                raiderID: "Raider1") == nil,
+                     "Carrying Raider cannot take another automatic pickup")
         precondition(pickupState.storedResources.isEmpty)
         let delivery = pickupState.planDeposit(
             from: crystalTile, raiderID: "Raider1", blockedBuildings: [originalStore])!
@@ -429,6 +442,9 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         precondition(pickupState.storedCount(.crystal) == 1)
         precondition(pickupState.storedCount(.ore) == 0)
         precondition(pickupState.carrying.isEmpty)
+        precondition(pickupState.planNextCollect(from: crystalTile,
+                      raiderID: "Raider1")?.tile == crystalTile,
+                     "Completed deposit should expose the next real Collect task")
         precondition(pickupState.deposit(delivery, raiderID: "Raider1",
                                          raiderAt: crystalTile) == nil)
         precondition(pickupState.planDeposit(from: crystalTile, raiderID: "Raider1") == nil)
@@ -452,6 +468,9 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         precondition(pickupState.storedCount(.ore) == 0)
         precondition(pickupState.planCollect(from: crystalTile,
             tile: crystalTile, raiderID: "Raider1") == nil)
+        precondition(pickupState.planNextCollect(from: crystalTile,
+            raiderID: "Raider1") == nil,
+            "A depleted stack must stop the follow-up task chain")
         let noStore = NativeExcavationState(world: cryOreWorld)
         precondition(noStore.finish(dropOrder, raiderAt: dropOrder.approach))
         let unbanked = noStore.planCollect(from: crystalTile, tile: crystalTile,
