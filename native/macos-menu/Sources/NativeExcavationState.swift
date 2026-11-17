@@ -149,6 +149,68 @@ final class NativeExcavationState {
         return best
     }
 
+    /// The original engine queues AITask_Type_Collect for exposed resources
+    /// and assigns work to idle units. This is a bounded, mission-local first
+    /// slice: only real dropped items with a reachable original Toolstation
+    /// can be assigned. No pickup, reservation or storage happens here.
+    /// The full original AI priority and task queue are not yet reproduced.
+    struct IdleRaider {
+        let identifier: String
+        let tile: Position
+    }
+
+    struct IdleCollectAssignment {
+        let raiderID: String
+        let order: CollectOrder
+    }
+
+    func planIdleCollection(raiders: [IdleRaider], busyRaiderIDs: Set<String>,
+                            blockedBuildings: Set<Position> = []) -> IdleCollectAssignment? {
+        guard !resourceDrops.isEmpty, !originalToolStores.isEmpty else { return nil }
+        let nav = NativeLevelNavigation(world: world, excavated: excavated,
+            revealed: revealed, blockedBuildingTiles: blockedBuildings)
+        let drops = resourceDrops.keys.sorted {
+            $0.y == $1.y ? $0.x < $1.x : $0.y < $1.y
+        }
+        let idle = raiders.sorted { $0.identifier < $1.identifier }
+        var best: (cost: Int, raiderID: String, order: CollectOrder)?
+        for raider in idle {
+            guard !raider.identifier.isEmpty,
+                  !busyRaiderIDs.contains(raider.identifier),
+                  carrying[raider.identifier] == nil, nav.canWalk(raider.tile) else { continue }
+            for tile in drops {
+                guard (resourceDrops[tile]?.count ?? 0) > 0,
+                      let pickupRoute = nav.route(from: raider.tile, to: tile),
+                      pickupRoute.count <= 512 else { continue }
+
+                // A collectible resource must also have a real reachable
+                // delivery destination; an unbuilt or inaccessible Toolstation
+                // must not cause an idle unit to pick up and strand an item.
+                var deliveryLength: Int?
+                for store in originalToolStores {
+                    for entrance in [Position(x: store.x - 1, y: store.y),
+                                     Position(x: store.x + 1, y: store.y),
+                                     Position(x: store.x, y: store.y - 1),
+                                     Position(x: store.x, y: store.y + 1)] {
+                        guard let route = nav.route(from: tile, to: entrance),
+                              route.count <= 512 else { continue }
+                        deliveryLength = min(deliveryLength ?? Int.max, route.count)
+                    }
+                }
+                guard let deliveryLength else { continue }
+                let cost = pickupRoute.count + deliveryLength
+                // Stable ties: sorted Raider IDs, then row-major target tiles.
+                // This is shortest route work, not a claim of retail AI weights.
+                if best == nil || cost < best!.cost {
+                    best = (cost, raider.identifier,
+                            CollectOrder(tile: tile, route: pickupRoute))
+                }
+            }
+        }
+        guard let best else { return nil }
+        return IdleCollectAssignment(raiderID: best.raiderID, order: best.order)
+    }
+
     /// Consume exactly ONE item after confirmed arrival at its source tile.
     /// The retail source MAP bytes are unchanged, and this does not increment
     /// NERPs delivered/stored counters.

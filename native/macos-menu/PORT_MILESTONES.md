@@ -749,3 +749,44 @@ cannot be quantified by these source/test changes.
 Apple Silicon and implement source-accurate idle-Raider task dispatch,
 followed by original campaign progression/save semantics without
 overwriting or migrating existing saves.
+
+
+## First automatic idle-Raider resource dispatch — 2026-11-17
+
+The mission-local native AI can now initiate its **first**
+`AITask_Type_Collect` for an exposed original CryOreMap item without
+requiring a player to select a Raider and click every resource. The
+`NativeExcavationState.planIdleCollection` planner chooses a deterministic
+shortest reachable pickup-plus-original-Toolstation trip from available
+original OL Rock Raiders. It requires a genuine exposed drop, an eligible
+free Raider, and an entrance to an original pre-placed Toolstation reachable
+from the drop. It excludes original building footprints and makes no pickup,
+storage, script, or geometry changes during task selection.
+
+On an unpaused native gameplay frame, the view periodically checks for an
+idle assignment. It does not interrupt ongoing movement, drilling, clearing,
+Collect/Deposit animation, a carried item or an original vehicle driver.
+An explicit player move, cancellation or first-person takeover suppresses
+idle reassignment for that Raider until a subsequent player Drill, Clear or
+Collect command. The assigned task reuses existing swept movement, original
+LightWave Collect/Carry/Deposit, resource ownership and actual Toolstation
+storage. One automatic job chain is started at a time; completed deposits
+can continue collecting further exposed units using the prior milestone.
+
+Source grounding: `src/openlrr/game/object/AITask.cpp` registers
+`AITask_Type_Collect` and `AITask_Type_Deposit` and distinct
+`AI_Priority_Crystal`, `AI_Priority_Ore` and `AI_Priority_DefaultCollect`.
+The original binary's complete priority weighting, dynamic task reservation,
+Tool Store construction and multi-worker scheduling are **not** claimed as
+ported. The temporary shortest-route preference is intentionally not
+described as original retail priority behavior.
+
+Verification requires portable Linux gameplay regressions and standard
+hosted macOS-15 ARM64 build on this branch; actual owner-owned first-level
+drill/clear/collect/carry/deposit/NERPs outcome remains unplayed on Mac.
+No source assets, existing Wine runner, game saves, main or sibling branches
+are changed. No full-game completion percentage follows from this increment.
+
+Next: complete a retail-asset first-tutorial acceptance pass on Apple Silicon,
+then implement source-verified task priorities/reservations and actual
+mission progression/save semantics without overwriting existing saves.

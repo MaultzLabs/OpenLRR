@@ -388,6 +388,33 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
                       blockedBuildings: [crystalTile]) == nil)
         precondition(pickupState.planCollect(from: origin, tile: crystalTile,
                       raiderID: "Raider1", blockedBuildings: [crystalTile]) == nil)
+        // The first idle task is assigned without clicking a Raider, but a
+        // plan cannot collect anything. It must have a genuine reachable
+        // Toolstation, a free Raider, and an exposed resource.
+        let idleRaiders = [
+            NativeExcavationState.IdleRaider(identifier: "Raider2", tile: origin),
+            NativeExcavationState.IdleRaider(identifier: "Raider1", tile: crystalTile)
+        ]
+        let idleJob = pickupState.planIdleCollection(
+            raiders: idleRaiders, busyRaiderIDs: [],
+            blockedBuildings: [originalStore])
+        precondition(idleJob?.raiderID == "Raider1" && idleJob?.order.tile == crystalTile,
+                     "The nearest idle Raider should receive the first real Collect order")
+        precondition(pickupState.planIdleCollection(
+            raiders: idleRaiders, busyRaiderIDs: ["Raider1"],
+            blockedBuildings: [originalStore])?.raiderID == "Raider2")
+        precondition(pickupState.planIdleCollection(
+            raiders: idleRaiders, busyRaiderIDs: ["Raider1", "Raider2"],
+            blockedBuildings: [originalStore]) == nil)
+        precondition(pickupState.planIdleCollection(
+            raiders: idleRaiders, busyRaiderIDs: [],
+            blockedBuildings: [crystalTile]) == nil)
+        precondition(dropState.planIdleCollection(
+            raiders: idleRaiders, busyRaiderIDs: []) == nil,
+            "A mission without an original Toolstation must not assign storage work")
+        precondition(pickupState.pickedUpCount(.crystal) == 0 &&
+                     pickupState.storedCount(.crystal) == 0,
+                     "Idle task planning cannot credit resources")
         precondition(pickupState.resourceDrops[crystalTile]?.count == 25)
         precondition(pickupState.storedResources.isEmpty)
         let pickup = pickupState.planCollect(from: origin, tile: crystalTile, raiderID: "Raider1")!
