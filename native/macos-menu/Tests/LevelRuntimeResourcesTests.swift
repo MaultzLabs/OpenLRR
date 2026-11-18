@@ -631,6 +631,15 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
                 tile: crystalTile, raiderID: "Raider1")!
             precondition(pickupState.collect(next, raiderID: "Raider1",
                                             raiderAt: crystalTile) == carried)
+            // The last physical source unit is now in a Raider's hands.
+            // With no drops left, interrupted Deposit must remain retryable.
+            if pickupState.resourceDrops.isEmpty {
+                precondition(pickupState.planIdleDeposit(
+                    raiders: carryingRaiders, busyRaiderIDs: [],
+                    blockedBuildings: [originalStore])?.raiderID == "Raider1")
+                precondition(pickupState.storedCount(.crystal) == 24,
+                             "The last pickup must not count as storage")
+            }
             let toStore = pickupState.planDeposit(from: crystalTile,
                 raiderID: "Raider1", blockedBuildings: [originalStore])!
             precondition(pickupState.deposit(toStore, raiderID: "Raider1",
