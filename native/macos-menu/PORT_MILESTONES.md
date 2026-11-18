@@ -790,3 +790,42 @@ are changed. No full-game completion percentage follows from this increment.
 Next: complete a retail-asset first-tutorial acceptance pass on Apple Silicon,
 then implement source-verified task priorities/reservations and actual
 mission progression/save semantics without overwriting existing saves.
+
+
+## Original initial Crystal/Ore priority and per-unit Collect ownership — 2026-11-18
+
+The first native idle-worker resource planner previously chose the shortest
+pickup-plus-Toolstation route regardless of the original engine's task
+priorities. OpenLRR `AITask.cpp::AITask_Initialise` initializes all AI
+priorities to 49, then sets `AI_Priority_Crystal` to 55;
+`AI_Priority_Ore` and `AI_Priority_DefaultCollect` remain 49.
+Both the native first idle assignment and after-deposit Collect follow-up
+now prefer exposed crystal drops to ore, then shorter valid routes with
+deterministic Raider/tile ties. Manually clicked orders still honor the
+player's chosen item. Native does NOT yet implement changes to user-adjustable
+AI priority values, disabling priorities, or the entire retail scheduler.
+
+A source task owns one distinct resource object. The current mission
+represents same-tile CryOreMap drops as counted stacks, so an explicit
+per-Raider reservation now owns **one unit** instead of locking a whole
+25-item tile. A task cannot reserve an already-owned last item; direct
+Collect, follow-up and idle planning must respect units reserved for other
+Raiders. Pickup and NERPs credit still occur only on verified Collect
+completion. Cancelling, retargeting, taking direct first-person control,
+an invalid path or a failed pickup releases that Raider's reservation.
+Successful pickup consumes exactly one real item and releases ownership.
+No user-owned MAP, WAD or saves are modified.
+
+New synthetic regressions cover unequal original priority on mixed
+crystal/ore drops, unchanged inventories during planning, two-worker
+access to multi-item stacks, idempotent reservations, last-item
+exclusivity, cancellation/reassignment, arrival revalidation and
+one-time pickup credit. The standard portable tests and hosted Apple
+Silicon compiler/SceneKit jobs must be evaluated on the **final head**
+before build/test success can be claimed. No actual owner-asset gameplay
+or original priority UI was visually verified.
+
+Next: verify the complete original first-tutorial drill → rubble →
+Collect/CarryNull → Toolstation → NERPs objective path using legal owner-owned
+assets on Apple Silicon, then extend source-accurate per-object task dispatch
+and full mission progression. No full-game percentage is inferred.
