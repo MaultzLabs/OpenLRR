@@ -677,7 +677,8 @@ final class NativeLevel3DView: SCNView {
         // Idle-unit priority dispatch remains a separate unported feature.
         guard firstPersonRaider == nil,
               let next = excavation.planNextCollect(from: tileUnderRaider(marker),
-                  raiderID: id, blockedBuildings: blockedBuildingTiles) else { return }
+                  raiderID: id, blockedBuildings: blockedBuildingTiles,
+                  excludedTargets: Set(excavation.collectReservations.values)) else { return }
         collectResource(at: next.tile, raiderID: id, continuingTask: true)
     }
 
