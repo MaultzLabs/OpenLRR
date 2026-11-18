@@ -385,14 +385,17 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         let oreTile = NativeLevelNavigation.Position(x: 2, y: 1)
         let priorityState = NativeExcavationState(
             world: cryOreWorld, originalToolStores: [originalStore])
+        FileHandle.standardError.write(Data("CHECK: priority setup\n".utf8))
         let crystalDrill = priorityState.plan(from: origin, wall: crystalTile)!
         precondition(priorityState.finish(crystalDrill, raiderAt: crystalDrill.approach))
         let oreDrill = priorityState.plan(from: origin, wall: oreTile)!
         precondition(priorityState.finish(oreDrill, raiderAt: oreDrill.approach))
         precondition(priorityState.resourceDrops[oreTile]?.kind == .ore)
+        FileHandle.standardError.write(Data("CHECK: both walls opened\n".utf8))
         precondition(priorityState.planNextCollect(
             from: oreTile, raiderID: "PriorityRaider")?.tile == crystalTile,
             "Original crystal priority must outrank a nearer ore pickup")
+        FileHandle.standardError.write(Data("CHECK: next Collect priority passed\n".utf8))
         let prioritizedJob = priorityState.planIdleCollection(
             raiders: [.init(identifier: "PriorityRaider", tile: oreTile)],
             busyRaiderIDs: [], blockedBuildings: [originalStore])
@@ -405,6 +408,7 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         // Reserve one real unit of a stack for each Raider: a 25-item
         // stack still permits other assignments, but a one-item stack
         // cannot be stolen, double-reserved, or credited before arrival.
+        FileHandle.standardError.write(Data("CHECK: initial idle priority passed\n".utf8))
         precondition(priorityState.reserveCollect(
             tile: crystalTile, raiderID: "PriorityRaider"))
         precondition(priorityState.reserveCollect(
@@ -416,6 +420,7 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         priorityState.releaseCollectReservation(raiderID: "PriorityRaider")
         precondition(priorityState.collectReservations.isEmpty)
 
+        FileHandle.standardError.write(Data("CHECK: multi-unit reservations passed\n".utf8))
         var oneUnitCells = cryOreCells
         oneUnitCells[6] = 1 // A single real level-zero crystal
         let oneUnitWad = syntheticWad([
@@ -428,6 +433,7 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
             resources: GameResources(archives: [(0, oneUnitWad)]))
         let reservedState = NativeExcavationState(
             world: oneUnitWorld, originalToolStores: [originalStore])
+        FileHandle.standardError.write(Data("CHECK: single unit setup\n".utf8))
         let reservedDrill = reservedState.plan(from: origin, wall: crystalTile)!
         precondition(reservedState.finish(reservedDrill, raiderAt: reservedDrill.approach))
         precondition(reservedState.reserveCollect(
@@ -445,6 +451,7 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         precondition(reservedState.pickedUpCount(.crystal) == 0)
         // An interrupted task releases ownership; another Raider can then
         // collect that same physical item without altering owner saves/maps.
+        FileHandle.standardError.write(Data("CHECK: single unit is exclusive\n".utf8))
         reservedState.releaseCollectReservation(raiderID: "Owner")
         precondition(reservedState.reserveCollect(
             tile: crystalTile, raiderID: "Other"))
@@ -458,6 +465,7 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         precondition(reservedState.pickedUpCount(.crystal) == 1)
         precondition(reservedState.storedCount(.crystal) == 0)
 
+        FileHandle.standardError.write(Data("CHECK: reservation reclaim passed\n".utf8))
         let pickupState = NativeExcavationState(
             world: cryOreWorld, originalToolStores: [originalStore])
         precondition(pickupState.finish(dropOrder, raiderAt: dropOrder.approach))
