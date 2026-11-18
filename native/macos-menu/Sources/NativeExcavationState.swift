@@ -160,10 +160,13 @@ final class NativeExcavationState {
     /// After a completed deposit, continue the original Collect -> Deposit
     /// task chain with a still-exposed CryOreMap object. Honor the original
     /// initial Crystal(55) > Ore(49) task priority, then shortest route and
-    /// row-major ties. This does not reserve a drop or grant inventory.
+    /// row-major ties. Active automatic pickup targets may be excluded while
+    /// our source-object positions are still approximated by tile centres.
+    /// This does not reserve a drop or grant inventory.
     /// It must be re-planned and revalidated on actual arrival.
     func planNextCollect(from raider: Position, raiderID: String,
-                         blockedBuildings: Set<Position> = []) -> CollectOrder? {
+                         blockedBuildings: Set<Position> = [],
+                         excludedTargets: Set<Position> = []) -> CollectOrder? {
         guard !raiderID.isEmpty, carrying[raiderID] == nil,
               collectReservations[raiderID] == nil else { return nil }
         let nav = NativeLevelNavigation(world: world, excavated: excavated,
@@ -173,7 +176,11 @@ final class NativeExcavationState {
             $0.y == $1.y ? $0.x < $1.x : $0.y < $1.y
         }
         for tile in candidates {
-            guard availableCollectUnits(at: tile, for: raiderID) > 0,
+            // A follow-up job must not collide with another Raider's active
+            // tile-centre Collect destination while stacked object positions
+            // remain provisional. Manual per-unit Collect is unaffected.
+            guard !excludedTargets.contains(tile),
+                  availableCollectUnits(at: tile, for: raiderID) > 0,
                   let route = nav.route(from: raider, to: tile),
                   route.count <= 512 else { continue }
             if let current = best {
