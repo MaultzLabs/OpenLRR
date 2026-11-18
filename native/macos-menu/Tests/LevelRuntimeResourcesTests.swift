@@ -377,6 +377,87 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         // reaching the correct tile, then credits it only on actual delivery
         // at a pre-placed original Toolstation. No synthetic building is made.
         let originalStore = NativeLevelNavigation.Position(x: 1, y: 2)
+
+        // AITask.cpp initializes Crystal=55, Ore=49. When both exposed
+        // resource jobs can reach an original store, choose the crystal even
+        // when the Raider is standing on the nearer ore tile. No job plan
+        // may credit NERPs inventory or erase the unchosen original item.
+        let oreTile = NativeLevelNavigation.Position(x: 2, y: 1)
+        let priorityState = NativeExcavationState(
+            world: cryOreWorld, originalToolStores: [originalStore])
+        let crystalDrill = priorityState.plan(from: origin, wall: crystalTile)!
+        precondition(priorityState.finish(crystalDrill, raiderAt: crystalDrill.approach))
+        let oreDrill = priorityState.plan(from: origin, wall: oreTile)!
+        precondition(priorityState.finish(oreDrill, raiderAt: oreDrill.approach))
+        precondition(priorityState.resourceDrops[oreTile]?.kind == .ore)
+        precondition(priorityState.planNextCollect(
+            from: oreTile, raiderID: "PriorityRaider")?.tile == crystalTile,
+            "Original crystal priority must outrank a nearer ore pickup")
+        let prioritizedJob = priorityState.planIdleCollection(
+            raiders: [.init(identifier: "PriorityRaider", tile: oreTile)],
+            busyRaiderIDs: [], blockedBuildings: [originalStore])
+        precondition(prioritizedJob?.order.tile == crystalTile)
+        precondition(priorityState.storedResources.isEmpty)
+        precondition(priorityState.pickedUpCount(.crystal) == 0)
+        precondition(priorityState.pickedUpCount(.ore) == 0)
+
+        // Original Collect tasks own individual objects, not a tile.
+        // Reserve one real unit of a stack for each Raider: a 25-item
+        // stack still permits other assignments, but a one-item stack
+        // cannot be stolen, double-reserved, or credited before arrival.
+        precondition(priorityState.reserveCollect(
+            tile: crystalTile, raiderID: "PriorityRaider"))
+        precondition(priorityState.reserveCollect(
+            tile: crystalTile, raiderID: "PriorityRaider"))
+        precondition(!priorityState.reserveCollect(tile: oreTile,
+                                                    raiderID: "PriorityRaider"))
+        precondition(priorityState.planCollect(
+            from: oreTile, tile: crystalTile, raiderID: "SecondRaider") != nil)
+        priorityState.releaseCollectReservation(raiderID: "PriorityRaider")
+        precondition(priorityState.collectReservations.isEmpty)
+
+        var oneUnitCells = cryOreCells
+        oneUnitCells[6] = 1 // A single real level-zero crystal
+        let oneUnitWad = syntheticWad([
+            ("Ore.map", syntheticMap(oneUnitCells, width: 5, height: 5)),
+            ("Levels/GameLevels/Level01/Surf.map", terrainData),
+            ("Levels/GameLevels/Level01/Dugg.map", predugData),
+            ("Levels/GameLevels/Level01/High.map", highData)
+        ])
+        let oneUnitWorld = try LevelWorld(manifest: cryOreManifest,
+            resources: GameResources(archives: [(0, oneUnitWad)]))
+        let reservedState = NativeExcavationState(
+            world: oneUnitWorld, originalToolStores: [originalStore])
+        let reservedDrill = reservedState.plan(from: origin, wall: crystalTile)!
+        precondition(reservedState.finish(reservedDrill, raiderAt: reservedDrill.approach))
+        precondition(reservedState.reserveCollect(
+            tile: crystalTile, raiderID: "Owner"))
+        precondition(!reservedState.reserveCollect(
+            tile: crystalTile, raiderID: "Other"))
+        precondition(reservedState.planCollect(
+            from: origin, tile: crystalTile, raiderID: "Other") == nil)
+        let unowned = NativeExcavationState.CollectOrder(
+            tile: crystalTile, route: [origin, crystalTile])
+        precondition(reservedState.collect(
+            unowned, raiderID: "Other", raiderAt: crystalTile) == nil)
+        precondition(reservedState.resourceDrops[crystalTile]?.count == 1)
+        precondition(reservedState.storedResources.isEmpty)
+        precondition(reservedState.pickedUpCount(.crystal) == 0)
+        // An interrupted task releases ownership; another Raider can then
+        // collect that same physical item without altering owner saves/maps.
+        reservedState.releaseCollectReservation(raiderID: "Owner")
+        precondition(reservedState.reserveCollect(
+            tile: crystalTile, raiderID: "Other"))
+        precondition(reservedState.collect(
+            unowned, raiderID: "Other", raiderAt: origin) == nil)
+        precondition(reservedState.collectReservations["Other"] == crystalTile)
+        precondition(reservedState.collect(
+            unowned, raiderID: "Other", raiderAt: crystalTile)?.kind == .crystal)
+        precondition(reservedState.collectReservations.isEmpty)
+        precondition(reservedState.resourceDrops[crystalTile] == nil)
+        precondition(reservedState.pickedUpCount(.crystal) == 1)
+        precondition(reservedState.storedCount(.crystal) == 0)
+
         let pickupState = NativeExcavationState(
             world: cryOreWorld, originalToolStores: [originalStore])
         precondition(pickupState.finish(dropOrder, raiderAt: dropOrder.approach))
