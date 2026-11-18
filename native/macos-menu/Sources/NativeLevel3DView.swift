@@ -57,6 +57,7 @@ final class NativeLevel3DView: SCNView {
             stopDrilling(id: id)
             stopClearing(id: id)
             stopResourceActivity(id: id)
+            excavation.releaseCollectReservation(raiderID: id)
             marker.position = position
             raiderModels[id]?.setMoving(false)
         }
@@ -575,6 +576,7 @@ final class NativeLevel3DView: SCNView {
             return
         }
         if !continuingTask { manuallyHeldRaiders.remove(id) }
+        let previousGeneration = motionGenerations[id]
         commandMove(to: .init(x: Double(tile.x) + 0.5, y: Double(tile.y) + 0.5),
                     raiderID: id) { [weak self] in
             guard let self else { return }
@@ -588,6 +590,16 @@ final class NativeLevel3DView: SCNView {
                 // completion instead of playing a fabricated animation.
                 self.finishCollect(order, raiderID: id)
             }
+        }
+        // Own one real resource unit while travelling/animating. A rejected
+        // move keeps the previous task; a successful move must claim an
+        // available unit, without crediting the NERPs pickup counter.
+        if motionGenerations[id] != previousGeneration &&
+           !excavation.reserveCollect(tile: tile, raiderID: id) {
+            motionGenerations[id] = UUID()
+            marker.removeAllActions()
+            raiderModels[id]?.setMoving(false)
+            onInteractionMessage?("Resource Collect order cancelled: item already assigned.")
         }
     }
 
@@ -625,6 +637,7 @@ final class NativeLevel3DView: SCNView {
         guard !missionTimePaused, let marker = raiderMarkers[id],
               let item = excavation.collect(order, raiderID: id,
                                             raiderAt: tileUnderRaider(marker)) else {
+            excavation.releaseCollectReservation(raiderID: id)
             onInteractionMessage?("Resource was not collected; order interrupted or item unavailable.")
             return
         }
@@ -675,6 +688,7 @@ final class NativeLevel3DView: SCNView {
             guard motionGenerations[id] == task.generation,
                   raiderMarkers[id] != nil else {
                 stopResourceActivity(id: id)
+                excavation.releaseCollectReservation(raiderID: id)
                 continue
             }
             if task.clock.advance(elapsed: elapsed) {
@@ -1066,6 +1080,7 @@ final class NativeLevel3DView: SCNView {
         motionGenerations[id] = UUID()
         manuallyHeldRaiders.insert(id)
         if automaticCollectRaider == id { automaticCollectRaider = nil }
+        excavation.releaseCollectReservation(raiderID: id)
         marker.removeAllActions() // Cancel click routing before direct control.
         stopDrilling(id: id)
         marker.position = current
@@ -1294,6 +1309,9 @@ final class NativeLevel3DView: SCNView {
             return
         }
         let generation = UUID()
+        // Replacing a queued Collect job releases only this Raider's unit;
+        // the actual original drop remains available to other workers.
+        excavation.releaseCollectReservation(raiderID: id)
         motionGenerations[id] = generation
         marker.removeAllActions()
         stopDrilling(id: id)
@@ -1325,6 +1343,7 @@ final class NativeLevel3DView: SCNView {
                             from: previous, to: next,
                             obstacles: self.otherRaiderObstacles(excluding: id), movingRadius: self.raiderClearance) {
                         self.motionGenerations[id] = UUID()
+                        self.excavation.releaseCollectReservation(raiderID: id)
                         node.removeAllActions()
                         self.raiderModels[id]?.setMoving(false)
                         self.onInteractionMessage?("Rock Raider \(id): path blocked by another Raider.")

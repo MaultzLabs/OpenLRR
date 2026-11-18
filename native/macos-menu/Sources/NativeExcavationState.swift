@@ -76,6 +76,39 @@ final class NativeExcavationState {
     private let originalToolStores: Set<Position>
     private(set) var carrying: [String: ResourceUnit] = [:]
     private(set) var storedResources: [ResourceUnit: Int] = [:]
+    // Source AITask queues own individual resource objects. Until original
+    // object-level task references are ported, reserve ONE unit of a real
+    // CryOreMap stack per Raider, rather than locking the entire stack.
+    // A planned route alone never consumes or creates an item.
+    private(set) var collectReservations: [String: Position] = [:]
+
+    private func availableCollectUnits(at tile: Position, for raiderID: String) -> Int {
+        guard let drop = resourceDrops[tile] else { return 0 }
+        let reservedForOthers = collectReservations.reduce(into: 0) { count, reservation in
+            if reservation.key != raiderID && reservation.value == tile { count += 1 }
+        }
+        return max(0, drop.count - reservedForOthers)
+    }
+
+    /// Original AITask_Initialise starts Crystals at priority 55, while Ore
+    /// and DefaultCollect retain the initial 49. Higher wins before route
+    /// distance. The player-editable global AI priority system is not ported.
+    private func collectPriority(at tile: Position) -> Int {
+        resourceDrops[tile]?.kind == .crystal ? 55 : 49
+    }
+
+    @discardableResult
+    func reserveCollect(tile: Position, raiderID: String) -> Bool {
+        guard !raiderID.isEmpty, carrying[raiderID] == nil else { return false }
+        if let existing = collectReservations[raiderID] { return existing == tile }
+        guard availableCollectUnits(at: tile, for: raiderID) > 0 else { return false }
+        collectReservations[raiderID] = tile
+        return true
+    }
+
+    func releaseCollectReservation(raiderID: String) {
+        collectReservations.removeValue(forKey: raiderID)
+    }
     // Retail Object.cpp increments picked-up counts after the Collect activity.
     // NativeLevel3DView now calls collect only after an authored Collect
     // animation completes (or the explicitly provisional missing-clip fallback).
@@ -116,7 +149,7 @@ final class NativeExcavationState {
     func planCollect(from raider: Position, tile: Position, raiderID: String,
                      blockedBuildings: Set<Position> = []) -> CollectOrder? {
         guard !raiderID.isEmpty, carrying[raiderID] == nil,
-              (resourceDrops[tile]?.count ?? 0) > 0,
+              availableCollectUnits(at: tile, for: raiderID) > 0,
               let route = NativeLevelNavigation(world: world, excavated: excavated,
                   revealed: revealed, blockedBuildingTiles: blockedBuildings)
                   .route(from: raider, to: tile),
@@ -125,13 +158,14 @@ final class NativeExcavationState {
     }
 
     /// After a completed deposit, continue the original Collect -> Deposit
-    /// task chain with a still-exposed CryOreMap object. Choose the shortest
-    /// walkable route; sorted ties make identical mission state deterministic.
-    /// This does not spawn an AI task, reserve any drop, or grant inventory.
+    /// task chain with a still-exposed CryOreMap object. Honor the original
+    /// initial Crystal(55) > Ore(49) task priority, then shortest route and
+    /// row-major ties. This does not reserve a drop or grant inventory.
     /// It must be re-planned and revalidated on actual arrival.
     func planNextCollect(from raider: Position, raiderID: String,
                          blockedBuildings: Set<Position> = []) -> CollectOrder? {
-        guard !raiderID.isEmpty, carrying[raiderID] == nil else { return nil }
+        guard !raiderID.isEmpty, carrying[raiderID] == nil,
+              collectReservations[raiderID] == nil else { return nil }
         let nav = NativeLevelNavigation(world: world, excavated: excavated,
             revealed: revealed, blockedBuildingTiles: blockedBuildings)
         var best: CollectOrder?
@@ -139,21 +173,28 @@ final class NativeExcavationState {
             $0.y == $1.y ? $0.x < $1.x : $0.y < $1.y
         }
         for tile in candidates {
-            guard (resourceDrops[tile]?.count ?? 0) > 0,
+            guard availableCollectUnits(at: tile, for: raiderID) > 0,
                   let route = nav.route(from: raider, to: tile),
                   route.count <= 512 else { continue }
-            if best == nil || route.count < best!.route.count {
-                best = CollectOrder(tile: tile, route: route)
+            if let current = best {
+                let priority = collectPriority(at: tile)
+                let previous = collectPriority(at: current.tile)
+                guard priority > previous ||
+                      (priority == previous && route.count < current.route.count) else {
+                    continue
+                }
             }
+            best = CollectOrder(tile: tile, route: route)
         }
         return best
     }
 
     /// The original engine queues AITask_Type_Collect for exposed resources
     /// and assigns work to idle units. This is a bounded, mission-local first
-    /// slice: only real dropped items with a reachable original Toolstation
-    /// can be assigned. No pickup, reservation or storage happens here.
-    /// The full original AI priority and task queue are not yet reproduced.
+    /// slice: only real unreserved dropped items with a reachable original
+    /// Toolstation can be assigned. Initial retail resource priorities rank
+    /// jobs before shortest route; assignment still grants no inventory.
+    /// Original per-object AI task queues remain unported.
     struct IdleRaider {
         let identifier: String
         let tile: Position
@@ -173,13 +214,15 @@ final class NativeExcavationState {
             $0.y == $1.y ? $0.x < $1.x : $0.y < $1.y
         }
         let idle = raiders.sorted { $0.identifier < $1.identifier }
-        var best: (cost: Int, raiderID: String, order: CollectOrder)?
+        var best: (priority: Int, cost: Int, raiderID: String, order: CollectOrder)?
         for raider in idle {
             guard !raider.identifier.isEmpty,
                   !busyRaiderIDs.contains(raider.identifier),
-                  carrying[raider.identifier] == nil, nav.canWalk(raider.tile) else { continue }
+                  carrying[raider.identifier] == nil,
+                  collectReservations[raider.identifier] == nil,
+                  nav.canWalk(raider.tile) else { continue }
             for tile in drops {
-                guard (resourceDrops[tile]?.count ?? 0) > 0,
+                guard availableCollectUnits(at: tile, for: raider.identifier) > 0,
                       let pickupRoute = nav.route(from: raider.tile, to: tile),
                       pickupRoute.count <= 512 else { continue }
 
@@ -199,10 +242,12 @@ final class NativeExcavationState {
                 }
                 guard let deliveryLength else { continue }
                 let cost = pickupRoute.count + deliveryLength
-                // Stable ties: sorted Raider IDs, then row-major target tiles.
-                // This is shortest route work, not a claim of retail AI weights.
-                if best == nil || cost < best!.cost {
-                    best = (cost, raider.identifier,
+                // Higher initial AI resource priority wins, then shortest
+                // total trip; stable ties follow sorted IDs and row-major tiles.
+                let priority = collectPriority(at: tile)
+                if best == nil || priority > best!.priority ||
+                   (priority == best!.priority && cost < best!.cost) {
+                    best = (priority, cost, raider.identifier,
                             CollectOrder(tile: tile, route: pickupRoute))
                 }
             }
@@ -218,6 +263,7 @@ final class NativeExcavationState {
     func collect(_ order: CollectOrder, raiderID: String, raiderAt: Position) -> ResourceUnit? {
         guard !raiderID.isEmpty, carrying[raiderID] == nil,
               raiderAt == order.tile,
+              availableCollectUnits(at: order.tile, for: raiderID) > 0,
               NativeLevelNavigation(world: world, excavated: excavated,
                                     revealed: revealed).canWalk(raiderAt),
               let drop = resourceDrops[order.tile], drop.count > 0 else { return nil }
@@ -228,6 +274,7 @@ final class NativeExcavationState {
                                               count: drop.count - 1)
         }
         carrying[raiderID] = item
+        releaseCollectReservation(raiderID: raiderID)
         if item.kind == .crystal { crystalsPickedUp &+= 1 }
         else { orePickedUp &+= 1 }
         return item
