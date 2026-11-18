@@ -411,6 +411,24 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
             raiders: [.init(identifier: "PriorityRaider", tile: oreTile)],
             busyRaiderIDs: [], blockedBuildings: [originalStore])
         precondition(prioritizedJob?.order.tile == crystalTile)
+        // A second idle worker should not be sent to the same occupied
+        // tile-centre while the first Collect route owns an item there.
+        // It may concurrently work the other physically reachable ore tile.
+        let parallelJob = priorityState.planIdleCollection(
+            raiders: [.init(identifier: "SecondRaider", tile: oreTile)],
+            busyRaiderIDs: ["PriorityRaider"],
+            blockedBuildings: [originalStore],
+            excludedTargets: [crystalTile])
+        precondition(parallelJob?.raiderID == "SecondRaider")
+        precondition(parallelJob?.order.tile == oreTile)
+        precondition(priorityState.planIdleCollection(
+            raiders: [.init(identifier: "SecondRaider", tile: oreTile)],
+            busyRaiderIDs: ["PriorityRaider"],
+            blockedBuildings: [originalStore],
+            excludedTargets: [crystalTile, oreTile]) == nil)
+        precondition(priorityState.resourceDrops[crystalTile]?.count == 25)
+        precondition(priorityState.resourceDrops[oreTile]?.count == 25)
+        precondition(priorityState.collectReservations.isEmpty)
         precondition(priorityState.storedResources.isEmpty)
         precondition(priorityState.pickedUpCount(.crystal) == 0)
         precondition(priorityState.pickedUpCount(.ore) == 0)
