@@ -720,7 +720,6 @@ final class NativeLevel3DView: SCNView {
         // Only the individual busy worker and its tile-centre pickup target
         // are excluded. Never interrupt existing manual/automatic jobs.
         var busy = manuallyHeldRaiders
-        busy.formUnion(excavation.carrying.keys)
         busy.formUnion(excavation.collectReservations.keys)
         busy.formUnion(activeDrills.keys)
         busy.formUnion(activeClears.keys)
@@ -735,6 +734,26 @@ final class NativeLevel3DView: SCNView {
             NativeExcavationState.IdleRaider(identifier: $0.key,
                                             tile: tileUnderRaider($0.value))
         }
+        // A previous Deposit may have been cancelled by a moving Raider or
+        // blocked before reaching a real Toolstation. Retrying physical
+        // delivery takes precedence over assigning a new Collect task; no
+        // item becomes stored until its genuine Deposit activity completes.
+        if let pending = excavation.planIdleDeposit(
+            raiders: candidates, busyRaiderIDs: busy,
+            blockedBuildings: blockedBuildingTiles) {
+            let destination = NativeDynamicCollision.Point(
+                x: Double(pending.order.approach.x) + 0.5,
+                y: Double(pending.order.approach.y) + 0.5)
+            if NativeDynamicCollision.sweepIsClear(
+                from: destination, to: destination,
+                obstacles: otherRaiderObstacles(excluding: pending.raiderID),
+                movingRadius: raiderClearance) {
+                deliverCarriedResource(raiderID: pending.raiderID)
+                return
+            }
+        }
+        // Carrying is not an eligibility for a fresh collection assignment.
+        busy.formUnion(excavation.carrying.keys)
         guard let assignment = excavation.planIdleCollection(
             raiders: candidates, busyRaiderIDs: busy,
             blockedBuildings: blockedBuildingTiles,
