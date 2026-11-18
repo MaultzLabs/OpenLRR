@@ -407,6 +407,14 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         precondition(priorityState.planNextCollect(
             from: oreTile, raiderID: "PriorityRaider")?.tile == crystalTile,
             "Original crystal priority must outrank a nearer ore pickup")
+        // After a delivery, a second worker may pursue another physical
+        // resource instead of routing into an already-assigned pickup centre.
+        precondition(priorityState.planNextCollect(
+            from: oreTile, raiderID: "PriorityRaider",
+            excludedTargets: [crystalTile])?.tile == oreTile)
+        precondition(priorityState.planNextCollect(
+            from: oreTile, raiderID: "PriorityRaider",
+            excludedTargets: [crystalTile, oreTile]) == nil)
         let prioritizedJob = priorityState.planIdleCollection(
             raiders: [.init(identifier: "PriorityRaider", tile: oreTile)],
             busyRaiderIDs: [], blockedBuildings: [originalStore])
