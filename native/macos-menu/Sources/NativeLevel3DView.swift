@@ -52,7 +52,6 @@ final class NativeLevel3DView: SCNView {
             let position = marker.presentation.position
             motionGenerations[id] = UUID()
             manuallyHeldRaiders.insert(id)
-            if automaticCollectRaider == id { automaticCollectRaider = nil }
             marker.removeAllActions()
             stopDrilling(id: id)
             stopClearing(id: id)
@@ -102,10 +101,10 @@ final class NativeLevel3DView: SCNView {
         let generation: UUID
     }
     private var activeResourceActivities: [String: ActiveResourceActivity] = [:]
-    // Only the first original resource Collect job is dispatched here; all
-    // subsequent Collect/Deposit steps use the already-ported task chain.
+    // Dispatch idle original Raiders to separate exposed resource tiles.
+    // Per-item reservations and live movement/activity state, rather than a
+    // single global worker token, protect concurrent Collect/Deposit jobs.
     private var idleResourceDispatchSeconds = 0.0
-    private var automaticCollectRaider: String?
     // An explicit manual move/cancel/F-mode takes precedence over idle AI
     // until a new player Collect/Drill/Clear order re-enables that Raider.
     private var manuallyHeldRaiders = Set<String>()
@@ -704,10 +703,11 @@ final class NativeLevel3DView: SCNView {
     }
 
     /// The original AITask manager assigns exposed Collect tasks to idle
-    /// workers. For now dispatch a single reachable real resource at a time,
-    /// without overriding a player order, inventing a Toolstation or crediting
-    /// a pickup before the original Collect activity finishes. Full original
-    /// priorities, task reservations and multi-worker dispatch remain open.
+    /// workers. Dispatch one new job per bounded scan, allowing distinct
+    /// free Raiders to collect concurrently at distinct reachable targets.
+    /// A player order always takes priority; per-unit ownership protects real
+    /// inventory and no credit is issued until Collect/Deposit complete.
+    /// Full retail queue scheduling and building economy remain unported.
     private func dispatchIdleResourceCollection(elapsed: Double) {
         guard elapsed.isFinite, elapsed > 0, !missionTimePaused,
               firstPersonRaider == nil, !excavation.resourceDrops.isEmpty else { return }
@@ -715,20 +715,12 @@ final class NativeLevel3DView: SCNView {
         guard idleResourceDispatchSeconds >= 0.75 else { return }
         idleResourceDispatchSeconds = 0
 
-        if let assigned = automaticCollectRaider {
-            if manuallyHeldRaiders.contains(assigned) {
-                automaticCollectRaider = nil
-                return
-            }
-            if raiderMarkers[assigned]?.hasActions == true ||
-               activeResourceActivities[assigned] != nil ||
-               excavation.carrying[assigned] != nil { return }
-            automaticCollectRaider = nil
-        }
-        // A currently running manual Collect/Deposit sequence also owns
-        // physical drops; do not start another auto collector on that stack.
-        guard activeResourceActivities.isEmpty, excavation.carrying.isEmpty else { return }
+        // Other Raiders may be moving, collecting or delivering in parallel.
+        // Only the individual busy worker and its tile-centre pickup target
+        // are excluded. Never interrupt existing manual/automatic jobs.
         var busy = manuallyHeldRaiders
+        busy.formUnion(excavation.carrying.keys)
+        busy.formUnion(excavation.collectReservations.keys)
         busy.formUnion(activeDrills.keys)
         busy.formUnion(activeClears.keys)
         busy.formUnion(activeResourceActivities.keys)
@@ -744,7 +736,8 @@ final class NativeLevel3DView: SCNView {
         }
         guard let assignment = excavation.planIdleCollection(
             raiders: candidates, busyRaiderIDs: busy,
-            blockedBuildings: blockedBuildingTiles) else { return }
+            blockedBuildings: blockedBuildingTiles,
+            excludedTargets: Set(excavation.collectReservations.values)) else { return }
         let id = assignment.raiderID
         let tile = assignment.order.tile
         let destination = NativeDynamicCollision.Point(
@@ -753,11 +746,7 @@ final class NativeLevel3DView: SCNView {
             from: destination, to: destination,
             obstacles: otherRaiderObstacles(excluding: id),
             movingRadius: raiderClearance) else { return }
-        let priorGeneration = motionGenerations[id]
         collectResource(at: tile, raiderID: id, continuingTask: true)
-        if motionGenerations[id] != priorGeneration {
-            automaticCollectRaider = id
-        }
     }
 
     func dismissWallSelection() { selectedWall = nil }
@@ -1079,7 +1068,6 @@ final class NativeLevel3DView: SCNView {
         }
         motionGenerations[id] = UUID()
         manuallyHeldRaiders.insert(id)
-        if automaticCollectRaider == id { automaticCollectRaider = nil }
         excavation.releaseCollectReservation(raiderID: id)
         marker.removeAllActions() // Cancel click routing before direct control.
         stopDrilling(id: id)
@@ -1400,8 +1388,7 @@ final class NativeLevel3DView: SCNView {
                         let angle = Double(index) * 2 * .pi / Double(max(1, ids.count))
                         let radius = ids.count > 1 ? max(0.5, Double(ids.count) * 0.12) : 0
                         manuallyHeldRaiders.insert(id)
-                        if automaticCollectRaider == id { automaticCollectRaider = nil }
-                        commandMove(to: .init(x: Double(point.x) + Double(world.width) / 2 + cos(angle) * radius,
+                                    commandMove(to: .init(x: Double(point.x) + Double(world.width) / 2 + cos(angle) * radius,
                                               y: Double(point.z) + Double(world.height) / 2 + sin(angle) * radius), raiderID: id)
                     }
                 }
