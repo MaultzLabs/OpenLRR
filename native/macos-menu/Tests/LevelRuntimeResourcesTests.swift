@@ -387,9 +387,13 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
             world: cryOreWorld, originalToolStores: [originalStore])
         FileHandle.standardError.write(Data("CHECK: priority setup\n".utf8))
         let crystalDrill = priorityState.plan(from: origin, wall: crystalTile)!
+        FileHandle.standardError.write(Data("CHECK: crystal plan success\n".utf8))
         precondition(priorityState.finish(crystalDrill, raiderAt: crystalDrill.approach))
+        FileHandle.standardError.write(Data("CHECK: crystal opened\n".utf8))
         let oreDrill = priorityState.plan(from: origin, wall: oreTile)!
+        FileHandle.standardError.write(Data("CHECK: ore plan success\n".utf8))
         precondition(priorityState.finish(oreDrill, raiderAt: oreDrill.approach))
+        FileHandle.standardError.write(Data("CHECK: ore opened\n".utf8))
         precondition(priorityState.resourceDrops[oreTile]?.kind == .ore)
         FileHandle.standardError.write(Data("CHECK: both walls opened\n".utf8))
         precondition(priorityState.planNextCollect(
