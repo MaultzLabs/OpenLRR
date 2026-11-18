@@ -194,7 +194,9 @@ final class NativeExcavationState {
     /// slice: only real unreserved dropped items with a reachable original
     /// Toolstation can be assigned. Initial retail resource priorities rank
     /// jobs before shortest route; assignment still grants no inventory.
-    /// Original per-object AI task queues remain unported.
+    /// Original per-object AI task queues remain unported. `excludedTargets`
+    /// prevents the provisional centre-of-tile mover from steering two idle
+    /// workers into the same occupied pickup location simultaneously.
     struct IdleRaider {
         let identifier: String
         let tile: Position
@@ -206,7 +208,8 @@ final class NativeExcavationState {
     }
 
     func planIdleCollection(raiders: [IdleRaider], busyRaiderIDs: Set<String>,
-                            blockedBuildings: Set<Position> = []) -> IdleCollectAssignment? {
+                            blockedBuildings: Set<Position> = [],
+                            excludedTargets: Set<Position> = []) -> IdleCollectAssignment? {
         guard !resourceDrops.isEmpty, !originalToolStores.isEmpty else { return nil }
         let nav = NativeLevelNavigation(world: world, excavated: excavated,
             revealed: revealed, blockedBuildingTiles: blockedBuildings)
@@ -222,7 +225,14 @@ final class NativeExcavationState {
                   collectReservations[raider.identifier] == nil,
                   nav.canWalk(raider.tile) else { continue }
             for tile in drops {
-                guard availableCollectUnits(at: tile, for: raider.identifier) > 0,
+                // Multiple workers may carry out separate Collect jobs, but
+                // our tile-centre approach cannot physically accommodate two
+                // Raiders arriving at the same stack simultaneously. Keep
+                // outstanding Collect destinations for other Raiders out of
+                // automatic planning; explicit player Collect still uses
+                // independent per-unit ownership.
+                guard !excludedTargets.contains(tile),
+                      availableCollectUnits(at: tile, for: raider.identifier) > 0,
                       let pickupRoute = nav.route(from: raider.tile, to: tile),
                       pickupRoute.count <= 512 else { continue }
 
