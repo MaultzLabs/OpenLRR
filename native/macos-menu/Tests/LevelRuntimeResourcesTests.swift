@@ -382,9 +382,23 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         // resource jobs can reach an original store, choose the crystal even
         // when the Raider is standing on the nearer ore tile. No job plan
         // may credit NERPs inventory or erase the unchosen original item.
-        let oreTile = NativeLevelNavigation.Position(x: 2, y: 1)
+        // The base fixture's (2,1) ore code sits on an already-open floor;
+        // resource drops spawn only when an actual wall is broken. Create
+        // a second valid wall at (1,3) so both types become collectible.
+        var priorityCells = cryOreCells
+        priorityCells[7] = 0
+        priorityCells[16] = 20 // 25 original ore, level one, in a mineable wall
+        let priorityWad = syntheticWad([
+            ("Ore.map", syntheticMap(priorityCells, width: 5, height: 5)),
+            ("Levels/GameLevels/Level01/Surf.map", terrainData),
+            ("Levels/GameLevels/Level01/Dugg.map", predugData),
+            ("Levels/GameLevels/Level01/High.map", highData)
+        ])
+        let priorityWorld = try LevelWorld(manifest: cryOreManifest,
+            resources: GameResources(archives: [(0, priorityWad)]))
+        let oreTile = NativeLevelNavigation.Position(x: 1, y: 3)
         let priorityState = NativeExcavationState(
-            world: cryOreWorld, originalToolStores: [originalStore])
+            world: priorityWorld, originalToolStores: [originalStore])
         FileHandle.standardError.write(Data("CHECK: priority setup\n".utf8))
         let crystalDrill = priorityState.plan(from: origin, wall: crystalTile)!
         FileHandle.standardError.write(Data("CHECK: crystal plan success\n".utf8))
