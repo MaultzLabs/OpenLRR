@@ -407,10 +407,36 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         precondition(priorityState.planNextCollect(
             from: oreTile, raiderID: "PriorityRaider")?.tile == crystalTile,
             "Original crystal priority must outrank a nearer ore pickup")
+        // After a delivery, a second worker may pursue another physical
+        // resource instead of routing into an already-assigned pickup centre.
+        precondition(priorityState.planNextCollect(
+            from: oreTile, raiderID: "PriorityRaider",
+            excludedTargets: [crystalTile])?.tile == oreTile)
+        precondition(priorityState.planNextCollect(
+            from: oreTile, raiderID: "PriorityRaider",
+            excludedTargets: [crystalTile, oreTile]) == nil)
         let prioritizedJob = priorityState.planIdleCollection(
             raiders: [.init(identifier: "PriorityRaider", tile: oreTile)],
             busyRaiderIDs: [], blockedBuildings: [originalStore])
         precondition(prioritizedJob?.order.tile == crystalTile)
+        // A second idle worker should not be sent to the same occupied
+        // tile-centre while the first Collect route owns an item there.
+        // It may concurrently work the other physically reachable ore tile.
+        let parallelJob = priorityState.planIdleCollection(
+            raiders: [.init(identifier: "SecondRaider", tile: oreTile)],
+            busyRaiderIDs: ["PriorityRaider"],
+            blockedBuildings: [originalStore],
+            excludedTargets: [crystalTile])
+        precondition(parallelJob?.raiderID == "SecondRaider")
+        precondition(parallelJob?.order.tile == oreTile)
+        precondition(priorityState.planIdleCollection(
+            raiders: [.init(identifier: "SecondRaider", tile: oreTile)],
+            busyRaiderIDs: ["PriorityRaider"],
+            blockedBuildings: [originalStore],
+            excludedTargets: [crystalTile, oreTile]) == nil)
+        precondition(priorityState.resourceDrops[crystalTile]?.count == 25)
+        precondition(priorityState.resourceDrops[oreTile]?.count == 25)
+        precondition(priorityState.collectReservations.isEmpty)
         precondition(priorityState.storedResources.isEmpty)
         precondition(priorityState.pickedUpCount(.crystal) == 0)
         precondition(priorityState.pickedUpCount(.ore) == 0)

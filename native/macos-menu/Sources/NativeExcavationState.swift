@@ -160,10 +160,13 @@ final class NativeExcavationState {
     /// After a completed deposit, continue the original Collect -> Deposit
     /// task chain with a still-exposed CryOreMap object. Honor the original
     /// initial Crystal(55) > Ore(49) task priority, then shortest route and
-    /// row-major ties. This does not reserve a drop or grant inventory.
+    /// row-major ties. Active automatic pickup targets may be excluded while
+    /// our source-object positions are still approximated by tile centres.
+    /// This does not reserve a drop or grant inventory.
     /// It must be re-planned and revalidated on actual arrival.
     func planNextCollect(from raider: Position, raiderID: String,
-                         blockedBuildings: Set<Position> = []) -> CollectOrder? {
+                         blockedBuildings: Set<Position> = [],
+                         excludedTargets: Set<Position> = []) -> CollectOrder? {
         guard !raiderID.isEmpty, carrying[raiderID] == nil,
               collectReservations[raiderID] == nil else { return nil }
         let nav = NativeLevelNavigation(world: world, excavated: excavated,
@@ -173,7 +176,11 @@ final class NativeExcavationState {
             $0.y == $1.y ? $0.x < $1.x : $0.y < $1.y
         }
         for tile in candidates {
-            guard availableCollectUnits(at: tile, for: raiderID) > 0,
+            // A follow-up job must not collide with another Raider's active
+            // tile-centre Collect destination while stacked object positions
+            // remain provisional. Manual per-unit Collect is unaffected.
+            guard !excludedTargets.contains(tile),
+                  availableCollectUnits(at: tile, for: raiderID) > 0,
                   let route = nav.route(from: raider, to: tile),
                   route.count <= 512 else { continue }
             if let current = best {
@@ -194,7 +201,9 @@ final class NativeExcavationState {
     /// slice: only real unreserved dropped items with a reachable original
     /// Toolstation can be assigned. Initial retail resource priorities rank
     /// jobs before shortest route; assignment still grants no inventory.
-    /// Original per-object AI task queues remain unported.
+    /// Original per-object AI task queues remain unported. `excludedTargets`
+    /// prevents the provisional centre-of-tile mover from steering two idle
+    /// workers into the same occupied pickup location simultaneously.
     struct IdleRaider {
         let identifier: String
         let tile: Position
@@ -206,7 +215,8 @@ final class NativeExcavationState {
     }
 
     func planIdleCollection(raiders: [IdleRaider], busyRaiderIDs: Set<String>,
-                            blockedBuildings: Set<Position> = []) -> IdleCollectAssignment? {
+                            blockedBuildings: Set<Position> = [],
+                            excludedTargets: Set<Position> = []) -> IdleCollectAssignment? {
         guard !resourceDrops.isEmpty, !originalToolStores.isEmpty else { return nil }
         let nav = NativeLevelNavigation(world: world, excavated: excavated,
             revealed: revealed, blockedBuildingTiles: blockedBuildings)
@@ -222,7 +232,14 @@ final class NativeExcavationState {
                   collectReservations[raider.identifier] == nil,
                   nav.canWalk(raider.tile) else { continue }
             for tile in drops {
-                guard availableCollectUnits(at: tile, for: raider.identifier) > 0,
+                // Multiple workers may carry out separate Collect jobs, but
+                // our tile-centre approach cannot physically accommodate two
+                // Raiders arriving at the same stack simultaneously. Keep
+                // outstanding Collect destinations for other Raiders out of
+                // automatic planning; explicit player Collect still uses
+                // independent per-unit ownership.
+                guard !excludedTargets.contains(tile),
+                      availableCollectUnits(at: tile, for: raider.identifier) > 0,
                       let pickupRoute = nav.route(from: raider.tile, to: tile),
                       pickupRoute.count <= 512 else { continue }
 
