@@ -710,8 +710,10 @@ final class NativeLevel3DView: SCNView {
     /// inventory and no credit is issued until Collect/Deposit complete.
     /// Full retail queue scheduling and building economy remain unported.
     private func dispatchIdleResourceCollection(elapsed: Double) {
+        // A Raider may hold the final item after its source stack vanishes.
+        // Deposit retries must still run when there are NO ground drops.
         guard elapsed.isFinite, elapsed > 0, !missionTimePaused,
-              firstPersonRaider == nil, !excavation.resourceDrops.isEmpty else { return }
+              firstPersonRaider == nil else { return }
         idleResourceDispatchSeconds += min(elapsed, 0.25)
         guard idleResourceDispatchSeconds >= 0.75 else { return }
         idleResourceDispatchSeconds = 0
