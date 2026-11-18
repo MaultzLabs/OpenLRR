@@ -867,3 +867,40 @@ Next chosen milestone: real first-tutorial end-to-end acceptance using the
 owner's legitimate retail game assets, then original PTL per-object pickup
 positions/collisions and source-accurate mission progression/save persistence.
 No full-game percentage is inferred from this work.
+
+
+## Retry real Toolstation delivery for idle carrying Raiders — 2026-11-18
+
+A completed native Collect activity removes one original resource object
+from the floor and attaches its LWOB to the original Pilot CarryNull. The
+immediate follow-up Deposit can still fail when a Toolstation route is
+unreachable or a moving Raider invalidates the continuous collision sweep.
+Previously the carrying Raider would become permanently idle: automatic
+Collect dispatch excludes carriers, and nothing could reappoint Deposit.
+
+The native idle dispatcher now first considers *only free original Pilots
+already carrying a physical CryOreMap item*. On a later bounded scan it
+replans a route to a **real existing original Toolstation**, excludes
+player-held/manual orders, first-person control, other active tasks,
+building footprints and an occupied deposit approach, then uses the
+existing original Deposit animation and movement validation. No extra
+pickup is created. NERPs stored counts advance only after the actual
+Deposit activity completes and the original building adjacency is
+revalidated. A temporarily blocked or failed route can become eligible
+again without losing the Raider's original resource mesh. This is a
+bounded recovery step, not a claim that the retail full AI scheduler or
+dynamic work-stealing has been ported.
+
+Portable synthetic tests cover a carried crystal reappointment, busy
+worker precedence, a blocked Toolstation approach, retry after clearance,
+lack of a real store, and no duplicate storage after a completed deposit.
+Standard hosted ARM64 compilation and portable test results must be
+evaluated on this branch's final SHA. No visually/playably verified
+owner-asset first-tutorial run has occurred; source-only fixtures do not
+prove pickup placement, animated hand geometry, or mission completion.
+
+Next: actual first-tutorial drill → rubble → original Collect/CarryNull →
+Toolstation → NERPs completion validation on Apple Silicon using lawful
+owner-owned assets; then original per-object PTL drop positioning and
+original level-unlock/save semantics. Do not infer any game-completion
+percentage from this code increment.
