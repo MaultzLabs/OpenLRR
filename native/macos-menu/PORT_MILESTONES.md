@@ -829,3 +829,41 @@ Next: verify the complete original first-tutorial drill → rubble →
 Collect/CarryNull → Toolstation → NERPs objective path using legal owner-owned
 assets on Apple Silicon, then extend source-accurate per-object task dispatch
 and full mission progression. No full-game percentage is inferred.
+
+
+## Concurrent idle-Raider resource assignments — 2026-11-18
+
+Before this increment, a global `automaticCollectRaider` blocked all other
+idle workers whenever any Collector was moving, animating or carrying. The
+November 18 per-unit reservation work now allows independent automatic
+Collect jobs, so this branch removes that global single-worker gate. On each
+bounded idle dispatch pass it excludes only Raiders already following manual
+orders, drilling, clearing, walking, collecting, depositing, carrying, or
+holding per-unit reservations. An eligible second original Pilot can take a
+separate reachable drop while the first Raider is still completing its
+Collect/Deposit chain. The source mission assets and resource counters are
+not modified merely by scheduling.
+
+The current native mover still targets the *centre* of each drop tile, rather
+than reproducing original individual PTL item positions. Automatic planning
+therefore excludes the pickup tile of any outstanding Collect reservation,
+preventing two concurrently assigned Raiders from colliding at the same
+single destination. Player-issued Collect orders retain the per-item stack
+reservation rules introduced in PR #91. Excluding a target must never create
+inventory or claim a false Toolstation delivery. Portable synthetic tests
+cover a higher-priority crystal chosen for the first worker, an eligible ore
+for a concurrent second worker when the crystal centre is occupied, no job
+when all target centres are busy, and unchanged original drop counts and
+NERPs counters during planning.
+
+**Acceptance:** source implementation and synthetic portable tests are
+separate from hosted ARM64 compilation and actual owner-asset visual/gameplay
+verification. The first tutorial is not accepted until original drills,
+rubble, carrying, Toolstation delivery and NERPs success are played on Apple
+Silicon. Dynamic collision re-routing, true per-object resource positions,
+retail AI priority UI and complete multi-unit scheduler remain unfinished.
+
+Next chosen milestone: real first-tutorial end-to-end acceptance using the
+owner's legitimate retail game assets, then original PTL per-object pickup
+positions/collisions and source-accurate mission progression/save persistence.
+No full-game percentage is inferred from this work.
