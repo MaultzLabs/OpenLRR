@@ -845,8 +845,8 @@ Collect/Deposit chain. The source mission assets and resource counters are
 not modified merely by scheduling.
 
 The current native mover still targets the *centre* of each drop tile, rather
-than reproducing original individual PTL item positions. Automatic planning
-therefore excludes the pickup tile of any outstanding Collect reservation,
+than reproducing original individual PTL item positions. Both idle dispatch and automated post-deposit follow-up planning
+therefore exclude the pickup tile of any outstanding Collect reservation,
 preventing two concurrently assigned Raiders from colliding at the same
 single destination. Player-issued Collect orders retain the per-item stack
 reservation rules introduced in PR #91. Excluding a target must never create
