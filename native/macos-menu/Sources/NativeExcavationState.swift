@@ -321,6 +321,35 @@ final class NativeExcavationState {
         return best
     }
 
+    /// A blocked or interrupted Deposit path must not strand a physical
+    /// resource forever. Reappoint an idle *carrying* Raider only when a
+    /// genuine original Toolstation is reachable. No stored counter changes
+    /// during planning; explicit player orders and active tasks take priority.
+    /// This is a bounded retry, not the complete original AITask scheduler.
+    struct IdleDepositAssignment {
+        let raiderID: String
+        let order: DepositOrder
+    }
+
+    func planIdleDeposit(raiders: [IdleRaider], busyRaiderIDs: Set<String>,
+                         blockedBuildings: Set<Position> = []) -> IdleDepositAssignment? {
+        var best: IdleDepositAssignment?
+        let idle = raiders.sorted { $0.identifier < $1.identifier }
+        for raider in idle {
+            guard !raider.identifier.isEmpty,
+                  !busyRaiderIDs.contains(raider.identifier),
+                  carrying[raider.identifier] != nil,
+                  let route = planDeposit(from: raider.tile, raiderID: raider.identifier,
+                                          blockedBuildings: blockedBuildings) else { continue }
+            // Stable ties favor the original Raider identifier. A previously
+            // unreachable store can become available on a later dispatch scan.
+            if best == nil || route.route.count < best!.order.route.count {
+                best = IdleDepositAssignment(raiderID: raider.identifier, order: route)
+            }
+        }
+        return best
+    }
+
     /// An unrelated building or a remote order never credits inventory.
     /// This mission-local stored counter is exposed to the original NERPs
     /// callback. Building_Deposit and resource processing remain incomplete.
