@@ -567,6 +567,30 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
                                                 raiderID: "Raider1") == nil,
                      "Carrying Raider cannot take another automatic pickup")
         precondition(pickupState.storedResources.isEmpty)
+        // A real item already in the Raider's hands must be recoverable if
+        // its original Toolstation route failed or was temporarily blocked.
+        // Idle delivery never invents a duplicate pickup or credits storage.
+        let carryingRaiders = [
+            NativeExcavationState.IdleRaider(identifier: "Raider2", tile: crystalTile),
+            NativeExcavationState.IdleRaider(identifier: "Raider1", tile: crystalTile)
+        ]
+        let recovery = pickupState.planIdleDeposit(
+            raiders: carryingRaiders, busyRaiderIDs: [],
+            blockedBuildings: [originalStore])
+        precondition(recovery?.raiderID == "Raider1")
+        precondition(recovery?.order.store == originalStore)
+        precondition(pickupState.planIdleDeposit(
+            raiders: carryingRaiders, busyRaiderIDs: ["Raider1"],
+            blockedBuildings: [originalStore]) == nil)
+        precondition(pickupState.planIdleDeposit(
+            raiders: carryingRaiders, busyRaiderIDs: [],
+            blockedBuildings: [originalStore, crystalTile]) == nil)
+        precondition(pickupState.planIdleDeposit(
+            raiders: carryingRaiders, busyRaiderIDs: [],
+            blockedBuildings: [originalStore])?.raiderID == "Raider1",
+            "A recovered Toolstation path must not consume a carried resource")
+        precondition(pickupState.carrying["Raider1"] == carried)
+        precondition(pickupState.storedCount(.crystal) == 0)
         let delivery = pickupState.planDeposit(
             from: crystalTile, raiderID: "Raider1", blockedBuildings: [originalStore])!
         precondition(delivery.store == originalStore && delivery.approach == crystalTile)
@@ -590,6 +614,10 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         precondition(pickupState.storedCount(.crystal) == 1)
         precondition(pickupState.storedCount(.ore) == 0)
         precondition(pickupState.carrying.isEmpty)
+        precondition(pickupState.planIdleDeposit(
+            raiders: carryingRaiders, busyRaiderIDs: [],
+            blockedBuildings: [originalStore]) == nil,
+            "A completed Deposit cannot be reappointed or counted twice")
         precondition(pickupState.planNextCollect(from: crystalTile,
                       raiderID: "Raider1")?.tile == crystalTile,
                      "Completed deposit should expose the next real Collect task")
@@ -626,6 +654,9 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         precondition(noStore.collect(unbanked, raiderID: "Raider1",
                                     raiderAt: crystalTile) != nil)
         precondition(noStore.planDeposit(from: crystalTile, raiderID: "Raider1") == nil)
+        precondition(noStore.planIdleDeposit(
+            raiders: carryingRaiders, busyRaiderIDs: []) == nil,
+            "A carried resource cannot be virtually stored without a real Toolstation")
         precondition(noStore.storedResources.isEmpty)
         precondition(noStore.pickedUpCount(.crystal) == 1)
         precondition(noStore.storedCount(.crystal) == 0)
