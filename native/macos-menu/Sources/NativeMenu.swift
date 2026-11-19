@@ -10,11 +10,16 @@ import UniformTypeIdentifiers
 final class OriginalMenuCanvas: NSView {
     var resources: GameResources? { didSet { clearCache(); gameCursor = nil; needsDisplay = true } }
     var definitions: MenuDefinition? { didSet { menuIndex = 0; menuScroll.reset(); needsDisplay = true } }
-    var missionSelection: MissionSelection? { didSet { missionHover = nil; needsDisplay = true } }
+    private var sessionProgress = MissionSessionProgress()
+    var missionSelection: MissionSelection? {
+        didSet { sessionProgress.reset(); missionHover = nil; needsDisplay = true }
+    }
     var levelCatalog: LevelCatalog?
     var saveSlots: [OriginalSaveCatalog.Slot] = [] { didSet { needsDisplay = true } }
     var saveSlotLabel = "Save Game"
-    var loadedSave: OriginalSaveFile? { didSet { needsDisplay = true } }
+    var loadedSave: OriginalSaveFile? {
+        didSet { sessionProgress.reset(); needsDisplay = true }
+    }
     var onNavigation: ((String) -> Void)?
     var onMissionSelected: ((MissionSelection.Node) -> Void)?
     var onQuitConfirmed: (() -> Void)?
@@ -123,22 +128,28 @@ final class OriginalMenuCanvas: NSView {
         return []
     }
 
+    /// Called only after the original per-level NERPs engine has confirmed
+    /// success; failures, tutorials and unknown level names never unlock a
+    /// mission. This is volatile progress, not an original save-file write.
+    func recordSuccessfulMission(_ identifier: String) {
+        guard let nodes = missionSelection?.missions else { return }
+        if sessionProgress.recordCompletion(identifier, missions: nodes) {
+            needsDisplay = true
+        }
+    }
+
     private func missionAvailable(_ entry: MissionSelection.Node,
                                   in nodes: [MissionSelection.Node]) -> Bool {
         if menuIndex == 2 { return true } // All retail tutorials start unlocked.
-        guard let loadedSave, let levelCatalog else { return entry.initiallyAvailable }
-
-        let completed = Set(levelCatalog.missions.enumerated().compactMap { index, level in
-            loadedSave.completedLevelIndices.contains(index) ? level.identifier.lowercased() : nil
-        })
-        let key = entry.identifier.lowercased()
-        if entry.initiallyAvailable || completed.contains(key) { return true }
-        // Front_Levels_UpdateAvailable propagates availability only along
-        // links from levels marked completed in the loaded save.
-        return nodes.contains { parent in
-            completed.contains(parent.identifier.lowercased()) &&
-            parent.nextIdentifiers.contains { $0.lowercased() == key }
+        let fromSave: Set<String>
+        if let loadedSave, let levelCatalog {
+            fromSave = Set(levelCatalog.missions.enumerated().compactMap { index, level in
+                loadedSave.completedLevelIndices.contains(index) ? level.identifier : nil
+            })
+        } else {
+            fromSave = []
         }
+        return sessionProgress.isAvailable(entry, among: nodes, savedCompleted: fromSave)
     }
 
     override var isFlipped: Bool { true }
@@ -779,9 +790,12 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
                 guard let self, let viewer, self.missionView === viewer else { return }
                 self.restartMissionMusic()
             }
-            viewer.onMissionOutcome = { [weak self, weak viewer] in
+            viewer.onMissionOutcome = { [weak self, weak viewer] outcome in
                 guard let self, let viewer, self.missionView === viewer else { return }
                 self.missionAudio.stop()
+                if outcome == .completed {
+                    self.canvas.recordSuccessfulMission(identifier)
+                }
             }
             viewer.onStartupStatus = { [weak self, weak viewer] message in
                 guard let self, let viewer, self.missionView === viewer else { return }

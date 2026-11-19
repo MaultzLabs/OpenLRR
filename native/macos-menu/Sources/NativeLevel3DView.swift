@@ -1444,7 +1444,7 @@ final class NativeMissionWorkspace: NSView {
     var isBriefingActive: Bool { briefing?.isActive == true }
     var onGameplayStart: (() -> Void)?
     /// Allows the existing menu audio controller to stop the mission track.
-    var onMissionOutcome: (() -> Void)?
+    var onMissionOutcome: ((NativeNERPsGameState.MissionOutcome) -> Void)?
     var onStartupStatus: ((String) -> Void)?
     private let panels: OriginalMissionPanels
     private let commands: OriginalMissionCommands
@@ -1721,7 +1721,7 @@ final class NativeMissionWorkspace: NSView {
         level2D.missionInputBlocked = true
         caveAudio.stop()
         nerpsAudio.stop()
-        onMissionOutcome?()
+        onMissionOutcome?(outcome)
         scriptClock.reset()
         nerpsTimer?.invalidate()
         nerpsTimer = nil

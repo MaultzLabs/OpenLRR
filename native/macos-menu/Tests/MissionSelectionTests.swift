@@ -69,6 +69,40 @@ import Foundation
                      ["Levels::Tutorial01", "Levels::Tutorial02"])
         precondition(selection.tutorials.map(\.initiallyAvailable) == [true, true])
 
+        // A scripted victory unlocks only children of the genuinely
+        // completed original mission. It is transient and never alters .sav.
+        var progress = MissionSessionProgress()
+        let root = selection.missions[0]
+        let open = selection.missions[1]
+        let locked = selection.missions[2]
+        precondition(progress.isAvailable(root, among: selection.missions))
+        precondition(progress.isAvailable(open, among: selection.missions))
+        precondition(!progress.isAvailable(locked, among: selection.missions))
+        precondition(!progress.recordCompletion("Levels::Tutorial01",
+                                               missions: selection.missions),
+                     "Tutorial outcomes cannot unlock campaign missions")
+        precondition(!progress.recordCompletion("Levels::Unknown",
+                                               missions: selection.missions))
+        precondition(!progress.isAvailable(locked, among: selection.missions))
+        precondition(progress.recordCompletion("levels::LEVEL01",
+                                              missions: selection.missions))
+        precondition(progress.completedIdentifiers == ["levels::level01"])
+        precondition(progress.isAvailable(locked, among: selection.missions),
+                     "A completed root must unlock its original LevelLinks child")
+        precondition(!progress.recordCompletion("Levels::Level01",
+                                               missions: selection.missions),
+                     "Repeated NERPs completion must be idempotent")
+        progress.reset()
+        precondition(progress.completedIdentifiers.isEmpty)
+        precondition(!progress.isAvailable(locked, among: selection.missions),
+                     "Changing original saves/WADs discards session-only unlocks")
+        precondition(progress.isAvailable(
+            locked, among: selection.missions, savedCompleted: ["LEVELS::LEVEL01"]),
+                     "Read-only original save flags must still unlock their linked missions")
+        precondition(!progress.isAvailable(
+            locked, among: selection.missions, savedCompleted: ["Levels::Level03"]),
+                     "FrontEndOpen alone must not unlock unrelated linked missions")
+
         // Missions without a LevelLinks relationship cannot be reached by the
         // original selection traversal. Do not fabricate visible missions.
         let noLinks = try LegoConfig(text: """
