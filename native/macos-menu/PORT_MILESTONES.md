@@ -14,7 +14,7 @@ Updated 2026-11-03. The earlier 80% completion estimate is withdrawn: there was 
 | Building/economy | Incomplete | Construction, power, ore/crystals, upgrades, dependencies |
 | Vehicles and AI | Incomplete | Original models, boarding, navigation, tasks and collision |
 | Mission scripts/objectives | Partial callback implementation | All mission and tutorial scripts plus completion/failure behavior |
-| Saving/loading gameplay | Original save inspection exists; full native persistence incomplete | Round-trip a played mission without state loss |
+| Saving/loading gameplay | Original .sav inspection exists; NERPs-confirmed successes now unlock original LevelLinks in volatile native menu session (2026-11-19) | Complete original reward/save semantics, level unlock persistence and round-trip played state without modifying owners' existing saves |
 | Full-game performance and fidelity | Not established | End-to-end campaign sessions and sustained Mac performance |
 
 Next selected milestone: test the first-person tracked-camera/control prototype on a real original level and match the original Raider head camera frame, speed, and turn timing; then add dynamic object/building collision. Original model material mapping and walk animation remain separate unverified tasks.
@@ -904,3 +904,46 @@ Toolstation → NERPs completion validation on Apple Silicon using lawful
 owner-owned assets; then original per-object PTL drop positioning and
 original level-unlock/save semantics. Do not infer any game-completion
 percentage from this code increment.
+
+
+## Genuine NERPs victory unlocks linked missions in the current session — 2026-11-19
+
+OpenLRR `Front_Levels_UpdateAvailable_Recursive` uses the source mission
+catalogue's `setIndex` for original save flags. Its `LevelLinks` traversal
+marks a completed mission and its immediate links available, but
+`FrontEndOpen` merely enables a particular icon; it does not count as a
+completed parent. The native menu had only read-only original save unlocks,
+so even after a real NPL `SetLevelCompleted` the next linked mission remained
+locked in the same running session.
+
+The native `NativeMissionWorkspace` now reports the latched original NERPs
+outcome to its existing menu coordinator. **Only** `.completed` from the
+current active workspace records an eligible campaign mission identifier,
+case-insensitively. A failed mission, duplicate result, unknown identifier,
+or tutorial cannot unlock campaign content. The mission map recomputes its
+original linked-icon availability from the union of **read-only original
+save completed flags** and the session's verified completions, without
+granting children of an uncompleted `FrontEndOpen` mission. Switching original
+save slots or reloading a different WAD clears the temporary unlock overlay.
+This is deliberately **in-memory, unsaved** progress: no PC save or user
+game assets are written, and a relaunch reverts to the original save flags.
+
+Pure Swift regression tests check baseline locks, real linked unlocks,
+nonexistent/tutorial identifiers, idempotent victory, original saved
+completion union, case normalization, `FrontEndOpen` behavior and session
+reset. Hosted AppKit compilation verifies the actual outcome/menu callback
+bridge. Both portable and Mac jobs require final-head CI confirmation.
+
+**Not accepted:** Complete original save/reward serialization,
+session-to-disk progression, level outro teleport, full campaign completion,
+the original first tutorial's full NPL execution with retail assets,
+building/economy/vehicles, actual audio/visual fidelity, or a tested
+Apple Silicon gameplay session. This is a source-grounded menu progression
+bridge, not a retail campaign acceptance or percentage of game completion.
+
+Next playable milestone: inspect actual mission progression/reward data and
+implement **separate, opt-in native save persistence** compatible with the
+verified session unlock graph without ever overwriting original PC saves.
+Before that, prioritize owner-asset Mac playthrough validation of original
+drilling, four-stage rubble, CarryNull, deposit and NERPs success; fix the
+first real failing action. No invented assets, percentages or paid runners.
