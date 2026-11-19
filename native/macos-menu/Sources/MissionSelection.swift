@@ -75,3 +75,37 @@ struct MissionSelection {
         return result
     }
 }
+/// Read-only native session overlay for genuine NERPs level completion.
+/// Mirrors the original Front_Levels_UpdateAvailable link rule: completing a
+/// level unlocks that level and its immediate LevelLinks children. FrontEndOpen
+/// is not completion. The overlay is discarded when archives or save slots
+/// change; it never writes or mutates the original PC .sav files.
+struct MissionSessionProgress {
+    private(set) var completedIdentifiers: Set<String> = []
+
+    @discardableResult
+    mutating func recordCompletion(_ identifier: String,
+                                   missions: [MissionSelection.Node]) -> Bool {
+        guard let node = missions.first(where: {
+            $0.identifier.caseInsensitiveCompare(identifier) == .orderedSame
+        }) else { return false }
+        return completedIdentifiers.insert(node.identifier.lowercased()).inserted
+    }
+
+    mutating func reset() {
+        completedIdentifiers.removeAll()
+    }
+
+    func isAvailable(_ node: MissionSelection.Node,
+                     among nodes: [MissionSelection.Node],
+                     savedCompleted: Set<String> = []) -> Bool {
+        if node.initiallyAvailable { return true }
+        let completed = completedIdentifiers.union(savedCompleted.map { $0.lowercased() })
+        let key = node.identifier.lowercased()
+        if completed.contains(key) { return true }
+        return nodes.contains { parent in
+            completed.contains(parent.identifier.lowercased()) &&
+            parent.nextIdentifiers.contains { $0.lowercased() == key }
+        }
+    }
+}
