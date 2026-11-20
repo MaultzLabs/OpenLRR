@@ -118,6 +118,18 @@ import Foundation
             restored, missions: selection.missions, originalSaveSlot: 1)
         precondition(reexported == sidecar,
                      "Native JSON exports should be deterministic")
+        // Exercise an actual file round trip without touching a proprietary
+        // SaveData/SaveReward file. Restoring after reset simulates relaunch.
+        let snapshotURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("openlrr-progress-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: snapshotURL) }
+        try sidecar.write(to: snapshotURL, options: .atomic)
+        var freshSession = MissionSessionProgress()
+        precondition(!freshSession.isAvailable(locked, among: selection.missions))
+        let diskBytes = try Data(contentsOf: snapshotURL)
+        freshSession = try NativeCampaignProgressArchive.restore(
+            diskBytes, missions: selection.missions, originalSaveSlot: 1)
+        precondition(freshSession.isAvailable(locked, among: selection.missions))
 
         func rejectsProgress(_ bytes: Data,
                              slot: Int? = 1,
