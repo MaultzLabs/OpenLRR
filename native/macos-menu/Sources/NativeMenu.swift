@@ -11,6 +11,7 @@ final class OriginalMenuCanvas: NSView {
     var resources: GameResources? { didSet { clearCache(); gameCursor = nil; needsDisplay = true } }
     var definitions: MenuDefinition? { didSet { menuIndex = 0; menuScroll.reset(); needsDisplay = true } }
     private var sessionProgress = MissionSessionProgress()
+    private(set) var selectedOriginalSaveSlot: Int?
     var missionSelection: MissionSelection? {
         didSet { sessionProgress.reset(); missionHover = nil; needsDisplay = true }
     }
@@ -18,7 +19,11 @@ final class OriginalMenuCanvas: NSView {
     var saveSlots: [OriginalSaveCatalog.Slot] = [] { didSet { needsDisplay = true } }
     var saveSlotLabel = "Save Game"
     var loadedSave: OriginalSaveFile? {
-        didSet { sessionProgress.reset(); needsDisplay = true }
+        didSet {
+            sessionProgress.reset()
+            selectedOriginalSaveSlot = nil
+            needsDisplay = true
+        }
     }
     var onNavigation: ((String) -> Void)?
     var onMissionSelected: ((MissionSelection.Node) -> Void)?
@@ -136,6 +141,29 @@ final class OriginalMenuCanvas: NSView {
         if sessionProgress.recordCompletion(identifier, missions: nodes) {
             needsDisplay = true
         }
+    }
+
+    /// Only an explicit Save/Load operation outside the retail viewport may
+    /// serialize this native progress. Never write original PC save files.
+    func exportNativeProgress() throws -> Data {
+        guard let nodes = missionSelection?.missions else {
+            throw NativeCampaignProgressArchive.ArchiveError.invalid(
+                "load the original mission catalogue first")
+        }
+        return try NativeCampaignProgressArchive.export(
+            sessionProgress, missions: nodes,
+            originalSaveSlot: selectedOriginalSaveSlot)
+    }
+
+    func restoreNativeProgress(_ data: Data) throws {
+        guard let nodes = missionSelection?.missions else {
+            throw NativeCampaignProgressArchive.ArchiveError.invalid(
+                "load the original mission catalogue first")
+        }
+        // No partial mutation when JSON or original-slot compatibility fails.
+        sessionProgress = try NativeCampaignProgressArchive.restore(
+            data, missions: nodes, originalSaveSlot: selectedOriginalSaveSlot)
+        needsDisplay = true
     }
 
     private func missionAvailable(_ entry: MissionSelection.Node,
@@ -449,6 +477,7 @@ final class OriginalMenuCanvas: NSView {
             if case .valid(let save) = saveSlots[index].state {
                 onButtonActivated?()
                 loadedSave = save
+                selectedOriginalSaveSlot = saveSlots[index].number
                 history.append(menuIndex)
                 menuIndex = 1 // OpenLRR loads save then enters mission map.
                 menuScroll.reset()
@@ -614,13 +643,16 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
         let preview = NSButton(title: "First Level", target: self,
                                action: #selector(openFirstOriginalLevel))
         preview.toolTip = "Open the first original mission terrain with camera and tile inspection."
+        let progress = NSButton(title: "Native Progress…", target: self,
+                                action: #selector(manageNativeProgress))
+        progress.toolTip = "Explicitly export or import native-only campaign unlocks as JSON. Original PC saves remain untouched."
         let about = NSButton(title: "About", target: self, action: #selector(aboutPrototype))
         let quit = NSButton(title: "Quit", target: NSApp,
                             action: #selector(NSApplication.terminate(_:)))
         let music = NSButton(title: "Mission Music…", target: self,
                              action: #selector(chooseMissionMusic))
         music.toolTip = "Select your original CD soundtrack audio files for missions."
-        let buttons = NSStackView(views: [preview, open, music, locateSounds, about, quit])
+        let buttons = NSStackView(views: [preview, open, music, locateSounds, progress, about, quit])
         toolbarButtons = buttons
         backToMenuButton = NSButton(title: "← Back to Main Menu",
                                     target: self, action: #selector(backToMenu))
@@ -869,6 +901,93 @@ final class NativeMenuApplication: NSObject, NSApplicationDelegate, NSWindowDele
         alert.informativeText = message + "\n\nNo original game or save files were changed."
         alert.alertStyle = .warning
         alert.beginSheetModal(for: window)
+    }
+
+    @objc private func manageNativeProgress() {
+        guard canvas.missionSelection?.missions.isEmpty == false else {
+            showNativeProgressError(
+                NativeCampaignProgressArchive.ArchiveError.invalid(
+                    "load your original WAD mission catalogue first"))
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = "Native campaign progress"
+        alert.informativeText = "Save or load an optional JSON snapshot of your native mission unlocks. This is not an original PC save, does not save in-mission state, and never modifies existing .sav files. Load requires the same mission catalogue and original save slot."
+        alert.addButton(withTitle: "Export…")
+        alert.addButton(withTitle: "Import…")
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard let self else { return }
+            if response == .alertFirstButtonReturn {
+                self.exportNativeProgress()
+            } else if response == .alertSecondButtonReturn {
+                self.importNativeProgress()
+            }
+        }
+    }
+
+    private func showNativeProgressError(_ error: Error) {
+        let alert = NSAlert()
+        alert.messageText = "Native progress was not changed"
+        alert.informativeText = error.localizedDescription
+        alert.alertStyle = .warning
+        alert.beginSheetModal(for: window)
+    }
+
+    private func exportNativeProgress() {
+        let panel = NSSavePanel()
+        panel.title = "Export native campaign progress"
+        panel.message = "Choose a separate .json file. Your original Rock Raiders saves are read-only."
+        panel.nameFieldStringValue = "RockRaiders-native-progress.json"
+        panel.allowedContentTypes = [.json]
+        panel.canCreateDirectories = true
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, let url = panel.url, let self else { return }
+            do {
+                guard url.pathExtension.lowercased() == "json" else {
+                    throw NativeCampaignProgressArchive.ArchiveError.invalid(
+                        "native progress must use a .json file, never .sav")
+                }
+                let data = try self.canvas.exportNativeProgress()
+                try data.write(to: url, options: .atomic)
+                self.status.stringValue = "Exported native-only progress (no PC save modified)"
+                self.status.toolTip = self.status.stringValue
+            } catch {
+                self.showNativeProgressError(error)
+            }
+        }
+    }
+
+    private func importNativeProgress() {
+        let panel = NSOpenPanel()
+        panel.title = "Import native campaign progress"
+        panel.message = "Select an optional native .json export for this exact mission catalogue and original save slot."
+        panel.allowedContentTypes = [.json]
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, let url = panel.url, let self else { return }
+            do {
+                let attributes = try url.resourceValues(forKeys: [
+                    .isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey
+                ])
+                guard url.pathExtension.lowercased() == "json",
+                      attributes.isRegularFile == true,
+                      attributes.isSymbolicLink != true,
+                      let size = attributes.fileSize,
+                      (1...NativeCampaignProgressArchive.maximumBytes).contains(size) else {
+                    throw NativeCampaignProgressArchive.ArchiveError.invalid(
+                        "select a regular native JSON file no larger than 64 KiB")
+                }
+                let bytes = try Data(contentsOf: url)
+                try self.canvas.restoreNativeProgress(bytes)
+                self.status.stringValue = "Imported native-only mission unlocks (PC save unchanged)"
+                self.status.toolTip = self.status.stringValue
+            } catch {
+                self.showNativeProgressError(error)
+            }
+        }
     }
 
     @objc private func openArchive() {
