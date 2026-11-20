@@ -114,9 +114,10 @@ import Foundation
             sidecar, missions: selection.missions, originalSaveSlot: 1)
         precondition(restored.completedIdentifiers == earned.completedIdentifiers)
         precondition(restored.isAvailable(locked, among: selection.missions))
-        precondition(try NativeCampaignProgressArchive.export(
-            restored, missions: selection.missions, originalSaveSlot: 1) == sidecar,
-            "Native JSON exports should be deterministic")
+        let reexported = try NativeCampaignProgressArchive.export(
+            restored, missions: selection.missions, originalSaveSlot: 1)
+        precondition(reexported == sidecar,
+                     "Native JSON exports should be deterministic")
 
         func rejectsProgress(_ bytes: Data,
                              slot: Int? = 1,
@@ -157,9 +158,9 @@ import Foundation
         // The no-original-save context has an independent valid round trip.
         let noSlot = try NativeCampaignProgressArchive.export(
             earned, missions: selection.missions, originalSaveSlot: nil)
-        precondition(try NativeCampaignProgressArchive.restore(
-            noSlot, missions: selection.missions,
-            originalSaveSlot: nil).completedIdentifiers == earned.completedIdentifiers)
+        let noSlotRestored = try NativeCampaignProgressArchive.restore(
+            noSlot, missions: selection.missions, originalSaveSlot: nil)
+        precondition(noSlotRestored.completedIdentifiers == earned.completedIdentifiers)
         rejectsProgress(noSlot, slot: 1)
 
         // Missions without a LevelLinks relationship cannot be reached by the
