@@ -103,6 +103,78 @@ import Foundation
             locked, among: selection.missions, savedCompleted: ["Levels::Level03"]),
                      "FrontEndOpen alone must not unlock unrelated linked missions")
 
+        // Native progression may be explicitly exported/imported after a real
+        // NERPs win, but never encoded as an original PC .sav or applied to
+        // another original save slot / different mission catalogue.
+        var earned = MissionSessionProgress()
+        precondition(earned.recordCompletion("Levels::Level01", missions: selection.missions))
+        let sidecar = try NativeCampaignProgressArchive.export(
+            earned, missions: selection.missions, originalSaveSlot: 1)
+        let restored = try NativeCampaignProgressArchive.restore(
+            sidecar, missions: selection.missions, originalSaveSlot: 1)
+        precondition(restored.completedIdentifiers == earned.completedIdentifiers)
+        precondition(restored.isAvailable(locked, among: selection.missions))
+        let reexported = try NativeCampaignProgressArchive.export(
+            restored, missions: selection.missions, originalSaveSlot: 1)
+        precondition(reexported == sidecar,
+                     "Native JSON exports should be deterministic")
+        // Exercise an actual file round trip without touching a proprietary
+        // SaveData/SaveReward file. Restoring after reset simulates relaunch.
+        let snapshotURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("openlrr-progress-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: snapshotURL) }
+        try sidecar.write(to: snapshotURL, options: .atomic)
+        var freshSession = MissionSessionProgress()
+        precondition(!freshSession.isAvailable(locked, among: selection.missions))
+        let diskBytes = try Data(contentsOf: snapshotURL)
+        freshSession = try NativeCampaignProgressArchive.restore(
+            diskBytes, missions: selection.missions, originalSaveSlot: 1)
+        precondition(freshSession.isAvailable(locked, among: selection.missions))
+
+        func rejectsProgress(_ bytes: Data,
+                             slot: Int? = 1,
+                             nodes: [MissionSelection.Node]? = nil) {
+            do {
+                _ = try NativeCampaignProgressArchive.restore(
+                    bytes, missions: nodes ?? selection.missions,
+                    originalSaveSlot: slot)
+                preconditionFailure("Invalid native progress accepted")
+            } catch is NativeCampaignProgressArchive.ArchiveError {
+                // Deliberately reject incompatible or tampered sidecars.
+            } catch {
+                preconditionFailure("Unexpected sidecar error: \(error)")
+            }
+        }
+        rejectsProgress(sidecar, slot: 2)
+        rejectsProgress(sidecar, slot: nil)
+        rejectsProgress(Data("not JSON".utf8))
+        rejectsProgress(Data(repeating: 0x20,
+                             count: NativeCampaignProgressArchive.maximumBytes + 1))
+        let duplicate = NativeCampaignProgressArchive(
+            formatVersion: 1, missionIdentifiers: selection.missions.map(\.identifier),
+            completedIdentifiers: ["Levels::Level01", "LEVELS::LEVEL01"],
+            originalSaveSlot: 1)
+        rejectsProgress(try JSONEncoder().encode(duplicate))
+        let invented = NativeCampaignProgressArchive(
+            formatVersion: 1, missionIdentifiers: selection.missions.map(\.identifier),
+            completedIdentifiers: ["Levels::Tutorial01"], originalSaveSlot: 1)
+        rejectsProgress(try JSONEncoder().encode(invented))
+        let wrongVersion = NativeCampaignProgressArchive(
+            formatVersion: 2, missionIdentifiers: selection.missions.map(\.identifier),
+            completedIdentifiers: ["Levels::Level01"], originalSaveSlot: 1)
+        rejectsProgress(try JSONEncoder().encode(wrongVersion))
+        let otherCatalog = NativeCampaignProgressArchive(
+            formatVersion: 1, missionIdentifiers: ["Levels::Unrelated"],
+            completedIdentifiers: [], originalSaveSlot: 1)
+        rejectsProgress(try JSONEncoder().encode(otherCatalog))
+        // The no-original-save context has an independent valid round trip.
+        let noSlot = try NativeCampaignProgressArchive.export(
+            earned, missions: selection.missions, originalSaveSlot: nil)
+        let noSlotRestored = try NativeCampaignProgressArchive.restore(
+            noSlot, missions: selection.missions, originalSaveSlot: nil)
+        precondition(noSlotRestored.completedIdentifiers == earned.completedIdentifiers)
+        rejectsProgress(noSlot, slot: 1)
+
         // Missions without a LevelLinks relationship cannot be reached by the
         // original selection traversal. Do not fabricate visible missions.
         let noLinks = try LegoConfig(text: """

@@ -109,3 +109,91 @@ struct MissionSessionProgress {
         }
     }
 }
+
+
+/// An explicit, native-only export of session unlocks. This is NOT a PC SaveData
+/// or SaveReward serializer. The user chooses the JSON file in a Save panel;
+/// no game file, original .sav, or Application Support data is ever changed
+/// automatically. A user-supplied import is not evidence of a retail playthrough.
+struct NativeCampaignProgressArchive: Codable {
+    enum ArchiveError: Error, LocalizedError {
+        case invalid(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .invalid(let reason): return "Invalid native campaign progress: \(reason)"
+            }
+        }
+    }
+
+    static let version = 1
+    static let maximumBytes = 64 * 1024
+
+    let formatVersion: Int
+    /// Exact order and identifiers of the currently loaded original mission
+    /// selection. This prevents applying a different game's unlock graph.
+    let missionIdentifiers: [String]
+    /// Only campaign nodes can be stored; tutorial names are rejected.
+    let completedIdentifiers: [String]
+    /// One-based original save-slot number, or nil if no PC save was selected.
+    /// This prevents silently transferring a sidecar across original slots.
+    let originalSaveSlot: Int?
+
+    static func export(_ progress: MissionSessionProgress,
+                       missions: [MissionSelection.Node],
+                       originalSaveSlot: Int?) throws -> Data {
+        guard (1...150).contains(missions.count),
+              originalSaveSlot == nil || (1...5).contains(originalSaveSlot!) else {
+            throw ArchiveError.invalid("invalid mission catalogue or original save slot")
+        }
+        let archive = Self(
+            formatVersion: Self.version,
+            missionIdentifiers: missions.map(\.identifier),
+            completedIdentifiers: progress.completedIdentifiers.sorted(),
+            originalSaveSlot: originalSaveSlot)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(archive)
+        guard data.count <= maximumBytes else {
+            throw ArchiveError.invalid("archive is too large")
+        }
+        return data
+    }
+
+    static func restore(_ data: Data,
+                        missions: [MissionSelection.Node],
+                        originalSaveSlot: Int?) throws -> MissionSessionProgress {
+        guard !data.isEmpty, data.count <= maximumBytes else {
+            throw ArchiveError.invalid("file is empty or exceeds 64 KiB")
+        }
+        let archive: Self
+        do {
+            archive = try JSONDecoder().decode(Self.self, from: data)
+        } catch {
+            throw ArchiveError.invalid("unrecognized JSON format")
+        }
+        guard archive.formatVersion == version else {
+            throw ArchiveError.invalid("unsupported native progress version")
+        }
+        guard archive.originalSaveSlot == originalSaveSlot else {
+            throw ArchiveError.invalid("select the same original save slot first")
+        }
+        let expected = missions.map { $0.identifier.lowercased() }
+        guard (1...150).contains(missions.count),
+              archive.missionIdentifiers.map({ $0.lowercased() }) == expected else {
+            throw ArchiveError.invalid("original mission catalogue differs")
+        }
+        guard archive.completedIdentifiers.count <= missions.count else {
+            throw ArchiveError.invalid("too many completed missions")
+        }
+        var progress = MissionSessionProgress()
+        for identifier in archive.completedIdentifiers {
+            // Also rejects duplicates differing only in case and identifiers
+            // that are not original mission-map nodes, including tutorials.
+            guard progress.recordCompletion(identifier, missions: missions) else {
+                throw ArchiveError.invalid("unknown or duplicate completed mission")
+            }
+        }
+        return progress
+    }
+}

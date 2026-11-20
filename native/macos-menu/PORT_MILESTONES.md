@@ -14,7 +14,7 @@ Updated 2026-11-03. The earlier 80% completion estimate is withdrawn: there was 
 | Building/economy | Incomplete | Construction, power, ore/crystals, upgrades, dependencies |
 | Vehicles and AI | Incomplete | Original models, boarding, navigation, tasks and collision |
 | Mission scripts/objectives | Partial callback implementation | All mission and tutorial scripts plus completion/failure behavior |
-| Saving/loading gameplay | Original .sav inspection exists; NERPs-confirmed successes now unlock original LevelLinks in volatile native menu session (2026-11-19) | Complete original reward/save semantics, level unlock persistence and round-trip played state without modifying owners' existing saves |
+| Saving/loading gameplay | Read-only original .sav inspection; NERPs victory unlocks original LevelLinks in-session, with explicit separate native JSON export/import (2026-11-20) | Complete original reward/save semantics, level unlock persistence and round-trip played state without modifying owners' existing saves |
 | Full-game performance and fidelity | Not established | End-to-end campaign sessions and sustained Mac performance |
 
 Next selected milestone: test the first-person tracked-camera/control prototype on a real original level and match the original Raider head camera frame, speed, and turn timing; then add dynamic object/building collision. Original model material mapping and walk animation remain separate unverified tasks.
@@ -947,3 +947,52 @@ verified session unlock graph without ever overwriting original PC saves.
 Before that, prioritize owner-asset Mac playthrough validation of original
 drilling, four-stage rubble, CarryNull, deposit and NERPs success; fix the
 first real failing action. No invented assets, percentages or paid runners.
+
+
+## Explicit native-only campaign progression export/import — 2026-11-20
+
+A genuine NERPs-scripted victory already changes the native mission map's
+in-memory LevelLinks availability, but the state was lost on application exit.
+This increment adds a user-invoked **Native Progress…** Mac control in the
+existing non-retail utility toolbar. **Export…** writes only a small, separate
+UTF-8 JSON snapshot chosen in an NSSavePanel; **Import…** restores that snapshot
+from a manually selected JSON file after reopening the same original game and
+original save slot. Neither operation touches original PC `.sav` files,
+source archives, Wine, or the game's own media. There is intentionally no
+automatic file writing, no export of source assets, and no conversion of
+OpenLRR's proprietary PC save format.
+
+The archive records a format version, the entire ordered original mission
+selection identifier list, one-based original save slot (or no-slot state),
+and identifiers recorded as completed in the active native campaign.
+Restore rejects truncated/malformed/oversized files, unsupported versions,
+mismatched original slots or mission catalogues, unrecognized/tutorial
+identifiers and duplicate completions. All validation happens **before**
+replacing session state. The native menu still unions the imported progress
+with read-only original completed flags and follows actual LevelLinks.
+Changing original WADs or save slots clears the volatile imported overlay;
+the player must explicitly import again. An imported user-authored file is
+not independently verified proof of a real NERPs victory.
+
+Portable synthetic regressions cover deterministic JSON round-trip, no-slot
+round-trip, selected-slot mismatch, changed mission catalogue, unknown/tutorial
+and duplicate mission identifiers, malformed JSON, oversized input and
+unsupported versions. The standard free Linux Swift tests and hosted
+macOS-15 ARM64 build are configured for this branch; report exact-head CI
+status separately. No in-game owner-asset playthrough or live Mac file-picker
+interaction is claimed from hosted compilation.
+
+**Acceptance remaining:** Original retail first tutorial must be played on
+the owner's Apple Silicon Mac from drilling through four rubble stages,
+resource pickup and original animated carrying, Toolstation deposit, real
+NERPs victory, next-level unlock, application restart, explicit native
+progress restore and successful launch of the linked mission. Native JSON
+does not yet serialize a paused/in-progress world, units or buildings;
+original SaveReward scoring, end-of-level animations, first-person retail
+fidelity and campaign completion remain incomplete. No percentage of the
+full game is inferred.
+
+**Next chosen milestone:** Actual owner-asset Apple Silicon end-to-end
+first-level acceptance, fix the first observed failing original action,
+then implement per-object PTL resource positions and source-accurate
+building/construction tasks. Keep original saves and assets read-only.
