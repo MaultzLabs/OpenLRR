@@ -62,6 +62,36 @@ final class NativeExcavationState {
         let level: Int
     }
 
+    /// Existing OL PowerCrystal/Ore are physical source objects too. Preserve
+    /// their author-specified IDs and per-object order; unlike CryOreMap walls
+    /// these resources start in the cavern at their own fractional OL positions.
+    /// ProcessedOre requires separate retail economics and is not counted here.
+    private struct PlacedResource {
+        let identifier: String
+        let unit: ResourceUnit
+    }
+    private var placedResources: [Position: [PlacedResource]] = [:]
+    private var pendingMapDrops: [Position: LevelWorld.CryOreDeposit] = [:]
+    private var justCollectedOriginalIDs: [String: String] = [:]
+
+    /// Return the exact original OL model consumed by the last verified
+    /// Collect action. A failed, repeated or merely planned order has no ID.
+    func takeCollectedOriginalPlacementID(raiderID: String) -> String? {
+        justCollectedOriginalIDs.removeValue(forKey: raiderID)
+    }
+
+    func hasPlacedResource(at tile: Position) -> Bool {
+        !(placedResources[tile]?.isEmpty ?? true)
+    }
+
+    private func nextPlacedDeposit(at tile: Position) -> LevelWorld.CryOreDeposit? {
+        guard let entries = placedResources[tile], let first = entries.first else { return nil }
+        let count = entries.prefix {
+            $0.unit.kind == first.unit.kind && $0.unit.level == first.unit.level
+        }.count
+        return .init(kind: first.unit.kind, level: first.unit.level, count: count)
+    }
+
     struct CollectOrder {
         let tile: Position
         let route: [Position]
@@ -128,11 +158,33 @@ final class NativeExcavationState {
         return Int32(clamping: total)
     }
 
-    init(world: LevelWorld, originalToolStores: Set<Position> = []) {
+    init(world: LevelWorld, originalToolStores: Set<Position> = [],
+         originalResourcePlacements: [OriginalObjectList.Placement] = []) {
         self.originalToolStores = Set(originalToolStores.filter {
             (0..<world.width).contains($0.x) && (0..<world.height).contains($0.y)
         })
         self.world = world
+        for placement in originalResourcePlacements {
+            let kind: LevelWorld.CryOreDeposit.Kind
+            switch placement.type.lowercased() {
+            case "powercrystal": kind = .crystal
+            case "ore": kind = .ore
+            default: continue
+            }
+            guard placement.x.isFinite, placement.y.isFinite,
+                  placement.x >= 0, placement.y >= 0,
+                  placement.x < Double(world.width), placement.y < Double(world.height) else { continue }
+            let tile = Position(x: Int(floor(placement.x)), y: Int(floor(placement.y)))
+            // An original OL object cannot be collected through solid rock.
+            guard let original = world.tile(x: tile.x, y: tile.y),
+                  original.excavation != .wall else { continue }
+            placedResources[tile, default: []].append(
+                PlacedResource(identifier: placement.identifier,
+                               unit: ResourceUnit(kind: kind, level: 0)))
+        }
+        for tile in placedResources.keys {
+            resourceDrops[tile] = nextPlacedDeposit(at: tile)
+        }
         for y in 0..<world.height {
             for x in 0..<world.width {
                 if let tile = world.tile(x: x, y: y),
@@ -285,7 +337,22 @@ final class NativeExcavationState {
                                     revealed: revealed).canWalk(raiderAt),
               let drop = resourceDrops[order.tile], drop.count > 0 else { return nil }
         let item = ResourceUnit(kind: drop.kind, level: drop.level)
-        if drop.count == 1 { resourceDrops.removeValue(forKey: order.tile) }
+        if var originals = placedResources[order.tile], !originals.isEmpty {
+            // Only consume the head of the physical OL source queue. Stacked
+            // same-tile items can have different original types; after the
+            // final crystal, the next ore becomes available without mutation
+            // of either source file or miscrediting the NERPs kind counter.
+            let source = originals.removeFirst()
+            guard source.unit == item else { return nil }
+            justCollectedOriginalIDs[raiderID] = source.identifier
+            if originals.isEmpty {
+                placedResources.removeValue(forKey: order.tile)
+                resourceDrops[order.tile] = pendingMapDrops.removeValue(forKey: order.tile)
+            } else {
+                placedResources[order.tile] = originals
+                resourceDrops[order.tile] = nextPlacedDeposit(at: order.tile)
+            }
+        } else if drop.count == 1 { resourceDrops.removeValue(forKey: order.tile) }
         else {
             resourceDrops[order.tile] = .init(kind: drop.kind, level: drop.level,
                                               count: drop.count - 1)
@@ -519,7 +586,13 @@ final class NativeExcavationState {
         excavated.insert(order.wall)
         rubbleLayers[order.wall] = 4
         if let deposit = world.cryOreDeposit(x: order.wall.x, y: order.wall.y) {
-            resourceDrops[order.wall] = deposit
+            if hasPlacedResource(at: order.wall) {
+                // Keep the already existing OL items ahead of newly released
+                // map resources; never overwrite physical objects.
+                pendingMapDrops[order.wall] = deposit
+            } else {
+                resourceDrops[order.wall] = deposit
+            }
         }
         // Level_DestroyWall / Level_UncoverHiddenCavern traverse all eight
         // neighbours. Only original hidden cavern cells propagate discovery.
