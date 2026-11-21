@@ -69,6 +69,8 @@ final class NativeExcavationState {
     private struct PlacedResource {
         let identifier: String
         let unit: ResourceUnit
+        let x: Double
+        let y: Double
     }
     private var placedResources: [Position: [PlacedResource]] = [:]
     private var pendingMapDrops: [Position: LevelWorld.CryOreDeposit] = [:]
@@ -82,6 +84,16 @@ final class NativeExcavationState {
 
     func hasPlacedResource(at tile: Position) -> Bool {
         !(placedResources[tile]?.isEmpty ?? true)
+    }
+
+    /// Physical OL objects are not required to sit at tile centres. The
+    /// continuous mover must reach the author's fractional position while
+    /// collision and order validation still use the containing map tile.
+    func collectDestination(at tile: Position) -> NativeLevelNavigation.Point {
+        if let source = placedResources[tile]?.first {
+            return .init(x: source.x, y: source.y)
+        }
+        return .init(x: Double(tile.x) + 0.5, y: Double(tile.y) + 0.5)
     }
 
     private func nextPlacedDeposit(at tile: Position) -> LevelWorld.CryOreDeposit? {
@@ -180,7 +192,8 @@ final class NativeExcavationState {
                   original.excavation != .wall else { continue }
             placedResources[tile, default: []].append(
                 PlacedResource(identifier: placement.identifier,
-                               unit: ResourceUnit(kind: kind, level: 0)))
+                               unit: ResourceUnit(kind: kind, level: 0),
+                               x: placement.x, y: placement.y))
         }
         for tile in placedResources.keys {
             resourceDrops[tile] = nextPlacedDeposit(at: tile)
@@ -337,6 +350,7 @@ final class NativeExcavationState {
                                     revealed: revealed).canWalk(raiderAt),
               let drop = resourceDrops[order.tile], drop.count > 0 else { return nil }
         let item = ResourceUnit(kind: drop.kind, level: drop.level)
+        justCollectedOriginalIDs.removeValue(forKey: raiderID)
         if var originals = placedResources[order.tile], !originals.isEmpty {
             // Only consume the head of the physical OL source queue. Stacked
             // same-tile items can have different original types; after the
