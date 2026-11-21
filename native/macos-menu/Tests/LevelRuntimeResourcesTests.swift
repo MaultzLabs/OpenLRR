@@ -670,6 +670,113 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         precondition(noStore.pickedUpCount(.crystal) == 1)
         precondition(noStore.storedCount(.crystal) == 0)
         print("PASS: one-piece original Collect/Carry/Toolstation Deposit, stale arrival and no virtual storage")
+        // The retail OL may place individual resources on discovered floors
+        // before any wall is drilled. They are genuine collectible physical
+        // objects, in original author order and at unchanged fractional world
+        // positions, not automatically credited starting inventory.
+        let placedOL = try OriginalObjectList(data: Data("""
+        Lego* {
+          Crystal01 {
+            type PowerCrystal
+            xPos 2.25
+            yPos 0.75
+            heading 0
+          }
+          Ore01 {
+            type Ore
+            xPos 2.75
+            yPos 0.25
+            heading 0
+          }
+          Crystal02 {
+            type PowerCrystal
+            xPos 2.50
+            yPos 0.50
+            heading 0
+          }
+          UnsupportedProcessed {
+            type ProcessedOre
+            xPos 2.50
+            yPos 0.50
+            heading 0
+          }
+          HiddenWall {
+            type PowerCrystal
+            xPos 1.50
+            yPos 1.50
+            heading 0
+          }
+          Outside {
+            type Ore
+            xPos 40.00
+            yPos 40.00
+            heading 0
+          }
+        }
+        """.utf8))
+        let placedState = NativeExcavationState(
+            world: corridorWorld, originalToolStores: [originalStore],
+            originalResourcePlacements: placedOL.placements)
+        precondition(placedOL.placements.count == 6)
+        precondition(placedState.resourceDrops.count == 1)
+        precondition(placedState.resourceDrops[origin]?.kind == .crystal)
+        precondition(placedState.resourceDrops[origin]?.count == 1)
+        precondition(placedState.hasPlacedResource(at: origin))
+        precondition(placedState.collectDestination(at: origin).x == 2.25 &&
+                     placedState.collectDestination(at: origin).y == 0.75,
+                     "Use the first genuine OL resource position, not the tile centre")
+        precondition(placedState.collectDestination(at: destination).x == 0.5 &&
+                     placedState.collectDestination(at: destination).y == 2.5,
+                     "Unplaced CryOreMap destinations retain the provisional centre")
+        precondition(!placedState.hasPlacedResource(at: .init(x: 1, y: 1)))
+        precondition(placedState.pickedUpCount(.crystal) == 0 &&
+                     placedState.storedCount(.crystal) == 0)
+        precondition(placedState.reserveCollect(tile: origin, raiderID: "Owner"))
+        precondition(!placedState.reserveCollect(tile: origin, raiderID: "Other"),
+                     "A single original OL object cannot be double reserved")
+        placedState.releaseCollectReservation(raiderID: "Owner")
+        let olCollect = placedState.planCollect(
+            from: origin, tile: origin, raiderID: "Owner")!
+        precondition(placedState.collect(olCollect, raiderID: "Owner",
+                                        raiderAt: destination) == nil)
+        precondition(placedState.takeCollectedOriginalPlacementID(raiderID: "Owner") == nil)
+        let expectedKinds: [LevelWorld.CryOreDeposit.Kind] = [.crystal, .ore, .crystal]
+        let expectedIDs = ["Crystal01", "Ore01", "Crystal02"]
+        let authoredPositions: [(Double, Double)] = [
+            (2.25, 0.75), (2.75, 0.25), (2.5, 0.5)
+        ]
+        for index in expectedKinds.indices {
+            let sourcePoint = placedState.collectDestination(at: origin)
+            precondition(sourcePoint.x == authoredPositions[index].0 &&
+                         sourcePoint.y == authoredPositions[index].1,
+                         "Each OL pickup must target its own exact fractional location")
+            let order = placedState.planCollect(
+                from: origin, tile: origin, raiderID: "Owner")!
+            let collected = placedState.collect(order, raiderID: "Owner",
+                                                raiderAt: origin)!
+            precondition(collected.kind == expectedKinds[index] && collected.level == 0)
+            precondition(placedState.takeCollectedOriginalPlacementID(raiderID: "Owner")
+                         == expectedIDs[index])
+            precondition(placedState.takeCollectedOriginalPlacementID(raiderID: "Owner") == nil,
+                         "A physical OL model cannot be removed twice")
+            precondition(placedState.storedCount(.crystal) + placedState.storedCount(.ore)
+                         == Int32(index))
+            let toStore = placedState.planDeposit(
+                from: origin, raiderID: "Owner")!
+            precondition(placedState.deposit(toStore, raiderID: "Owner",
+                                             raiderAt: toStore.approach) == collected)
+        }
+        precondition(!placedState.hasPlacedResource(at: origin))
+        precondition(placedState.resourceDrops.isEmpty)
+        precondition(placedState.pickedUpCount(.crystal) == 2)
+        precondition(placedState.pickedUpCount(.ore) == 1)
+        precondition(placedState.storedCount(.crystal) == 2)
+        precondition(placedState.storedCount(.ore) == 1)
+        precondition(placedState.planNextCollect(from: origin, raiderID: "Owner") == nil)
+        precondition(placedState.collect(olCollect, raiderID: "Owner",
+                                        raiderAt: origin) == nil)
+        print("PASS: original OL fractional resource positions, mixed same-tile sources, no double-pickup, real Toolstation credit")
+
         let sourceCryOreBytes = try cryOreResources.data(at: "Ore.map", maximumBytes: 10000)
         precondition(sourceCryOreBytes == Data(syntheticMap(cryOreCells, width: 5, height: 5)))
         let malformedCryOreWad = syntheticWad([
