@@ -676,12 +676,42 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         // positions, not automatically credited starting inventory.
         let placedOL = try OriginalObjectList(data: Data("""
         Lego* {
-          Crystal01 { type PowerCrystal xPos 2.25 yPos 0.75 heading 0 }
-          Ore01 { type Ore xPos 2.75 yPos 0.25 heading 0 }
-          Crystal02 { type PowerCrystal xPos 2.50 yPos 0.50 heading 0 }
-          UnsupportedProcessed { type ProcessedOre xPos 2.50 yPos 0.50 heading 0 }
-          HiddenWall { type PowerCrystal xPos 1.50 yPos 1.50 heading 0 }
-          Outside { type Ore xPos 40.00 yPos 40.00 heading 0 }
+          Crystal01 {
+            type PowerCrystal
+            xPos 2.25
+            yPos 0.75
+            heading 0
+          }
+          Ore01 {
+            type Ore
+            xPos 2.75
+            yPos 0.25
+            heading 0
+          }
+          Crystal02 {
+            type PowerCrystal
+            xPos 2.50
+            yPos 0.50
+            heading 0
+          }
+          UnsupportedProcessed {
+            type ProcessedOre
+            xPos 2.50
+            yPos 0.50
+            heading 0
+          }
+          HiddenWall {
+            type PowerCrystal
+            xPos 1.50
+            yPos 1.50
+            heading 0
+          }
+          Outside {
+            type Ore
+            xPos 40.00
+            yPos 40.00
+            heading 0
+          }
         }
         """.utf8))
         let placedState = NativeExcavationState(
