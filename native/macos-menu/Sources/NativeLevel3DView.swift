@@ -189,7 +189,8 @@ final class NativeLevel3DView: SCNView {
         let toolStores = Set((objects?.placements ?? []).filter {
             $0.type.caseInsensitiveCompare("Toolstation") == .orderedSame
         }.map { NativeLevelNavigation.Position(x: Int(floor($0.x)), y: Int(floor($0.y))) })
-        let excavationState = NativeExcavationState(world: world, originalToolStores: toolStores)
+        let excavationState = NativeExcavationState(world: world, originalToolStores: toolStores,
+            originalResourcePlacements: objects?.placements ?? [])
         self.terrainMesh = try NativeTerrainMesh(world: world,
             rubbleTiles: excavationState.rubble, rubbleLayers: excavationState.rubbleLayers)
         self.originalObjects = objects
@@ -522,7 +523,8 @@ final class NativeLevel3DView: SCNView {
     /// original PTL tumble/distribution events are ported; no substitute
     /// mesh, generated texture, or stored-resource credit is introduced.
     private func renderOriginalCryOreDrops(in scene: SCNScene) {
-        for (tile, deposit) in excavation.resourceDrops where resourceDropNodes[tile] == nil {
+        for (tile, deposit) in excavation.resourceDrops
+            where resourceDropNodes[tile] == nil && !excavation.hasPlacedResource(at: tile) {
             guard let asset = cryOreAssets[deposit.kind] else { continue }
             do {
                 let model = try OriginalMissionObjectModel(
@@ -640,17 +642,27 @@ final class NativeLevel3DView: SCNView {
             onInteractionMessage?("Resource was not collected; order interrupted or item unavailable.")
             return
         }
-        // Move the same owner-owned LWOB that was displayed on the ground
-        // into the animated Pilot CarryNull after the completed Collect task.
-        // An unavailable retail mesh/null remains invisible, not substituted.
+        // A starting OL ore/crystal keeps its EXACT authored world position
+        // until collected. Carry its original mesh rather than spawning a
+        // second CryOreMap copy or pulling an unrelated model from the tile.
+        // Both sources use the same original Pilot CarryNull attachment.
         var heldOriginalMesh: SCNNode?
-        if var nodes = resourceDropNodes[order.tile], let node = nodes.popLast() {
+        if let placementID = excavation.takeCollectedOriginalPlacementID(raiderID: id),
+           let marker = placementNodes.removeValue(forKey: placementID) {
+            heldOriginalMesh = objectModels.removeValue(forKey: placementID)?.root
+            heldOriginalMesh?.removeFromParentNode()
+            marker.removeFromParentNode()
+        } else if var nodes = resourceDropNodes[order.tile], let node = nodes.popLast() {
             heldOriginalMesh = node.childNodes.first
             heldOriginalMesh?.removeFromParentNode()
             node.removeFromParentNode()
             if nodes.isEmpty { resourceDropNodes.removeValue(forKey: order.tile) }
             else { resourceDropNodes[order.tile] = nodes }
         }
+        // When the last placed OL resource exposes a queued CryOreMap wall
+        // drop, create its authentic asset once; no original model is copied
+        // into the repository and no synthetic fallback is drawn.
+        if let scene { renderOriginalCryOreDrops(in: scene) }
         raiderModels[id]?.setCarryingResource(true)
         raiderModels[id]?.setCarriedOriginalResource(heldOriginalMesh)
         onInteractionMessage?("Raider \(id) collected one original \(item.kind.rawValue); carrying to Toolstation.")
