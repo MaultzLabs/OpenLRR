@@ -722,6 +722,12 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         precondition(placedState.resourceDrops[origin]?.kind == .crystal)
         precondition(placedState.resourceDrops[origin]?.count == 1)
         precondition(placedState.hasPlacedResource(at: origin))
+        precondition(placedState.collectDestination(at: origin).x == 2.25 &&
+                     placedState.collectDestination(at: origin).y == 0.75,
+                     "Use the first genuine OL resource position, not the tile centre")
+        precondition(placedState.collectDestination(at: destination).x == 0.5 &&
+                     placedState.collectDestination(at: destination).y == 2.5,
+                     "Unplaced CryOreMap destinations retain the provisional centre")
         precondition(!placedState.hasPlacedResource(at: .init(x: 1, y: 1)))
         precondition(placedState.pickedUpCount(.crystal) == 0 &&
                      placedState.storedCount(.crystal) == 0)
@@ -736,7 +742,14 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         precondition(placedState.takeCollectedOriginalPlacementID(raiderID: "Owner") == nil)
         let expectedKinds: [LevelWorld.CryOreDeposit.Kind] = [.crystal, .ore, .crystal]
         let expectedIDs = ["Crystal01", "Ore01", "Crystal02"]
+        let authoredPositions: [(Double, Double)] = [
+            (2.25, 0.75), (2.75, 0.25), (2.5, 0.5)
+        ]
         for index in expectedKinds.indices {
+            let sourcePoint = placedState.collectDestination(at: origin)
+            precondition(sourcePoint.x == authoredPositions[index].0 &&
+                         sourcePoint.y == authoredPositions[index].1,
+                         "Each OL pickup must target its own exact fractional location")
             let order = placedState.planCollect(
                 from: origin, tile: origin, raiderID: "Owner")!
             let collected = placedState.collect(order, raiderID: "Owner",
