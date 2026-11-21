@@ -996,3 +996,46 @@ full game is inferred.
 first-level acceptance, fix the first observed failing original action,
 then implement per-object PTL resource positions and source-accurate
 building/construction tasks. Keep original saves and assets read-only.
+
+
+## Pre-placed original OL resource collection — 2026-11-21
+
+Read the original per-level Object List (OL) source placements without modifying
+their source coordinates or author order. A level can already contain original
+PowerCrystal and Ore objects before drilling; the previous native Collect
+scheduler only saw CryOreMap resources spawned after a wall was opened. This
+branch seeds mission-local, individually owned Collect tasks for genuine OL
+resources, including multiple original resource objects at distinct fractional
+positions within one tile. The existing original OL LWOB model remains in its
+authored placement until the completed Collect animation; the exact placed
+model transfers into the Raider's animated CarryNull, then authentic Deposit
+credits stored inventory only after arriving beside an actual OL Toolstation.
+
+The native collector processes same-tile mixed crystal/ore sources in original
+OL order, without crediting a future object early. Existing CryOreMap drops
+remain a separate source and their original model rendering is suppressed when
+the tile is currently occupied by placed OL resources; a newly drilled
+CryOreMap deposit is queued rather than replacing an existing OL item.
+Unrecognized ProcessedOre is intentionally not reclassified as ordinary Ore:
+its economy and processed mesh behavior still need source-grounded support.
+Off-map and wall-embedded OL entries are not turned into collectible resources.
+Only real original LWOB assets are ever carried; missing assets remain hidden
+or diagnostic rather than generated.
+
+Portable tests are added for original OL parsing, multiple mixed-kind objects
+on the same reachable tile, one-unit reservation, exact placement identity,
+no premature NERPs credit, real Toolstation deposit, and no duplicate pickup.
+The standard free portable Linux/FFmpeg + macOS-15 ARM64 workflow is enabled
+for the isolated branch. Results must be verified on the final exact SHA;
+source-only tests cannot establish owner's original-asset visible gameplay
+acceptance. The full original first tutorial still needs an on-device
+drill → four-stage clear → pickup → CarryNull → Toolstation → NERPs victory →
+next-level launch playthrough. Original per-object PTL tumble positions for
+newly drilled CryOreMap drops, full idle-AI task rules, construction, vehicles,
+original saved game state and complete retail fidelity remain unfinished.
+
+Next selected milestone: validate this mixed original-source collection and
+the first tutorial against owner-owned retail files on Apple Silicon, then
+replace provisional post-drill CryOreMap tile-centre distribution with
+source-accurate PTL positions and original dynamic-task references. No overall
+percentage of completion is supported.
