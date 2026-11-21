@@ -647,11 +647,14 @@ final class NativeLevel3DView: SCNView {
         // second CryOreMap copy or pulling an unrelated model from the tile.
         // Both sources use the same original Pilot CarryNull attachment.
         var heldOriginalMesh: SCNNode?
-        if let placementID = excavation.takeCollectedOriginalPlacementID(raiderID: id),
-           let marker = placementNodes.removeValue(forKey: placementID) {
-            heldOriginalMesh = objectModels.removeValue(forKey: placementID)?.root
-            heldOriginalMesh?.removeFromParentNode()
-            marker.removeFromParentNode()
+        if let placementID = excavation.takeCollectedOriginalPlacementID(raiderID: id) {
+            // Never remove a different CryOreMap mesh if this original OL
+            // model is missing or unsupported.
+            if let marker = placementNodes.removeValue(forKey: placementID) {
+                heldOriginalMesh = objectModels.removeValue(forKey: placementID)?.root
+                heldOriginalMesh?.removeFromParentNode()
+                marker.removeFromParentNode()
+            }
         } else if var nodes = resourceDropNodes[order.tile], let node = nodes.popLast() {
             heldOriginalMesh = node.childNodes.first
             heldOriginalMesh?.removeFromParentNode()
