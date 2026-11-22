@@ -989,6 +989,34 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         let originalRubbleState = NativeExcavationState(world: originalRubbleWorld)
         let originalPile = NativeLevelNavigation.Position(x: 2, y: 1)
         precondition(originalRubbleState.rubbleLayers[originalPile] == 4)
+        // Idle AI must assign an authentic reachable rubble pile only to a
+        // free Raider, never a manually held worker, a carrying worker, or a
+        // second worker already targeting this pile. Planning cannot alter
+        // MAP bytes, rubble layers or the original NERPs inventory.
+        let idleClearWorkers = [
+            NativeExcavationState.IdleRaider(identifier: "RaiderB", tile: origin),
+            NativeExcavationState.IdleRaider(identifier: "RaiderA", tile: origin)
+        ]
+        let idleClear = originalRubbleState.planIdleClear(
+            raiders: idleClearWorkers, busyRaiderIDs: [])!
+        precondition(idleClear.raiderID == "RaiderA" &&
+                     idleClear.order.tile == originalPile,
+                     "Nearest accessible rubble must be reserved by one stable idle Raider")
+        precondition(originalRubbleState.rubbleLayers[originalPile] == 4)
+        precondition(originalRubbleState.planIdleClear(
+            raiders: idleClearWorkers, busyRaiderIDs: ["RaiderA"])?.raiderID == "RaiderB")
+        precondition(originalRubbleState.planIdleClear(
+            raiders: idleClearWorkers, busyRaiderIDs: ["RaiderA", "RaiderB"]) == nil)
+        precondition(originalRubbleState.planIdleClear(
+            raiders: idleClearWorkers, busyRaiderIDs: [],
+            excludedTargets: [originalPile]) == nil,
+            "One pending Clear destination cannot be assigned twice")
+        precondition(originalRubbleState.planIdleClear(
+            raiders: idleClearWorkers, busyRaiderIDs: [],
+            blockedBuildings: [originalPile]) == nil,
+            "An original building footprint blocks rubble clearing route")
+        precondition(originalRubbleState.pickedUpCount(.crystal) == 0 &&
+                     originalRubbleState.storedCount(.crystal) == 0)
         let originalClear = originalRubbleState.planClear(from: origin, tile: originalPile)!
         // A clear frame crossing a layer boundary must apply its extra work
         // to the next layer. Previously each such remainder was discarded,
@@ -1011,6 +1039,9 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
             precondition(complete == (index == 4))
         }
         precondition(originalRubbleState.tile(x: 2, y: 1)?.terrain == .tunnel)
+        precondition(originalRubbleState.planIdleClear(
+            raiders: idleClearWorkers, busyRaiderIDs: []) == nil,
+            "Completed rubble cannot be re-issued as an automatic task")
         precondition(originalRubbleWorld.tile(x: 2, y: 1)?.terrain == .rubble)
         print("PASS: original and newly drilled four-layer Spade clearance, atlas stages, remote/invalid frames and MAP safety")
 
