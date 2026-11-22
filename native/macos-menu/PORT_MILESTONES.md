@@ -1039,3 +1039,36 @@ the first tutorial against owner-owned retail files on Apple Silicon, then
 replace provisional post-drill CryOreMap tile-centre distribution with
 source-accurate PTL positions and original dynamic-task references. No overall
 percentage of completion is supported.
+
+## Idle original Raider rubble clearing — 2026-11-22
+
+Original `src/openlrr/game/object/AITask.cpp` initialises
+`AI_Priority_Clearing` at 20, below crystal 55 and ore/default
+collection 49. After native Collect/Deposit assignment, eligible idle
+non-driving Raiders can now be dispatched to a reachable existing or
+post-drill rubble tile. Work uses the already integrated original
+`Activity_Clear` and four-layer Spade clearing; it does not create a
+new renderer, tool model, substitute art, or virtual completion.
+
+The mission-local assignment planner excludes manually held, moving,
+carrying, collecting, drilling, or already-clearing Raiders. In-transit
+Clear destinations are tracked separately from active Clear animations,
+preventing duplicate worker assignments during travel. Building
+footprints and live unit clearance are checked before starting a
+route; cancelled, replaced, or blocked routes release their target.
+The original `CanClearRubble` config remains a runtime prerequisite.
+A planned task cannot reduce rubble or advance NERPs resource counters.
+
+**Verification boundary:** portable synthetic idle-assignment and
+path/ownership regressions are added; their CI result must be reported
+from the exact commit. Actual Apple Silicon compilation and owner-owned
+retail gameplay/animation still require separate verification.
+Original per-Raider Spade inventory, global editable AI priorities,
+retail task queues, upgrades, path slope and real retail timing are
+not implemented. No full-game completion percentage is claimed.
+
+**Next milestone:** perform a legitimate owner-asset first-level
+playthrough from drilling through automatic four-stage rubble clearing,
+real-object pickup, Toolstation delivery and NERPs victory. Fix the
+first observable failure and continue toward actual construction and
+full retail mission playability.

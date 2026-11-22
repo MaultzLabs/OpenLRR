@@ -88,6 +88,10 @@ final class NativeLevel3DView: SCNView {
     }
     private var activeClears: [String: ActiveClear] = [:]
     private var clearingRaiders = Set<String>()
+    // Reserve the destination from route launch through four Clear stages.
+    // Without this, another idle Raider can be sent to the same rubble
+    // while the first is still walking and before activeClears is populated.
+    private var pendingClearTargets: [String: NativeLevelNavigation.Position] = [:]
     // Original Object.cpp waits for Activity_Collect / Activity_Deposit.
     // No pickup or storage mutation until the authored animation has finished
     // and the exact order is revalidated against the live mission state.
@@ -740,6 +744,7 @@ final class NativeLevel3DView: SCNView {
         busy.formUnion(excavation.collectReservations.keys)
         busy.formUnion(activeDrills.keys)
         busy.formUnion(activeClears.keys)
+        busy.formUnion(pendingClearTargets.keys)
         busy.formUnion(activeResourceActivities.keys)
         for (id, marker) in raiderMarkers where marker.hasActions {
             busy.insert(id)
@@ -771,19 +776,51 @@ final class NativeLevel3DView: SCNView {
         }
         // Carrying is not an eligibility for a fresh collection assignment.
         busy.formUnion(excavation.carrying.keys)
-        guard let assignment = excavation.planIdleCollection(
+        if let assignment = excavation.planIdleCollection(
             raiders: candidates, busyRaiderIDs: busy,
             blockedBuildings: blockedBuildingTiles,
-            excludedTargets: Set(excavation.collectReservations.values)) else { return }
-        let id = assignment.raiderID
-        let tile = assignment.order.tile
-        let pickup = excavation.collectDestination(at: tile)
-        let destination = NativeDynamicCollision.Point(x: pickup.x, y: pickup.y)
+            excludedTargets: Set(excavation.collectReservations.values)) {
+            let id = assignment.raiderID
+            let pickup = excavation.collectDestination(at: assignment.order.tile)
+            let destination = NativeDynamicCollision.Point(x: pickup.x, y: pickup.y)
+            if NativeDynamicCollision.sweepIsClear(
+                from: destination, to: destination,
+                obstacles: otherRaiderObstacles(excluding: id),
+                movingRadius: raiderClearance) {
+                collectResource(at: assignment.order.tile, raiderID: id,
+                                continuingTask: true)
+                return
+            }
+        }
+
+        // Source: AITask.cpp initialises Clearing at priority 20, below
+        // Crystal (55) and Ore/DefaultCollect (49). Only after an available
+        // Collect/Deposit job is considered, schedule an idle eligible
+        // original Raider for the remaining authentic four-layer rubble task.
+        // The per-Raider Spade inventory and full AI queue remain unported.
+        guard drillStats?.config.pilotCanClearRubble() == true else { return }
+        let occupiedClearTiles = Set(pendingClearTargets.values).union(
+            activeClears.values.map { $0.order.tile })
+        guard let clear = excavation.planIdleClear(
+            raiders: candidates, busyRaiderIDs: busy,
+            blockedBuildings: blockedBuildingTiles,
+            excludedTargets: occupiedClearTiles) else { return }
+        let clearID = clear.raiderID
+        let clearTile = clear.order.tile
+        let destination = NativeDynamicCollision.Point(
+            x: Double(clearTile.x) + 0.5, y: Double(clearTile.y) + 0.5)
         guard NativeDynamicCollision.sweepIsClear(
             from: destination, to: destination,
-            obstacles: otherRaiderObstacles(excluding: id),
+            obstacles: otherRaiderObstacles(excluding: clearID),
             movingRadius: raiderClearance) else { return }
-        collectResource(at: tile, raiderID: id, continuingTask: true)
+        let previousGeneration = motionGenerations[clearID]
+        commandMove(to: .init(x: destination.x, y: destination.y),
+                    raiderID: clearID) { [weak self] in
+            self?.performClear(id: clearID, order: clear.order)
+        }
+        if motionGenerations[clearID] != previousGeneration {
+            pendingClearTargets[clearID] = clearTile
+        }
     }
 
     func dismissWallSelection() { selectedWall = nil }
@@ -837,12 +874,16 @@ final class NativeLevel3DView: SCNView {
             return
         }
         manuallyHeldRaiders.remove(id)
-        commandMove(to: .init(x: Double(tile.x) + 0.5, y: Double(tile.y) + 0.5)) { [weak self] in
+        let previousGeneration = motionGenerations[id]
+        commandMove(to: .init(x: Double(tile.x) + 0.5, y: Double(tile.y) + 0.5),
+                    raiderID: id) { [weak self] in
             self?.performClear(id: id, order: order)
         }
+        if motionGenerations[id] != previousGeneration { pendingClearTargets[id] = tile }
     }
 
     private func stopClearing(id: String) {
+        pendingClearTargets.removeValue(forKey: id)
         activeClears.removeValue(forKey: id)
         if clearingRaiders.remove(id) != nil {
             raiderModels[id]?.setMoving(false)
@@ -850,6 +891,7 @@ final class NativeLevel3DView: SCNView {
     }
 
     private func performClear(id: String, order: NativeExcavationState.ClearOrder) {
+        pendingClearTargets.removeValue(forKey: id)
         guard drillStats?.config.pilotCanClearRubble() == true,
               !missionTimePaused, !clearingRaiders.contains(id),
               let marker = raiderMarkers[id] else { return }
@@ -1369,6 +1411,7 @@ final class NativeLevel3DView: SCNView {
                             obstacles: self.otherRaiderObstacles(excluding: id), movingRadius: self.raiderClearance) {
                         self.motionGenerations[id] = UUID()
                         self.excavation.releaseCollectReservation(raiderID: id)
+                        self.pendingClearTargets.removeValue(forKey: id)
                         node.removeAllActions()
                         self.raiderModels[id]?.setMoving(false)
                         self.onInteractionMessage?("Rock Raider \(id): path blocked by another Raider.")
