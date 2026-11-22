@@ -495,6 +495,47 @@ final class NativeExcavationState {
         raiderAt == order.tile && canClearRubble(order.tile)
     }
 
+    /// Original AITask initialises Clearing at priority 20, below its
+    /// Crystal (55) and Ore/DefaultCollect (49) priorities. The caller
+    /// schedules this only after available Collect/Deposit work. Choose one
+    /// reachable rubble pile for a genuinely idle, non-carrying Raider;
+    /// active and in-transit Clear destinations are excluded by the caller.
+    /// This is mission-local task assignment, not the complete retail AI.
+    struct IdleClearAssignment {
+        let raiderID: String
+        let order: ClearOrder
+    }
+
+    func planIdleClear(raiders: [IdleRaider], busyRaiderIDs: Set<String>,
+                       blockedBuildings: Set<Position> = [],
+                       excludedTargets: Set<Position> = []) -> IdleClearAssignment? {
+        guard !rubbleLayers.isEmpty else { return nil }
+        let nav = NativeLevelNavigation(world: world, excavated: excavated,
+            revealed: revealed, blockedBuildingTiles: blockedBuildings)
+        let targets = rubbleLayers.keys.sorted {
+            $0.y == $1.y ? $0.x < $1.x : $0.y < $1.y
+        }
+        let idle = raiders.sorted { $0.identifier < $1.identifier }
+        var best: IdleClearAssignment?
+        for raider in idle {
+            guard !raider.identifier.isEmpty,
+                  !busyRaiderIDs.contains(raider.identifier),
+                  carrying[raider.identifier] == nil,
+                  collectReservations[raider.identifier] == nil,
+                  nav.canWalk(raider.tile) else { continue }
+            for tile in targets {
+                guard !excludedTargets.contains(tile), canClearRubble(tile),
+                      let route = nav.route(from: raider.tile, to: tile),
+                      route.count <= 512 else { continue }
+                if best == nil || route.count < best!.order.route.count {
+                    best = IdleClearAssignment(
+                        raiderID: raider.identifier, order: ClearOrder(tile: tile, route: route))
+                }
+            }
+        }
+        return best
+    }
+
     /// Advance one of four original rubble layers per completed Clear cycle.
     /// Partial work is retained across interruptions, but never credited from
     /// remote or invalid/paused-time orders. A true return means all layers
