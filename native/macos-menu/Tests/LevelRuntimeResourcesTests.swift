@@ -605,6 +605,17 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
             blockedBuildings: [originalStore])
         precondition(recovery?.raiderID == "Raider1")
         precondition(recovery?.order.store == originalStore)
+        // After leaving F-mode the released Pilot must be eligible for
+        // autonomous Deposit recovery of an already carried original item.
+        // A camera takeover cancels the unfinished animation, not custody.
+        let afterFirstPerson = NativeAutonomousWorkPolicy.busyRaiderIDs(
+            manuallyHeld: [], firstPersonRaider: nil)
+        precondition(pickupState.planIdleDeposit(
+            raiders: carryingRaiders, busyRaiderIDs: afterFirstPerson,
+            blockedBuildings: [originalStore])?.raiderID == "Raider1")
+        precondition(pickupState.carrying["Raider1"] == carried &&
+                     pickupState.storedCount(.crystal) == 0,
+                     "Releasing first-person control cannot silently deposit cargo")
         precondition(pickupState.planIdleDeposit(
             raiders: carryingRaiders, busyRaiderIDs: ["Raider1"],
             blockedBuildings: [originalStore]) == nil)
