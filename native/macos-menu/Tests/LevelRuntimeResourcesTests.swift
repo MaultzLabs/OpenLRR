@@ -521,6 +521,32 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
             blockedBuildings: [originalStore])
         precondition(idleJob?.raiderID == "Raider1" && idleJob?.order.tile == crystalTile,
                      "The nearest idle Raider should receive the first real Collect order")
+        // Entering first-person takes control of only the selected Pilot.
+        // While Raider1 is steered with F/WASD, another idle unit may still
+        // claim a real crystal and complete its own Collect/Deposit chain.
+        let cameraBusy = NativeAutonomousWorkPolicy.busyRaiderIDs(
+            manuallyHeld: [], firstPersonRaider: "Raider1")
+        precondition(cameraBusy == ["Raider1"])
+        precondition(NativeAutonomousWorkPolicy.busyRaiderIDs(
+            manuallyHeld: ["Raider2"], firstPersonRaider: "Raider1") ==
+                     ["Raider1", "Raider2"])
+        precondition(NativeAutonomousWorkPolicy.busyRaiderIDs(
+            manuallyHeld: ["Raider2"], firstPersonRaider: nil) == ["Raider2"])
+        precondition(!NativeAutonomousWorkPolicy.allowsCollectOrder(
+            raiderID: "Raider1", continuingTask: true, firstPersonRaider: "Raider1"))
+        precondition(!NativeAutonomousWorkPolicy.allowsCollectOrder(
+            raiderID: "Raider2", continuingTask: false, firstPersonRaider: "Raider1"))
+        precondition(NativeAutonomousWorkPolicy.allowsCollectOrder(
+            raiderID: "Raider2", continuingTask: true, firstPersonRaider: "Raider1"))
+        precondition(NativeAutonomousWorkPolicy.allowsCollectOrder(
+            raiderID: "Raider1", continuingTask: false, firstPersonRaider: nil))
+        precondition(pickupState.planIdleCollection(
+            raiders: idleRaiders, busyRaiderIDs: cameraBusy,
+            blockedBuildings: [originalStore])?.raiderID == "Raider2",
+            "First-person Pilot must not freeze AI collection by another Raider")
+        precondition(pickupState.pickedUpCount(.crystal) == 0 &&
+                     pickupState.storedCount(.crystal) == 0,
+                     "A camera takeover and background assignment cannot credit inventory")
         precondition(pickupState.planIdleCollection(
             raiders: idleRaiders, busyRaiderIDs: ["Raider1"],
             blockedBuildings: [originalStore])?.raiderID == "Raider2")
@@ -579,6 +605,17 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
             blockedBuildings: [originalStore])
         precondition(recovery?.raiderID == "Raider1")
         precondition(recovery?.order.store == originalStore)
+        // After leaving F-mode the released Pilot must be eligible for
+        // autonomous Deposit recovery of an already carried original item.
+        // A camera takeover cancels the unfinished animation, not custody.
+        let afterFirstPerson = NativeAutonomousWorkPolicy.busyRaiderIDs(
+            manuallyHeld: [], firstPersonRaider: nil)
+        precondition(pickupState.planIdleDeposit(
+            raiders: carryingRaiders, busyRaiderIDs: afterFirstPerson,
+            blockedBuildings: [originalStore])?.raiderID == "Raider1")
+        precondition(pickupState.carrying["Raider1"] == carried &&
+                     pickupState.storedCount(.crystal) == 0,
+                     "Releasing first-person control cannot silently deposit cargo")
         precondition(pickupState.planIdleDeposit(
             raiders: carryingRaiders, busyRaiderIDs: ["Raider1"],
             blockedBuildings: [originalStore]) == nil)
@@ -1002,6 +1039,11 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         precondition(idleClear.raiderID == "RaiderA" &&
                      idleClear.order.tile == originalPile,
                      "Nearest accessible rubble must be reserved by one stable idle Raider")
+        precondition(originalRubbleState.planIdleClear(
+            raiders: idleClearWorkers,
+            busyRaiderIDs: NativeAutonomousWorkPolicy.busyRaiderIDs(
+                manuallyHeld: [], firstPersonRaider: "RaiderA"))?.raiderID == "RaiderB",
+            "Other Raiders must still clear rubble while Pilot A is in first person")
         precondition(originalRubbleState.rubbleLayers[originalPile] == 4)
         precondition(originalRubbleState.planIdleClear(
             raiders: idleClearWorkers, busyRaiderIDs: ["RaiderA"])?.raiderID == "RaiderB")
