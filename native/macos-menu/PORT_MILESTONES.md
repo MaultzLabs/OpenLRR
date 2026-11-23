@@ -1091,8 +1091,10 @@ automatic orders for the controlled Pilot remain disallowed. Completed
 deposits by other Raiders may continue genuine Collect/CarryNull/Deposit
 work. Entering F-mode cancels that Pilot's queued Clear destination and
 pending Collect/Deposit animation, as well as its existing movement/drill;
-no interrupted task advances resource or rubble counters, and an already
-held real resource stays carried until a later valid Toolstation deposit.
+no interrupted task advances resource or rubble counters. On F-mode exit the
+manual-hold flag is released so that Pilot can rejoin the scheduler; an
+already held real resource stays carried until a subsequently valid original
+Toolstation Deposit rather than getting stranded indefinitely.
 
 New portable synthetic checks cover player-owned worker exclusion,
 concurrent assignment to another worker, manual/automatic Collect guards,
