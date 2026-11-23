@@ -20,6 +20,26 @@ struct NativeResourceAnimationClock {
     }
 }
 
+/// First-person mode gives the player exclusive control of ONE Raider, not
+/// ownership of the whole cavern. Keep other eligible workers on real
+/// Collect/Deposit/Clear jobs while the local camera is attached to a Pilot.
+enum NativeAutonomousWorkPolicy {
+    static func busyRaiderIDs(manuallyHeld: Set<String>,
+                              firstPersonRaider: String?) -> Set<String> {
+        var busy = manuallyHeld
+        if let firstPersonRaider { busy.insert(firstPersonRaider) }
+        return busy
+    }
+
+    static func allowsCollectOrder(raiderID: String, continuingTask: Bool,
+                                   firstPersonRaider: String?) -> Bool {
+        guard let firstPersonRaider else { return true }
+        // Scene interaction while in F-mode cannot create a manual Collect.
+        // The scheduler may still use a DIFFERENT, genuinely idle Raider.
+        return continuingTask && raiderID != firstPersonRaider
+    }
+}
+
 /// A mission-local overlay for the first real terrain-changing gameplay
 /// operation. Original WWAD/MAP bytes are never changed or saved.
 /// Drilling removes an already-visible, mineable wall only after a Raider has
