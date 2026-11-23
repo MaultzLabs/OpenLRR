@@ -571,7 +571,10 @@ final class NativeLevel3DView: SCNView {
     /// without treating the tutorial's click restrictions as AI restrictions.
     private func collectResource(at tile: NativeLevelNavigation.Position, raiderID id: String,
                                  continuingTask: Bool = false) {
-        guard !missionTimePaused, firstPersonRaider == nil,
+        guard !missionTimePaused,
+              NativeAutonomousWorkPolicy.allowsCollectOrder(
+                  raiderID: id, continuingTask: continuingTask,
+                  firstPersonRaider: firstPersonRaider),
               (continuingTask || (tutorialInputPolicy.canClickMap && tutorialInputPolicy.canClickIcons)),
               let marker = raiderMarkers[id],
               originalObjects?.rockRaiders.first(where: { $0.identifier == id })?.drivingIdentifier == nil,
@@ -694,7 +697,7 @@ final class NativeLevel3DView: SCNView {
         // requiring a fresh click for every unit; an explicit player move
         // cancels via motionGenerations, as with all existing orders.
         // Idle-unit priority dispatch remains a separate unported feature.
-        guard firstPersonRaider == nil,
+        guard id != firstPersonRaider,
               let next = excavation.planNextCollect(from: tileUnderRaider(marker),
                   raiderID: id, blockedBuildings: blockedBuildingTiles,
                   excludedTargets: Set(excavation.collectReservations.values)) else { return }
@@ -729,10 +732,11 @@ final class NativeLevel3DView: SCNView {
     /// inventory and no credit is issued until Collect/Deposit complete.
     /// Full retail queue scheduling and building economy remain unported.
     private func dispatchIdleResourceCollection(elapsed: Double) {
+        // First-person control locks only the controlled Pilot. Other original
+        // Raiders continue carrying, collecting and clearing on unpaused ticks.
         // A Raider may hold the final item after its source stack vanishes.
         // Deposit retries must still run when there are NO ground drops.
-        guard elapsed.isFinite, elapsed > 0, !missionTimePaused,
-              firstPersonRaider == nil else { return }
+        guard elapsed.isFinite, elapsed > 0, !missionTimePaused else { return }
         idleResourceDispatchSeconds += min(elapsed, 0.25)
         guard idleResourceDispatchSeconds >= 0.75 else { return }
         idleResourceDispatchSeconds = 0
@@ -740,7 +744,8 @@ final class NativeLevel3DView: SCNView {
         // Other Raiders may be moving, collecting or delivering in parallel.
         // Only the individual busy worker and its tile-centre pickup target
         // are excluded. Never interrupt existing manual/automatic jobs.
-        var busy = manuallyHeldRaiders
+        var busy = NativeAutonomousWorkPolicy.busyRaiderIDs(
+            manuallyHeld: manuallyHeldRaiders, firstPersonRaider: firstPersonRaider)
         busy.formUnion(excavation.collectReservations.keys)
         busy.formUnion(activeDrills.keys)
         busy.formUnion(activeClears.keys)
@@ -1150,6 +1155,11 @@ final class NativeLevel3DView: SCNView {
         excavation.releaseCollectReservation(raiderID: id)
         marker.removeAllActions() // Cancel click routing before direct control.
         stopDrilling(id: id)
+        // A queued automatic Clear can still own a destination while the
+        // Raider is walking. Releasing that reservation also prevents a
+        // background Clear/Collect animation from crediting the player unit.
+        stopClearing(id: id)
+        stopResourceActivity(id: id)
         marker.position = current
         raiderModels[id]?.setMoving(false)
         firstPersonRaider = id
