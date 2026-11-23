@@ -1181,6 +1181,10 @@ final class NativeLevel3DView: SCNView {
         guard let id = firstPersonRaider else { return }
         firstPersonRaider = nil
         firstPersonController = nil
+        // Direct camera control has ended. Rejoin the source-asset task queue:
+        // otherwise a Raider whose Deposit was cancelled on F entry remains
+        // manually held forever and cannot retry delivering its actual cargo.
+        manuallyHeldRaiders.remove(id)
         firstPersonCameraNeedsSnap = true
         heldKeys.removeAll()
         stopDrilling(id: id)
