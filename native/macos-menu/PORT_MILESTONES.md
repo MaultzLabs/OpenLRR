@@ -1072,3 +1072,42 @@ playthrough from drilling through automatic four-stage rubble clearing,
 real-object pickup, Toolstation delivery and NERPs victory. Fix the
 first observable failure and continue toward actual construction and
 full retail mission playability.
+
+
+## First-person isolated player control with continuing idle AI — 2026-11-23
+
+The native first-person camera previously blocked the **entire** idle-Raider
+dispatcher with `firstPersonRaider == nil`. During F-mode, other original
+Raiders would stop receiving new Collect, Deposit-retry and four-layer Clear
+jobs even when they were idle; existing completed deposits also stopped
+chaining follow-up collections. That made the live cavern effectively lose
+its autonomous workforce whenever the player directly steered one Pilot.
+
+The dispatcher now keeps running on the unpaused simulation clock during
+first-person play, while its busy-worker set explicitly includes the
+camera-controlled Raider. Automatic Collect requests for any **other** idle
+Raider are accepted, but first-person mouse/manual Collect orders and
+automatic orders for the controlled Pilot remain disallowed. Completed
+deposits by other Raiders may continue genuine Collect/CarryNull/Deposit
+work. Entering F-mode cancels that Pilot's queued Clear destination and
+pending Collect/Deposit animation, as well as its existing movement/drill;
+no interrupted task advances resource or rubble counters, and an already
+held real resource stays carried until a later valid Toolstation deposit.
+
+New portable synthetic checks cover player-owned worker exclusion,
+concurrent assignment to another worker, manual/automatic Collect guards,
+concurrent four-stage rubble scheduling and unchanged counters at task
+assignment. The existing standard hosted Linux/FFmpeg/macOS-15 ARM64
+pipeline is configured for this isolated branch. **CI status and exact-head
+Mac compilation must be checked separately**; source changes alone are
+not verification of the model, animations or real original assets.
+
+Acceptance remains open: actual owner-asset Mac first mission drilling,
+rubble clearing, CarryNull position, authentic sound, NERPs completion,
+linked mission launch and first-person interaction all need an observed
+playthrough. No full-game completion percentage can be inferred from this.
+
+**Next chosen milestone:** first owner-asset Apple Silicon tutorial
+playthrough; if local retail assets remain inaccessible to CI, implement
+source-accurate per-object drilled CryOreMap placement and dynamic task
+ownership without substitute artwork, then verify that code separately.
