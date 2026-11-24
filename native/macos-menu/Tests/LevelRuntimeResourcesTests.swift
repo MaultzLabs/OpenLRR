@@ -564,6 +564,20 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
                      "Idle task planning cannot credit resources")
         precondition(pickupState.resourceDrops[crystalTile]?.count == 25)
         precondition(pickupState.storedResources.isEmpty)
+        let initialDropPoints = pickupState.mapDropPositions(at: crystalTile)
+        precondition(initialDropPoints.count == 25)
+        let lastDropPoint = initialDropPoints.last!
+        let destinationPoint = pickupState.collectDestination(at: crystalTile)
+        precondition(destinationPoint.x == lastDropPoint.x &&
+                     destinationPoint.y == lastDropPoint.y,
+                     "Collect must target the original mesh that will be removed")
+        precondition(destinationPoint.x != Double(crystalTile.x) + 0.5)
+        precondition(pickupState.reserveCollect(tile: crystalTile, raiderID: "Raider1"))
+        precondition(pickupState.pickupTargetAvailable(at: crystalTile, for: "Raider1"))
+        precondition(!pickupState.pickupTargetAvailable(at: crystalTile, for: "Raider2"),
+                     "Two scene tasks must not target the same physical mesh")
+        pickupState.releaseCollectReservation(raiderID: "Raider1")
+        precondition(pickupState.pickupTargetAvailable(at: crystalTile, for: "Raider2"))
         let pickup = pickupState.planCollect(from: origin, tile: crystalTile, raiderID: "Raider1")!
         precondition(pickup.route.first == origin && pickup.route.last == crystalTile)
         precondition(pickupState.collect(pickup, raiderID: "Raider1", raiderAt: origin) == nil)
@@ -586,6 +600,15 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         precondition(pickupState.storedCount(.crystal) == 0,
                      "A carried crystal is not a stored crystal")
         precondition(pickupState.resourceDrops[crystalTile]?.count == 24)
+        let remainingDropPoints = pickupState.mapDropPositions(at: crystalTile)
+        precondition(remainingDropPoints.count == 24)
+        for (remaining, original) in zip(remainingDropPoints, initialDropPoints) {
+            precondition(remaining.x == original.x && remaining.y == original.y,
+                         "Removing one resource must not rearrange its neighbours")
+        }
+        let secondDestination = pickupState.collectDestination(at: crystalTile)
+        precondition(secondDestination.x == remainingDropPoints.last!.x &&
+                     secondDestination.y == remainingDropPoints.last!.y)
         precondition(pickupState.collect(pickup, raiderID: "Raider1", raiderAt: crystalTile) == nil)
         precondition(pickupState.planCollect(from: crystalTile, tile: crystalTile,
                                              raiderID: "Raider1") == nil)
@@ -683,6 +706,7 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
                                             raiderAt: toStore.approach) == carried)
         }
         precondition(pickupState.resourceDrops[crystalTile] == nil)
+        precondition(pickupState.mapDropPositions(at: crystalTile).isEmpty)
         precondition(pickupState.storedResources[carried] == 25)
         precondition(pickupState.pickedUpCount(.crystal) == 25)
         precondition(pickupState.storedCount(.crystal) == 25)
