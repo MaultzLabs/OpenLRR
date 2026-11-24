@@ -133,11 +133,25 @@ final class NativeExcavationState {
         return (0..<remaining).map { index in
             let column = index % columns
             let row = index / columns
-            return .init(x: Double(tile.x) + 0.5 +
-                            (Double(column) - Double(columns - 1) / 2) * 0.12,
-                         y: Double(tile.y) + 0.5 +
-                            (Double(row) - Double(rows - 1) / 2) * 0.12)
+            let offsetX = (Double(column) - Double(columns - 1) / 2.0) * 0.12
+            let offsetY = (Double(row) - Double(rows - 1) / 2.0) * 0.12
+            return NativeLevelNavigation.Point(x: Double(tile.x) + 0.5 + offsetX,
+                                               y: Double(tile.y) + 0.5 + offsetY)
         }
+    }
+
+    /// Preserve exact authored OL targets. For provisional grid drops only,
+    /// fall back to the same tile centre when the Pilot footprint cannot fit
+    /// at the visible mesh. This keeps larger configured Pilots from getting
+    /// stuck forever at an otherwise walkable drilled tile.
+    func collectApproach(at tile: Position, clearance: Double,
+                         blockedBuildings: Set<Position> = []) -> NativeLevelNavigation.Point {
+        let target = collectDestination(at: tile)
+        guard !hasPlacedResource(at: tile) else { return target }
+        let nav = NativeLevelNavigation(world: world, excavated: excavated,
+            revealed: revealed, blockedBuildingTiles: blockedBuildings)
+        if nav.segmentIsClear(from: target, to: target, clearance: clearance) { return target }
+        return .init(x: Double(tile.x) + 0.5, y: Double(tile.y) + 0.5)
     }
 
     /// A single visible pickup target is exposed at a time in the native
