@@ -94,6 +94,9 @@ final class NativeExcavationState {
     }
     private var placedResources: [Position: [PlacedResource]] = [:]
     private var pendingMapDrops: [Position: LevelWorld.CryOreDeposit] = [:]
+    // Keep the original spawn size for stable per-object positions as the
+    // currently rendered stack shrinks. Retail PTL tumble is not yet ported.
+    private var mapDropSpawnCounts: [Position: Int] = [:]
     private var justCollectedOriginalIDs: [String: String] = [:]
 
     /// Return the exact original OL model consumed by the last verified
@@ -113,7 +116,49 @@ final class NativeExcavationState {
         if let source = placedResources[tile]?.first {
             return .init(x: source.x, y: source.y)
         }
+        if let point = mapDropPositions(at: tile).last { return point }
         return .init(x: Double(tile.x) + 0.5, y: Double(tile.y) + 0.5)
+    }
+
+    /// Shared ground-model and movement positions. The current grid is a
+    /// provisional layout, not the original rockfall tumble animation. Keep
+    /// the initial grid fixed and remove its last visible object on pickup.
+    func mapDropPositions(at tile: Position) -> [NativeLevelNavigation.Point] {
+        guard !hasPlacedResource(at: tile),
+              let spawnCount = mapDropSpawnCounts[tile], spawnCount > 0,
+              let remaining = resourceDrops[tile]?.count, remaining > 0,
+              remaining <= spawnCount else { return [] }
+        let columns = min(5, max(1, Int(ceil(sqrt(Double(spawnCount))))))
+        let rows = Int(ceil(Double(spawnCount) / Double(columns)))
+        return (0..<remaining).map { index in
+            let column = index % columns
+            let row = index / columns
+            let offsetX = (Double(column) - Double(columns - 1) / 2.0) * 0.12
+            let offsetY = (Double(row) - Double(rows - 1) / 2.0) * 0.12
+            return NativeLevelNavigation.Point(x: Double(tile.x) + 0.5 + offsetX,
+                                               y: Double(tile.y) + 0.5 + offsetY)
+        }
+    }
+
+    /// Preserve exact authored OL targets. For provisional grid drops only,
+    /// fall back to the same tile centre when the Pilot footprint cannot fit
+    /// at the visible mesh. This keeps larger configured Pilots from getting
+    /// stuck forever at an otherwise walkable drilled tile.
+    func collectApproach(at tile: Position, clearance: Double,
+                         blockedBuildings: Set<Position> = []) -> NativeLevelNavigation.Point {
+        let target = collectDestination(at: tile)
+        guard !hasPlacedResource(at: tile) else { return target }
+        let nav = NativeLevelNavigation(world: world, excavated: excavated,
+            revealed: revealed, blockedBuildingTiles: blockedBuildings)
+        if nav.segmentIsClear(from: target, to: target, clearance: clearance) { return target }
+        return .init(x: Double(tile.x) + 0.5, y: Double(tile.y) + 0.5)
+    }
+
+    /// A single visible pickup target is exposed at a time in the native
+    /// scene. Do not send another Raider to the same physical object even
+    /// if the underlying stack has more units than outstanding reservations.
+    func pickupTargetAvailable(at tile: Position, for raiderID: String) -> Bool {
+        !collectReservations.contains { $0.key != raiderID && $0.value == tile }
     }
 
     private func nextPlacedDeposit(at tile: Position) -> LevelWorld.CryOreDeposit? {
@@ -386,7 +431,10 @@ final class NativeExcavationState {
                 placedResources[order.tile] = originals
                 resourceDrops[order.tile] = nextPlacedDeposit(at: order.tile)
             }
-        } else if drop.count == 1 { resourceDrops.removeValue(forKey: order.tile) }
+        } else if drop.count == 1 {
+            resourceDrops.removeValue(forKey: order.tile)
+            mapDropSpawnCounts.removeValue(forKey: order.tile)
+        }
         else {
             resourceDrops[order.tile] = .init(kind: drop.kind, level: drop.level,
                                               count: drop.count - 1)
@@ -661,6 +709,7 @@ final class NativeExcavationState {
         excavated.insert(order.wall)
         rubbleLayers[order.wall] = 4
         if let deposit = world.cryOreDeposit(x: order.wall.x, y: order.wall.y) {
+            mapDropSpawnCounts[order.wall] = deposit.count
             if hasPlacedResource(at: order.wall) {
                 // Keep the already existing OL items ahead of newly released
                 // map resources; never overwrite physical objects.
