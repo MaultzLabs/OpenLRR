@@ -1113,3 +1113,38 @@ playthrough. No full-game completion percentage can be inferred from this.
 playthrough; if local retail assets remain inaccessible to CI, implement
 source-accurate per-object drilled CryOreMap placement and dynamic task
 ownership without substitute artwork, then verify that code separately.
+
+
+## Stable physical drilled-resource pickup destinations — 2026-11-24
+
+OpenLRR Object.cpp documents the original PTL generation entry points
+as unported declarations (LegoObject_PTL_GenerateFromCryOre and
+Level_GenerateCrystal/Ore). The live resource update uses
+Effect_GetTumbleNull_RockFall and follows the original animated null.
+The native prototype does not yet have those original rockfall events;
+its existing provisional grid of genuine original LWOB meshes was
+rendered separately from its tile-centre Collect destination.
+
+The mission state now supplies the same stable fractional positions to
+both rendering and pickup navigation, using the initial CryOreMap count
+rather than reflowing the grid after each pickup. The next Collect
+targets the last visible object, matching the mesh transferred into the
+original CarryNull. A scene-level guard prevents a second Raider from
+being sent to the same current physical target while its owner is
+travelling or animating. The existing logical counted-stack reservations
+remain separate; simultaneous distinct-tile collection is unchanged.
+Manual and automatic movement use the same target and existing swept
+wall/unit clearance. If a provisional grid point cannot fit the
+configured Pilot footprint, use the same tile centre as a bounded
+fallback; authored OL positions are not moved.
+
+Portable regressions check stable mesh positions through depletion,
+the target matching the next visible object, and scene-target exclusion
+and release. No new artwork, asset redistribution, save modification or
+claim of retail PTL tumble parity. Exact-head Linux and standard hosted
+ARM64 CI must be checked separately from owner-asset visual gameplay.
+
+Next: original first-level on-device playthrough, then source-accurate
+rockfall tumble null positions and independent resource-object ownership.
+Complete tutorial victory, campaign launch, construction and vehicles
+remain open. No overall completion percentage is inferred.
