@@ -578,7 +578,8 @@ final class NativeLevel3DView: SCNView {
         }
         if !continuingTask { manuallyHeldRaiders.remove(id) }
         let previousGeneration = motionGenerations[id]
-        commandMove(to: excavation.collectDestination(at: tile),
+        commandMove(to: excavation.collectApproach(at: tile, clearance: raiderClearance,
+                                                     blockedBuildings: blockedBuildingTiles),
                     raiderID: id) { [weak self] in
             guard let self else { return }
             let duration = self.raiderModels[id]?.beginCollecting()
@@ -779,7 +780,8 @@ final class NativeLevel3DView: SCNView {
             blockedBuildings: blockedBuildingTiles,
             excludedTargets: Set(excavation.collectReservations.values)) {
             let id = assignment.raiderID
-            let pickup = excavation.collectDestination(at: assignment.order.tile)
+            let pickup = excavation.collectApproach(at: assignment.order.tile,
+                clearance: raiderClearance, blockedBuildings: blockedBuildingTiles)
             let destination = NativeDynamicCollision.Point(x: pickup.x, y: pickup.y)
             if NativeDynamicCollision.sweepIsClear(
                 from: destination, to: destination,
