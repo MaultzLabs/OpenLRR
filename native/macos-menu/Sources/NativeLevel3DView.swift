@@ -534,19 +534,11 @@ final class NativeLevel3DView: SCNView {
                 let model = try OriginalMissionObjectModel(
                     asset: asset, resources: originalResources, blockSize: nativeBlockSize,
                     sharedTextures: originalSharedTextures)
-                let columns = min(5, max(1, Int(ceil(sqrt(Double(deposit.count))))))
-                let rows = Int(ceil(Double(deposit.count) / Double(columns)))
                 var nodes: [SCNNode] = []
-                for index in 0..<deposit.count {
-                    let column = index % columns
-                    let row = index / columns
-                    let x = Double(tile.x) + 0.5 +
-                            (Double(column) - Double(columns - 1) / 2) * 0.12
-                    let z = Double(tile.y) + 0.5 +
-                            (Double(row) - Double(rows - 1) / 2) * 0.12
+                for point in excavation.mapDropPositions(at: tile) {
                     let anchor = SCNNode()
                     anchor.name = "Original CryOreMap \(deposit.kind.rawValue) L\(deposit.level)"
-                    anchor.position = worldPosition(x: x, z: z)
+                    anchor.position = worldPosition(x: point.x, z: point.y)
                     anchor.addChildNode(model.root.clone())
                     scene.rootNode.addChildNode(anchor)
                     nodes.append(anchor)
@@ -578,6 +570,7 @@ final class NativeLevel3DView: SCNView {
               (continuingTask || (tutorialInputPolicy.canClickMap && tutorialInputPolicy.canClickIcons)),
               let marker = raiderMarkers[id],
               originalObjects?.rockRaiders.first(where: { $0.identifier == id })?.drivingIdentifier == nil,
+              excavation.pickupTargetAvailable(at: tile, for: id),
               let order = excavation.planCollect(from: tileUnderRaider(marker),
                   tile: tile, raiderID: id, blockedBuildings: blockedBuildingTiles) else {
             onInteractionMessage?("Cannot collect: select a free Raider and a reachable resource.")
