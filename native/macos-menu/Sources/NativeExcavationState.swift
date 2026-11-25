@@ -97,6 +97,31 @@ final class NativeExcavationState {
     // Keep the original spawn size for stable per-object positions as the
     // currently rendered stack shrinks. Retail PTL tumble is not yet ported.
     private var mapDropSpawnCounts: [Position: Int] = [:]
+    private var settledRockFallPoints: [Position: [NativeLevelNavigation.Point]] = [:]
+    private var activeRockFallTiles = Set<Position>()
+
+    /// Source BLOCK1_ROCKFALLFX/Level_Block_SetBusy: do not start a Collect
+    /// or Clear job on debris still moving in an original rockfall effect.
+    @discardableResult
+    func beginRockFall(at tile: Position) -> Bool {
+        excavated.contains(tile) && activeRockFallTiles.insert(tile).inserted
+    }
+
+    /// Settle only safe same-tile positions until cross-tile PTL ownership is
+    /// ported. A missing or out-of-tile null retains that item's previous
+    /// provisional position; never lose inventory or move authored OL items.
+    func finishRockFall(at tile: Position, points: [NativeLevelNavigation.Point?]) {
+        guard activeRockFallTiles.remove(tile) != nil, !hasPlacedResource(at: tile) else { return }
+        let existing = mapDropPositions(at: tile)
+        guard !existing.isEmpty else { return }
+        settledRockFallPoints[tile] = existing.enumerated().map { index, fallback in
+            guard points.indices.contains(index), let point = points[index],
+                  point.x.isFinite, point.y.isFinite,
+                  point.x >= Double(tile.x), point.x < Double(tile.x + 1),
+                  point.y >= Double(tile.y), point.y < Double(tile.y + 1) else { return fallback }
+            return point
+        }
+    }
     private var justCollectedOriginalIDs: [String: String] = [:]
 
     /// Return the exact original OL model consumed by the last verified
@@ -128,6 +153,9 @@ final class NativeExcavationState {
               let spawnCount = mapDropSpawnCounts[tile], spawnCount > 0,
               let remaining = resourceDrops[tile]?.count, remaining > 0,
               remaining <= spawnCount else { return [] }
+        if let settled = settledRockFallPoints[tile], settled.count >= remaining {
+            return Array(settled.prefix(remaining))
+        }
         let columns = min(5, max(1, Int(ceil(sqrt(Double(spawnCount))))))
         let rows = Int(ceil(Double(spawnCount) / Double(columns)))
         return (0..<remaining).map { index in
@@ -190,7 +218,7 @@ final class NativeExcavationState {
     private(set) var collectReservations: [String: Position] = [:]
 
     private func availableCollectUnits(at tile: Position, for raiderID: String) -> Int {
-        guard let drop = resourceDrops[tile] else { return 0 }
+        guard !activeRockFallTiles.contains(tile), let drop = resourceDrops[tile] else { return 0 }
         let reservedForOthers = collectReservations.reduce(into: 0) { count, reservation in
             if reservation.key != raiderID && reservation.value == tile { count += 1 }
         }
@@ -434,6 +462,7 @@ final class NativeExcavationState {
         } else if drop.count == 1 {
             resourceDrops.removeValue(forKey: order.tile)
             mapDropSpawnCounts.removeValue(forKey: order.tile)
+            settledRockFallPoints.removeValue(forKey: order.tile)
         }
         else {
             resourceDrops[order.tile] = .init(kind: drop.kind, level: drop.level,
@@ -545,7 +574,8 @@ final class NativeExcavationState {
     }
 
     func canClearRubble(_ tile: Position) -> Bool {
-        guard (rubbleLayers[tile] ?? 0) > 0 else { return false }
+        guard !activeRockFallTiles.contains(tile),
+              (rubbleLayers[tile] ?? 0) > 0 else { return false }
         return NativeLevelNavigation(world: world, excavated: excavated, revealed: revealed).canWalk(tile)
     }
 

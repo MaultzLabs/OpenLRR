@@ -161,21 +161,31 @@ struct OriginalLightWaveClipAsset {
     static func load(activities: OriginalModelActivities, activity: String,
                      resources: GameResources) throws -> Self {
         let entry = try activities.activity(activity)
-        let scene = try LightWaveScene(data: resources.data(at: entry.path, maximumBytes: 4_000_000))
+        return try load(path: entry.path, sharedObjects: activities.sharedObjects,
+                        looping: entry.looping, resources: resources)
+    }
+
+    /// Container_Load(LWS) is also used directly by original rockfall effects.
+    static func load(path: String, sharedObjects: String?, looping: Bool,
+                     resources: GameResources) throws -> Self {
+        guard OriginalModelActivities.safe(path), path.lowercased().hasSuffix(".lws") else {
+            throw OriginalModelActivities.AssetError.invalid("unsafe LWS path \(path)")
+        }
+        let scene = try LightWaveScene(data: resources.data(at: path, maximumBytes: 4_000_000))
         let components: [OriginalLightWaveMeshAsset?] = try scene.objects.map { object in
             guard let filename = object.filename else { return nil }
-            let candidates = LightWaveScene.candidatePaths(reference: filename, scenePath: entry.path,
-                                                            sharedObjects: activities.sharedObjects)
-            guard let path = candidates.first(where: { resources.exists($0) }) else {
+            let candidates = LightWaveScene.candidatePaths(reference: filename, scenePath: path,
+                                                            sharedObjects: sharedObjects)
+            guard let component = candidates.first(where: { resources.exists($0) }) else {
                 throw OriginalModelActivities.AssetError.invalid(
-                    "missing component \(filename) in \(entry.path); searched \(candidates.joined(separator: ", "))")
+                    "missing component \(filename) in \(path); searched \(candidates.joined(separator: ", "))")
             }
-            return try OriginalLightWaveMeshAsset.load(path: path, resources: resources)
+            return try OriginalLightWaveMeshAsset.load(path: component, resources: resources)
         }
         guard components.contains(where: { $0 != nil }) else {
-            throw OriginalModelActivities.AssetError.invalid("empty scene \(entry.path)")
+            throw OriginalModelActivities.AssetError.invalid("empty scene \(path)")
         }
-        return Self(path: entry.path, scene: scene, components: components, looping: entry.looping)
+        return Self(path: path, scene: scene, components: components, looping: looping)
     }
 
     // Preserve the native clip clock (declared LWS FPS) for now; retail's
@@ -188,5 +198,57 @@ struct OriginalLightWaveClipAsset {
         let time = max(0, elapsed) * scene.framesPerSecond
         return looping ? time.truncatingRemainder(dividingBy: Double(scene.lastFrame)) :
             min(time, Double(scene.lastFrame))
+    }
+}
+
+/// Effects.cpp::Effect_Load_RockFallStylesAll reads ordered
+/// <TumbleNullName>,<3Sides>,<OutsideCorner>,<VTunnel> style entries.
+/// Game.cpp::Lego_PTL_RockFall chooses the first two by adjacent floor count.
+/// No guessed filenames or generated falling rocks.
+struct OriginalRockFallAsset {
+    let clip: OriginalLightWaveClipAsset
+    let tumbleIndices: [Int]
+
+    static func typeIndex(adjacentFloors: Int) -> Int {
+        adjacentFloors <= 1 ? 0 : 1
+    }
+
+    static func load(config: LegoConfig, level: String, typeIndex: Int,
+                     resources: GameResources) throws -> Self {
+        let styles = Array(config.settingsUnderGame(["RockFallStyles"]).prefix(4))
+        let chosen = config.valueUnderGame(["Levels", level, "RockFallStyle"])
+        let style = chosen.flatMap { name in
+            styles.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }
+        } ?? (chosen == nil ? styles.first : nil)
+        guard let style, (0...2).contains(typeIndex) else {
+            throw OriginalModelActivities.AssetError.invalid("missing configured rockfall style")
+        }
+        let fields = style.value.split(separator: ",", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        guard fields.indices.contains(typeIndex + 1), !fields[0].isEmpty else {
+            throw OriginalModelActivities.AssetError.invalid("missing rockfall type \(typeIndex)")
+        }
+        let base = fields[typeIndex + 1].replacingOccurrences(of: "\\", with: "/")
+        guard OriginalModelActivities.safe(base) else {
+            throw OriginalModelActivities.AssetError.invalid("unsafe rockfall scene \(base)")
+        }
+        let path = base + (base.lowercased().hasSuffix(".lws") ? "" : ".lws")
+        let clip = try OriginalLightWaveClipAsset.load(path: path,
+            sharedObjects: config.valueUnderGame(["Main", "SharedObjects"]),
+            looping: false, resources: resources)
+        // Lws_Parse keeps the raw AddNullObject label; Lws_CreateFrames
+        // appends _00, _01 ... for repeated names. Effect_GetTumbleNull_RockFall
+        // assigns the first unused instance, capped at its 32-bit mask.
+        let indices = clip.scene.objects.indices.filter {
+            clip.scene.objects[$0].nullName?.caseInsensitiveCompare(fields[0]) == .orderedSame
+        }
+        return Self(clip: clip, tumbleIndices: Array(indices.prefix(32)))
+    }
+
+    // Effect_UpdateAll passes elapsedWorld (standard 25Hz frame units) to
+    // Container_MoveAnimation. Convert that to the shared clip's FPS clock.
+    var duration: Double { Double(max(1, clip.scene.lastFrame)) / 25.0 }
+    func rendererElapsed(worldSeconds: Double) -> Double {
+        min(duration, max(0, worldSeconds)) * 25.0 / clip.scene.framesPerSecond
     }
 }

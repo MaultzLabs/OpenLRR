@@ -564,8 +564,25 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
                      "Idle task planning cannot credit resources")
         precondition(pickupState.resourceDrops[crystalTile]?.count == 25)
         precondition(pickupState.storedResources.isEmpty)
+        let gridPoints = pickupState.mapDropPositions(at: crystalTile)
+        precondition(gridPoints.count == 25)
+        precondition(pickupState.beginRockFall(at: crystalTile))
+        precondition(!pickupState.beginRockFall(at: crystalTile))
+        precondition(pickupState.planCollect(from: origin, tile: crystalTile, raiderID: "Raider1") == nil)
+        precondition(!pickupState.reserveCollect(tile: crystalTile, raiderID: "Raider1"))
+        precondition(!pickupState.canClearRubble(crystalTile))
+        var settled = gridPoints.map { Optional($0) }
+        let authored = NativeLevelNavigation.Point(x: Double(crystalTile.x) + 0.7,
+                                                   y: Double(crystalTile.y) + 0.6)
+        settled[24] = authored
+        settled[0] = .init(x: -1, y: -1)
+        pickupState.finishRockFall(at: crystalTile, points: settled)
         let initialDropPoints = pickupState.mapDropPositions(at: crystalTile)
-        precondition(initialDropPoints.count == 25)
+        precondition(initialDropPoints.count == 25 && initialDropPoints.last == authored)
+        precondition(initialDropPoints.first == gridPoints.first)
+        precondition(pickupState.canClearRubble(crystalTile))
+        precondition(pickupState.storedResources.isEmpty)
+        precondition(pickupState.resourceDrops[crystalTile]?.count == 25)
         let lastDropPoint = initialDropPoints.last!
         let destinationPoint = pickupState.collectDestination(at: crystalTile)
         precondition(destinationPoint.x == lastDropPoint.x &&
