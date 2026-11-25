@@ -120,6 +120,14 @@ final class NativeLevel3DView: SCNView {
     // use the owner's original MiscObjects LWOB meshes or remain invisible.
     private var cryOreAssets: [LevelWorld.CryOreDeposit.Kind: OriginalMissionObjectAsset] = [:]
     private var resourceDropNodes: [NativeLevelNavigation.Position: [SCNNode]] = [:]
+    private struct ActiveRockFall {
+        let asset: OriginalRockFallAsset
+        let clip: OriginalLightWaveRenderer.Clip
+        let anchor: SCNNode
+        var seconds = 0.0
+    }
+    private var rockFallAssets: [Int: OriginalRockFallAsset] = [:]
+    private var activeRockFalls: [NativeLevelNavigation.Position: ActiveRockFall] = [:]
     private let originalResources: GameResources
     private let originalSharedTextures: String?
     private(set) var modelDiagnostics: [String] = []
@@ -233,6 +241,14 @@ final class NativeLevel3DView: SCNView {
             }
         }
         if let config {
+            for type in [0, 1] {
+                do {
+                    rockFallAssets[type] = try OriginalRockFallAsset.load(
+                        config: config, level: world.identifier, typeIndex: type, resources: resources)
+                } catch {
+                    modelDiagnostics.append("Original rockfall type \(type) unavailable: \(error)")
+                }
+            }
             drillAudio = OriginalDrillAudio(config: config, resources: resources,
                                             wadURL: wadURL, extraRoot: extraAudioRoot)
         }
@@ -548,6 +564,68 @@ final class NativeLevel3DView: SCNView {
                 modelDiagnostics.append("CryOreMap drop at \(tile.x),\(tile.y): \(error)")
             }
         }
+    }
+
+    /// Original rockfall animation, from RockFallStyles and genuine LWS/LWOB
+    /// assets. Direction uses the current native drill-face heading; retail
+    /// PTL corner/vertex events and RockBreak sound remain separate work.
+    private func startOriginalRockFall(_ order: NativeExcavationState.DrillOrder) {
+        let tile = order.wall
+        let nav = NativeLevelNavigation(world: world, excavated: excavation.excavated,
+                                        revealed: excavation.revealed)
+        let neighbours = [(0, -1), (1, 0), (0, 1), (-1, 0)]
+        let floorCount = neighbours.filter {
+            nav.canWalk(.init(x: tile.x + $0.0, y: tile.y + $0.1))
+        }.count
+        guard let scene, let asset = rockFallAssets[OriginalRockFallAsset.typeIndex(adjacentFloors: floorCount)],
+              excavation.beginRockFall(at: tile) else { return }
+        let clip = OriginalLightWaveRenderer.Clip(asset: asset.clip, resources: originalResources,
+                                                   sharedTextures: originalSharedTextures)
+        let anchor = SCNNode()
+        anchor.name = "Original RockFall LWS"
+        anchor.position = worldPosition(x: Double(tile.x) + 0.5, z: Double(tile.y) + 0.5)
+        anchor.eulerAngles.y = CGFloat(atan2(Double(tile.x - order.approach.x),
+                                            Double(tile.y - order.approach.y)))
+        let scale = Float(1 / nativeBlockSize)
+        clip.root.scale = SCNVector3(scale, scale, scale)
+        clip.root.eulerAngles.x = CGFloat(OriginalModelCoordinateBasis.sceneKitRootPitchRadians)
+        anchor.addChildNode(clip.root)
+        scene.rootNode.addChildNode(anchor)
+        activeRockFalls[tile] = ActiveRockFall(asset: asset, clip: clip, anchor: anchor)
+        // Apply frame zero immediately, rather than flashing a grid of items.
+        advanceRockFall(at: tile, elapsed: 0)
+    }
+
+    private func advanceRockFall(at tile: NativeLevelNavigation.Position, elapsed: Double) {
+        guard var effect = activeRockFalls[tile], let scene else { return }
+        effect.seconds = min(effect.asset.duration, effect.seconds + min(max(elapsed, 0), 0.25))
+        effect.clip.update(elapsed: effect.asset.rendererElapsed(worldSeconds: effect.seconds))
+        let nodes = resourceDropNodes[tile] ?? []
+        var positions = [NativeLevelNavigation.Point?](repeating: nil, count: nodes.count)
+        for (index, partIndex) in effect.asset.tumbleIndices.enumerated() where index < nodes.count {
+            let part = effect.clip.parts[partIndex]
+            let position = part.convertPosition(SCNVector3Zero, to: scene.rootNode)
+            guard position.x.isFinite, position.y.isFinite, position.z.isFinite else { continue }
+            nodes[index].position = position
+            positions[index] = .init(x: Double(position.x) + Double(world.width) / 2,
+                                     y: Double(position.z) + Double(world.height) / 2)
+        }
+        if effect.seconds >= effect.asset.duration {
+            excavation.finishRockFall(at: tile, points: positions)
+            // Ground the resource at its settled shared pickup position.
+            for (node, point) in zip(nodes, excavation.mapDropPositions(at: tile)) {
+                node.position = worldPosition(x: point.x, z: point.y)
+            }
+            effect.anchor.removeFromParentNode()
+            activeRockFalls.removeValue(forKey: tile)
+        } else {
+            activeRockFalls[tile] = effect
+        }
+    }
+
+    private func advanceRockFalls(elapsed: Double) {
+        guard elapsed.isFinite, elapsed > 0 else { return }
+        for tile in Array(activeRockFalls.keys) { advanceRockFall(at: tile, elapsed: elapsed) }
     }
 
     private func tileUnderRaider(_ marker: SCNNode) -> NativeLevelNavigation.Position {
@@ -1006,6 +1084,7 @@ final class NativeLevel3DView: SCNView {
                 stopDrilling(id: id)
                 selectedWall = nil
                 refreshExcavatedTerrain()
+                startOriginalRockFall(action.order)
                 if let drop = excavation.resourceDrops[action.order.wall] {
                     onInteractionMessage?("Wall opened: \(drop.count) original \(drop.kind.rawValue) drop(s), level \(drop.level). Collection uses the original Collect activity when available.")
                 } else {
@@ -1288,6 +1367,7 @@ final class NativeLevel3DView: SCNView {
         }
         for model in raiderModels.values { model.update(time: now) }
         for model in objectModels.values { model.update(time: now) }
+        advanceRockFalls(elapsed: elapsed)
         advanceDrilling(elapsed: elapsed)
         advanceClearing(elapsed: elapsed)
         advanceResourceActivities(elapsed: elapsed)

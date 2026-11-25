@@ -149,6 +149,7 @@ private enum MissionObjectFixture {
     static func main() throws {
         try resourceMapping()
         try standOnlyBuilding()
+        try rockFallStyle()
         try scaleAndLooping()
         try componentPriority()
         try diagnostics()
@@ -158,6 +159,51 @@ private enum MissionObjectFixture {
         try sceneKitIntegration()
         #endif
         print("PASS: synthetic original mission-object mapping, stand-only AE, Scale/LOOPING, component priority, diagnostics and reveal visibility")
+    }
+
+    static func rockFallStyle() throws {
+        let config = try LegoConfig(text: """
+        Lego* {
+          RockFallStyles {
+            First Tumble,Fixture/One,Fixture/Two
+            Second Debris,Fixture/Other,Fixture/Corner.lws
+          }
+          Levels {
+            Level01 {
+              RockFallStyle Second
+            }
+          }
+        }
+        """)
+        let scene = Data("""
+        LWSC
+        1
+        FirstFrame 0
+        LastFrame 50
+        FramesPerSecond 10
+        AddNullObject Debris
+        AddNullObject Other
+        AddNullObject debris
+        LoadObject Body.lwo
+        """.utf8)
+        let resources = try F.resources([
+            F.Asset(path: "Fixture/Corner.lws", bytes: scene),
+            F.Asset(path: "Fixture/Body.lwo", bytes: F.mesh())
+        ])
+        precondition(OriginalRockFallAsset.typeIndex(adjacentFloors: 1) == 0)
+        precondition(OriginalRockFallAsset.typeIndex(adjacentFloors: 2) == 1)
+        let asset = try OriginalRockFallAsset.load(config: config, level: "Level01",
+                                                    typeIndex: 1, resources: resources)
+        precondition(asset.clip.path == "Fixture/Corner.lws" && !asset.clip.looping)
+        precondition(asset.tumbleIndices == [0, 2])
+        precondition(near(asset.duration, 2))
+        precondition(near(asset.clip.frame(elapsed: asset.rendererElapsed(worldSeconds: 1)), 25))
+        precondition(near(asset.clip.frame(elapsed: asset.rendererElapsed(worldSeconds: 9)), 50))
+        do {
+            _ = try OriginalRockFallAsset.load(config: config, level: "Level01",
+                                                typeIndex: 0, resources: resources)
+            preconditionFailure("Missing original rockfall must not substitute an unrelated scene")
+        } catch {}
     }
 
     static func near(_ a: Double, _ b: Double) -> Bool { abs(a - b) < 0.00001 }

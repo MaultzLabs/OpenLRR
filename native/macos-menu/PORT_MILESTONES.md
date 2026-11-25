@@ -1148,3 +1148,34 @@ Next: original first-level on-device playthrough, then source-accurate
 rockfall tumble null positions and independent resource-object ownership.
 Complete tutorial victory, campaign launch, construction and vehicles
 remain open. No overall completion percentage is inferred.
+
+
+## Original drill rockfall and first tumble-null playback — 2026-11-25
+
+The original Effects.cpp rockfall loader uses the configured RockFallStyles
+table and Game.cpp::Lego_PTL_RockFall selects 3Sides or OutsideCorner from
+adjacent floors. The native drill completion now loads those genuine original
+LWS/LWOB clips through the shared asset renderer, applies the existing
+native drill-face orientation and block scale, and plays the nonlooping
+effect on the unpaused 25 Hz world clock. Raw repeated AddNullObject labels
+are enumerated in source order (Lws.cpp appends instance suffixes), bounded
+to the original 32-bit tumble assignment limit. Visible newly released
+map-resource meshes follow those animated null positions. On completion,
+same-tile finite points become stable shared ground/pickup destinations;
+unassigned or out-of-tile points retain the previous provisional layout.
+Existing OL resources remain unchanged. Collect and Clear tasks are gated
+until the effect finishes, with no resource credit or count changes.
+
+This is a first native effect integration, not full original PTL parity:
+exact retail event direction, corner/vertex spawns, RockBreak audio,
+PTL generation timing, tumble option semantics and cross-tile resource
+ownership remain open. Missing original effects leave the existing immediate
+excavation path available with diagnostics, never generated falling artwork.
+
+Portable synthetic tests cover style selection, original frame timing,
+duplicate raw null names, missing assets, busy gating, stable settlement
+and unchanged inventory. Hosted Apple Silicon build and original-asset
+playthrough must be verified separately on the final commit. Next: verify
+actual retail rockfall direction, visibility and placement on the owner Mac,
+then complete source PTL event timing and resource ownership. No completion
+percentage is inferred.
