@@ -1179,3 +1179,28 @@ playthrough must be verified separately on the final commit. Next: verify
 actual retail rockfall direction, visibility and placement on the owner Mac,
 then complete source PTL event timing and resource ownership. No completion
 percentage is inferred.
+
+## Original RockBreak one-shot on excavation — 2026-11-26
+
+Game.cpp::Lego_PTL_RockFall calls SFX_Random_PlaySound3DOnContainer
+with SFX_RockBreak (nonlooping, at the effect world position) before
+Effect_Spawn_RockFall. The native completed-drill path now triggers the
+original configured RockBreak WAV once before attempting LWS playback,
+including when the original LWS is missing. It uses the existing selected
+owner WAD/loose audio resolver and configured DirectSound attenuation.
+One sample is randomly chosen from the original Samples group, rather than
+always playing the first entry. Concurrent rockfalls can overlap within a
+bounded native player pool. Mission pause/resume keeps active one-shots
+without restarting already finished sounds; teardown stops all players.
+Cancelled or unfinished drills never enter the rockfall start path.
+No replacement or redistributed sounds are supplied.
+
+Portable synthetic tests check configured group selection and invalid/missing
+samples; AppKit/AVFoundation compilation and actual audible retail behavior
+must be checked separately. Spatial positioning, retail sound-buffer limits,
+exact PTL orientation, generation timing and cross-tile tumble ownership
+remain unfinished. Native one-shot playback is presently nonspatial.
+
+Next: verify original rockfall/audio during an owner-asset Mac playthrough,
+then complete PTL timing and cross-tile drop ownership and move to authentic
+construction. No full-game acceptance percentage is inferred.
