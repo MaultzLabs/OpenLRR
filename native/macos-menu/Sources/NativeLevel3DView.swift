@@ -568,8 +568,11 @@ final class NativeLevel3DView: SCNView {
 
     /// Original rockfall animation, from RockFallStyles and genuine LWS/LWOB
     /// assets. Direction uses the current native drill-face heading; retail
-    /// PTL corner/vertex events and RockBreak sound remain separate work.
+    /// PTL corner/vertex events remain separate work.
     private func startOriginalRockFall(_ order: NativeExcavationState.DrillOrder) {
+        // The original PTL event plays RockBreak before Effect_Spawn_RockFall.
+        // Missing effect geometry must not suppress the original sound.
+        drillAudio?.playRockBreak()
         let tile = order.wall
         let nav = NativeLevelNavigation(world: world, excavated: excavation.excavated,
                                         revealed: excavation.revealed)

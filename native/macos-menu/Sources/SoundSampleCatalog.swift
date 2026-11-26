@@ -85,6 +85,19 @@ struct SoundSampleCatalog {
         return result
     }
 
+    /// SFX_Random_GetSound3DHandle selects one entry from the original group.
+    /// An injected index chooser permits deterministic portable regression tests.
+    func randomSample(named identifier: String,
+                      chooseIndex: (Int) -> Int = { Int.random(in: 0..<$0) }) throws -> Sample {
+        let group = try samples(named: identifier)
+        guard !group.isEmpty else { throw SampleError.missing(identifier) }
+        let index = chooseIndex(group.count)
+        guard group.indices.contains(index) else {
+            throw SampleError.invalid("random sample index outside configured group")
+        }
+        return group[index]
+    }
+
     /// Loads a non-streaming sample directly from the selected original WADs.
     /// No sample is written to disk, and streamed files are not emulated.
     func pcm(named identifier: String, variant: Int = 0,
