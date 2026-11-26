@@ -241,6 +241,7 @@ private func failure(_ label: String, _ run: () throws -> Void) {
           Samples {
             SFX_ButtonPressed Sounds\\UI\\Click
             SND_Group Sounds\\One,*#-1500#Sounds\\Two,#-15000#Sounds\\Three
+            SFX_RockBreak Sounds\\BreakOne,*#-500#Sounds\\BreakTwo
             !SFX_Drip Sounds\\Drip1,Sounds\\Drip2
             SND_Stream @Sounds\\Ambient,Sounds\\Loop
             SND_Bad *#-200#@Sounds\\Invalid
@@ -256,6 +257,21 @@ private func failure(_ label: String, _ run: () throws -> Void) {
         let group = try sfx.samples(named: "SND_Group")
         precondition(group.count == 3 && group[1].simultaneous && group[1].volume == -1500)
         precondition(group[2].volume == 0) // Invalid DirectSound volume falls back to zero.
+        for index in 0..<2 {
+            let selected = try sfx.randomSample(named: "SFX_RockBreak") { count in
+                precondition(count == 2)
+                return index
+            }
+            let expected = try sfx.samples(named: "SFX_RockBreak")[index]
+            precondition(selected.wavPath == expected.wavPath && selected.volume == expected.volume)
+            precondition(selected.simultaneous == expected.simultaneous)
+        }
+        failure("invalid RockBreak variant") {
+            _ = try sfx.randomSample(named: "SFX_RockBreak") { $0 }
+        }
+        failure("missing random sound") {
+            _ = try sfx.randomSample(named: "NotConfigured")
+        }
         let reduced = try sfx.samples(named: "SFX_Drip")
         precondition(reduced.count == 2)
         failure("reduced sound disabled") {
