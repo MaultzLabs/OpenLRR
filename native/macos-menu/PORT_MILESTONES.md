@@ -1204,3 +1204,28 @@ remain unfinished. Native one-shot playback is presently nonspatial.
 Next: verify original rockfall/audio during an owner-asset Mac playthrough,
 then complete PTL timing and cross-tile drop ownership and move to authentic
 construction. No full-game acceptance percentage is inferred.
+
+
+## Original rockfall slot and completion lifecycle — 2026-11-27
+
+Effects.h defines four simultaneous rockfall containers per type.
+Effects.cpp::Effect_Spawn_RockFall refuses a fifth active effect of
+the same type (another type still has its own four slots).
+Game.cpp::Lego_PTL_RockFall posts RockFallComplete immediately on spawn
+failure. The native runtime now enforces this same admission rule before
+marking a tile busy; excavation and RockBreak audio still complete when
+no slot or original clip is available. Effects.cpp::Effect_UpdateAll
+frees a slot only on positive animation overrun; the native clock now
+renders the final frame and releases the busy tile on overrun rather
+than truncating the effect at the last frame. Physical tumble settlement
+uses the logical map drop count instead of the number of rendered LWOB
+nodes, so a missing resource mesh cannot silently alter pickup positions.
+
+Portable regressions cover same-type saturation, independent type capacity,
+invalid types and the strict final-frame boundary. Source implementation
+is separate from exact-head CI and retail Apple Silicon playthrough.
+PTL translation-dependent generation timing, cross-tile object ownership,
+original direction/vertex events, and actual audiovisual acceptance
+remain incomplete. Next: implement source PTL resource generation event
+translation and independently owned cross-tile drops, and validate the
+full owner-asset first tutorial. No overall completion percentage inferred.
