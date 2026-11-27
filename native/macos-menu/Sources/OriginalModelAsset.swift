@@ -209,6 +209,17 @@ struct OriginalRockFallAsset {
     let clip: OriginalLightWaveClipAsset
     let tumbleIndices: [Int]
 
+    // Effects.h::EFFECT_ROCKFALL_MAXCONTAINERS is four per type.
+    // Effect_Spawn_RockFall returns false rather than replacing a live clip.
+    static func hasFreeSlot(activeTypes: [Int], for type: Int) -> Bool {
+        (0...2).contains(type) && activeTypes.filter { $0 == type }.count < 4
+    }
+
+    // Effect_UpdateAll releases the original slot only on animation overrun.
+    func isFinished(worldSeconds: Double) -> Bool {
+        worldSeconds.isFinite && worldSeconds > duration
+    }
+
     static func typeIndex(adjacentFloors: Int) -> Int {
         adjacentFloors <= 1 ? 0 : 1
     }
