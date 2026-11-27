@@ -190,6 +190,10 @@ private enum MissionObjectFixture {
             F.Asset(path: "Fixture/Corner.lws", bytes: scene),
             F.Asset(path: "Fixture/Body.lwo", bytes: F.mesh())
         ])
+        precondition(OriginalRockFallAsset.hasFreeSlot(activeTypes: [0, 0, 0, 1], for: 0))
+        precondition(!OriginalRockFallAsset.hasFreeSlot(activeTypes: [0, 0, 0, 0], for: 0))
+        precondition(OriginalRockFallAsset.hasFreeSlot(activeTypes: [0, 0, 0, 0], for: 1))
+        precondition(!OriginalRockFallAsset.hasFreeSlot(activeTypes: [], for: 3))
         precondition(OriginalRockFallAsset.typeIndex(adjacentFloors: 1) == 0)
         precondition(OriginalRockFallAsset.typeIndex(adjacentFloors: 2) == 1)
         let asset = try OriginalRockFallAsset.load(config: config, level: "Level01",
@@ -197,6 +201,10 @@ private enum MissionObjectFixture {
         precondition(asset.clip.path == "Fixture/Corner.lws" && !asset.clip.looping)
         precondition(asset.tumbleIndices == [0, 2])
         precondition(near(asset.duration, 2))
+        precondition(!asset.isFinished(worldSeconds: 1.99))
+        precondition(!asset.isFinished(worldSeconds: 2))
+        precondition(asset.isFinished(worldSeconds: 2.04))
+        precondition(!asset.isFinished(worldSeconds: .infinity))
         precondition(near(asset.clip.frame(elapsed: asset.rendererElapsed(worldSeconds: 1)), 25))
         precondition(near(asset.clip.frame(elapsed: asset.rendererElapsed(worldSeconds: 9)), 50))
         do {
