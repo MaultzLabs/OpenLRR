@@ -122,6 +122,7 @@ final class NativeLevel3DView: SCNView {
     private var resourceDropNodes: [NativeLevelNavigation.Position: [SCNNode]] = [:]
     private struct ActiveRockFall {
         let asset: OriginalRockFallAsset
+        let type: Int
         let clip: OriginalLightWaveRenderer.Clip
         let anchor: SCNNode
         var seconds = 0.0
@@ -580,7 +581,11 @@ final class NativeLevel3DView: SCNView {
         let floorCount = neighbours.filter {
             nav.canWalk(.init(x: tile.x + $0.0, y: tile.y + $0.1))
         }.count
-        guard let scene, let asset = rockFallAssets[OriginalRockFallAsset.typeIndex(adjacentFloors: floorCount)],
+        let type = OriginalRockFallAsset.typeIndex(adjacentFloors: floorCount)
+        // Game.cpp posts RockFallComplete immediately if no original effect
+        // can spawn. Leave the newly exposed drops/rubble eligible in that case.
+        guard let scene, let asset = rockFallAssets[type],
+              OriginalRockFallAsset.hasFreeSlot(activeTypes: activeRockFalls.values.map { $0.type }, for: type),
               excavation.beginRockFall(at: tile) else { return }
         let clip = OriginalLightWaveRenderer.Clip(asset: asset.clip, resources: originalResources,
                                                    sharedTextures: originalSharedTextures)
@@ -594,26 +599,30 @@ final class NativeLevel3DView: SCNView {
         clip.root.eulerAngles.x = CGFloat(OriginalModelCoordinateBasis.sceneKitRootPitchRadians)
         anchor.addChildNode(clip.root)
         scene.rootNode.addChildNode(anchor)
-        activeRockFalls[tile] = ActiveRockFall(asset: asset, clip: clip, anchor: anchor)
+        activeRockFalls[tile] = ActiveRockFall(asset: asset, type: type, clip: clip, anchor: anchor)
         // Apply frame zero immediately, rather than flashing a grid of items.
         advanceRockFall(at: tile, elapsed: 0)
     }
 
     private func advanceRockFall(at tile: NativeLevelNavigation.Position, elapsed: Double) {
         guard var effect = activeRockFalls[tile], let scene else { return }
-        effect.seconds = min(effect.asset.duration, effect.seconds + min(max(elapsed, 0), 0.25))
+        effect.seconds += min(max(elapsed, 0), 0.25)
         effect.clip.update(elapsed: effect.asset.rendererElapsed(worldSeconds: effect.seconds))
         let nodes = resourceDropNodes[tile] ?? []
-        var positions = [NativeLevelNavigation.Point?](repeating: nil, count: nodes.count)
-        for (index, partIndex) in effect.asset.tumbleIndices.enumerated() where index < nodes.count {
+        // Resource settlement is gameplay state, not a consequence of a
+        // successfully loaded resource mesh. Missing LWOBs must not change
+        // the physical pickup position or prevent the effect from completing.
+        let count = excavation.mapDropPositions(at: tile).count
+        var positions = [NativeLevelNavigation.Point?](repeating: nil, count: count)
+        for (index, partIndex) in effect.asset.tumbleIndices.enumerated() where index < count {
             let part = effect.clip.parts[partIndex]
             let position = part.convertPosition(SCNVector3Zero, to: scene.rootNode)
             guard position.x.isFinite, position.y.isFinite, position.z.isFinite else { continue }
-            nodes[index].position = position
+            if nodes.indices.contains(index) { nodes[index].position = position }
             positions[index] = .init(x: Double(position.x) + Double(world.width) / 2,
                                      y: Double(position.z) + Double(world.height) / 2)
         }
-        if effect.seconds >= effect.asset.duration {
+        if effect.asset.isFinished(worldSeconds: effect.seconds) {
             excavation.finishRockFall(at: tile, points: positions)
             // Ground the resource at its settled shared pickup position.
             for (node, point) in zip(nodes, excavation.mapDropPositions(at: tile)) {
