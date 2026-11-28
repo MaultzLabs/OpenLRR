@@ -539,6 +539,19 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
                                                            blockedBuildings: [landingTile])
         precondition(blockedResult == beforeLanding &&
                      blockedLanding.resourceDrops[landingTile] == nil)
+        let occupiedLanding = NativeExcavationState(world: cryOreWorld,
+            originalResourcePlacements: [.init(identifier: "ExistingOre", type: "Ore",
+                x: landingA.x, y: landingA.y, headingDegrees: 0, health: nil,
+                drivingIdentifier: nil)])
+        precondition(occupiedLanding.resourceDrops[landingTile]?.kind == .ore)
+        precondition(occupiedLanding.finish(dropOrder, raiderAt: dropOrder.approach))
+        precondition(occupiedLanding.reserveCollect(tile: landingTile, raiderID: "OreRaider"))
+        precondition(occupiedLanding.beginRockFall(at: crystalTile))
+        precondition(occupiedLanding.finishRockFall(at: crystalTile,
+                                                   points: landingPoints) == beforeLanding)
+        precondition(occupiedLanding.resourceDrops[landingTile]?.count == 1 &&
+                     occupiedLanding.resourceDrops[landingTile]?.kind == .ore)
+        precondition(occupiedLanding.collectReservations["OreRaider"] == landingTile)
         let wholeLanding = NativeExcavationState(world: cryOreWorld)
         precondition(wholeLanding.finish(dropOrder, raiderAt: dropOrder.approach))
         precondition(wholeLanding.beginRockFall(at: crystalTile))
