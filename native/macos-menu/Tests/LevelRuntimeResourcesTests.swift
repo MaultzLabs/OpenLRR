@@ -498,6 +498,56 @@ private func syntheticMap(_ values: [UInt16], width: UInt32, height: UInt32) -> 
         precondition(reservedState.pickedUpCount(.crystal) == 1)
         precondition(reservedState.storedCount(.crystal) == 0)
 
+        // Original tumble nulls may end on a different floor tile.
+        // Split a counted map source without manufacturing or losing items.
+        let landingState = NativeExcavationState(world: cryOreWorld)
+        precondition(landingState.finish(dropOrder, raiderAt: dropOrder.approach))
+        let landingTile = dropOrder.approach
+        precondition(landingTile != crystalTile)
+        let landingA = NativeLevelNavigation.Point(x: Double(landingTile.x) + 0.4,
+                                                    y: Double(landingTile.y) + 0.4)
+        let landingB = NativeLevelNavigation.Point(x: Double(landingTile.x) + 0.6,
+                                                    y: Double(landingTile.y) + 0.6)
+        let beforeLanding = landingState.mapDropPositions(at: crystalTile)
+        var landingPoints = beforeLanding.map { Optional($0) }
+        landingPoints[0] = landingA
+        landingPoints[24] = landingB
+        landingPoints[1] = .init(x: .infinity, y: 0)
+        precondition(landingState.beginRockFall(at: crystalTile))
+        let landingResult = landingState.finishRockFall(at: crystalTile, points: landingPoints)
+        precondition(landingResult.count == 25 && landingResult[0] == landingA &&
+                     landingResult[24] == landingB && landingResult[1] == beforeLanding[1])
+        precondition(landingState.resourceDrops[crystalTile]?.count == 23)
+        precondition(landingState.resourceDrops[landingTile]?.count == 2)
+        precondition(landingState.mapDropPositions(at: landingTile) == [landingA, landingB])
+        precondition(landingState.collectDestination(at: landingTile) == landingB)
+        precondition(landingState.pickedUpCount(.crystal) == 0)
+        precondition(landingState.finishRockFall(at: crystalTile, points: landingPoints).isEmpty)
+        let landingCollect = landingState.planCollect(from: landingTile, tile: landingTile,
+                                                       raiderID: "LandingRaider")!
+        precondition(landingState.collect(landingCollect, raiderID: "LandingRaider",
+                                          raiderAt: crystalTile) == nil)
+        precondition(landingState.collect(landingCollect, raiderID: "LandingRaider",
+                                          raiderAt: landingTile)?.kind == .crystal)
+        precondition(landingState.mapDropPositions(at: landingTile) == [landingA])
+        precondition(landingState.pickedUpCount(.crystal) == 1 &&
+                     landingState.storedCount(.crystal) == 0)
+        let blockedLanding = NativeExcavationState(world: cryOreWorld)
+        precondition(blockedLanding.finish(dropOrder, raiderAt: dropOrder.approach))
+        precondition(blockedLanding.beginRockFall(at: crystalTile))
+        let blockedResult = blockedLanding.finishRockFall(at: crystalTile, points: landingPoints,
+                                                           blockedBuildings: [landingTile])
+        precondition(blockedResult == beforeLanding &&
+                     blockedLanding.resourceDrops[landingTile] == nil)
+        let wholeLanding = NativeExcavationState(world: cryOreWorld)
+        precondition(wholeLanding.finish(dropOrder, raiderAt: dropOrder.approach))
+        precondition(wholeLanding.beginRockFall(at: crystalTile))
+        wholeLanding.finishRockFall(at: crystalTile,
+                                     points: Array(repeating: Optional(landingA), count: 25))
+        precondition(wholeLanding.resourceDrops[crystalTile] == nil &&
+                     wholeLanding.resourceDrops[landingTile]?.count == 25)
+        precondition(wholeLanding.canClearRubble(crystalTile))
+
         let pickupState = NativeExcavationState(
             world: cryOreWorld, originalToolStores: [originalStore])
         precondition(pickupState.finish(dropOrder, raiderAt: dropOrder.approach))
