@@ -1229,3 +1229,35 @@ original direction/vertex events, and actual audiovisual acceptance
 remain incomplete. Next: implement source PTL resource generation event
 translation and independently owned cross-tile drops, and validate the
 full owner-asset first tutorial. No overall completion percentage inferred.
+
+
+## Cross-tile physical rockfall settlement — 2026-11-28
+
+Object.cpp keeps the source effect block in targetBlockPos while original
+crystals and ore follow their LWS tumble nulls in world coordinates. The
+native state previously discarded every final point outside the excavated
+source block. It now partitions a newly released map stack by its valid
+landing tiles, retaining original type, upgrade level, per-tile mesh order
+and exact fractional positions. Scene anchors are reindexed to those same
+tiles without cloning or crediting inventory. Collect navigation and
+consumption target the landing stack; the original source rubble remains
+independent. Simultaneous effects are processed in stable tile order.
+
+This increment deliberately accepts only walkable, otherwise resource-free
+destination tiles. Invalid, blocked, liquid, already occupied, reserved
+or active-rockfall destinations keep the original item's provisional
+source position. Full mixed-source merging, independent per-item task
+ownership, exact original inaccessible-wall behavior, PTL event
+translation and generation timing remain open. No replacement assets.
+
+Portable regression fixtures cover split and full migration, stable order,
+nonfinite coordinates, blocked/occupied destinations, reservation
+preservation, collection from the destination rather than source, no
+premature inventory credit, and duplicate effect completion. Exact-head CI
+and retail visual/playable verification must be reported separately.
+
+Next: translate original level PTL resource generation events (PTL.cpp,
+Messages.cpp and Game.cpp), including non-tumble completion and missing
+effect fallback; then remove the occupied-stack limitation with true
+per-object identity and advance original construction. Retail first-level
+acceptance is still outstanding. No overall completion percentage inferred.
