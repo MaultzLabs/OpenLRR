@@ -623,11 +623,20 @@ final class NativeLevel3DView: SCNView {
                                      y: Double(position.z) + Double(world.height) / 2)
         }
         if effect.asset.isFinished(worldSeconds: effect.seconds) {
-            excavation.finishRockFall(at: tile, points: positions)
-            // Ground the resource at its settled shared pickup position.
-            for (node, point) in zip(nodes, excavation.mapDropPositions(at: tile)) {
+            let settled = excavation.finishRockFall(at: tile, points: positions,
+                                                     blockedBuildings: blockedBuildingTiles)
+            // Move the original anchors, not copies, into the same landing
+            // stacks used by Collect. Each stack preserves the source order.
+            resourceDropNodes.removeValue(forKey: tile)
+            for (node, point) in zip(nodes, settled) {
+                let destination = NativeLevelNavigation.Position(
+                    x: Int(floor(point.x)), y: Int(floor(point.y)))
                 node.position = worldPosition(x: point.x, z: point.y)
+                resourceDropNodes[destination, default: []].append(node)
             }
+            // Missing original meshes must not prevent logical settlement;
+            // render any newly indexed destination if its genuine asset loads.
+            renderOriginalCryOreDrops(in: scene)
             effect.anchor.removeFromParentNode()
             activeRockFalls.removeValue(forKey: tile)
         } else {
@@ -637,7 +646,11 @@ final class NativeLevel3DView: SCNView {
 
     private func advanceRockFalls(elapsed: Double) {
         guard elapsed.isFinite, elapsed > 0 else { return }
-        for tile in Array(activeRockFalls.keys) { advanceRockFall(at: tile, elapsed: elapsed) }
+        // Stable order when two simultaneous effects target the same floor.
+        let tiles = activeRockFalls.keys.sorted {
+            $0.y == $1.y ? $0.x < $1.x : $0.y < $1.y
+        }
+        for tile in tiles { advanceRockFall(at: tile, elapsed: elapsed) }
     }
 
     private func tileUnderRaider(_ marker: SCNNode) -> NativeLevelNavigation.Position {
